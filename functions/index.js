@@ -7,6 +7,7 @@ try {
 if (!functions.region && functions.v1 && functions.v1.region) {
   functions = functions.v1;
 }
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const Stripe = require("stripe");
 
@@ -432,9 +433,13 @@ exports.processResolutionAgreement = functions.region("europe-west1").https.onCa
  * 8. pushOnMessageCreated
  * Envía notificación Push FCM cuando se crea un nuevo mensaje en un chat.
  */
-exports.pushOnMessageCreated = functions.region("europe-west1").firestore.document("chats/{chatId}/messages/{messageId}").onCreate(async (snap, context) => {
-  const message = snap.data();
-  const { chatId } = context.params;
+exports.pushOnMessageCreated = onDocumentCreated({
+  document: "chats/{chatId}/messages/{messageId}",
+  region: "europe-west1",
+}, async (event) => {
+  const message = event.data ? event.data.data() : null;
+  if (!message) return null;
+  const { chatId } = event.params;
   try {
     const chatDoc = await db.collection("chats").doc(chatId).get();
     if (!chatDoc.exists) return null;
@@ -462,8 +467,12 @@ exports.pushOnMessageCreated = functions.region("europe-west1").firestore.docume
  * 9. pushOnBookingCreated
  * Envía notificación Push FCM al cuidador cuando se crea una nueva solicitud de reserva.
  */
-exports.pushOnBookingCreated = functions.region("europe-west1").firestore.document("bookings/{bookingId}").onCreate(async (snap, context) => {
-  const booking = snap.data();
+exports.pushOnBookingCreated = onDocumentCreated({
+  document: "bookings/{bookingId}",
+  region: "europe-west1",
+}, async (event) => {
+  const booking = event.data ? event.data.data() : null;
+  if (!booking) return null;
   try {
     const userDoc = await db.collection("users").doc(booking.caregiverId).get();
     const fcmToken = userDoc.exists ? userDoc.data().fcmToken : null;
@@ -475,7 +484,7 @@ exports.pushOnBookingCreated = functions.region("europe-west1").firestore.docume
         title: "¡Nueva Solicitud de Reserva!",
         body: `Tienes una nueva cita pendiente para el día ${booking.day || "programado"}.`,
       },
-      data: { bookingId: context.params.bookingId, type: "NEW_BOOKING" },
+      data: { bookingId: event.params.bookingId, type: "NEW_BOOKING" },
     });
   } catch (e) {
     console.error("Error en pushOnBookingCreated:", e);
@@ -487,9 +496,13 @@ exports.pushOnBookingCreated = functions.region("europe-west1").firestore.docume
  * 10. pushOnBookingUpdated
  * Envía notificación Push FCM cuando cambia el estado de una reserva.
  */
-exports.pushOnBookingUpdated = functions.region("europe-west1").firestore.document("bookings/{bookingId}").onUpdate(async (change, context) => {
-  const before = change.before.data();
-  const after = change.after.data();
+exports.pushOnBookingUpdated = onDocumentUpdated({
+  document: "bookings/{bookingId}",
+  region: "europe-west1",
+}, async (event) => {
+  if (!event.data) return null;
+  const before = event.data.before.data();
+  const after = event.data.after.data();
   if (before.status === after.status) return null;
 
   try {
@@ -503,7 +516,7 @@ exports.pushOnBookingUpdated = functions.region("europe-west1").firestore.docume
         title: `Reserva ${after.status}`,
         body: `El estado de tu reserva ha cambiado a: ${after.status}.`,
       },
-      data: { bookingId: context.params.bookingId, type: "BOOKING_STATUS_CHANGED" },
+      data: { bookingId: event.params.bookingId, type: "BOOKING_STATUS_CHANGED" },
     });
   } catch (e) {
     console.error("Error en pushOnBookingUpdated:", e);
@@ -697,9 +710,13 @@ exports.adminBlockCaregiver = functions.region("europe-west1").https.onCall(asyn
  * 17. pushOnApplicationUpdated
  * Notifica al solicitante de empleo de cambios en el estado de su candidatura.
  */
-exports.pushOnApplicationUpdated = functions.region("europe-west1").firestore.document("applications/{appId}").onUpdate(async (change, context) => {
-  const before = change.before.data();
-  const after = change.after.data();
+exports.pushOnApplicationUpdated = onDocumentUpdated({
+  document: "applications/{appId}",
+  region: "europe-west1",
+}, async (event) => {
+  if (!event.data) return null;
+  const before = event.data.before.data();
+  const after = event.data.after.data();
   if (before.status === after.status) return null;
   try {
     const userDoc = await db.collection("users").doc(after.userId).get();
@@ -711,7 +728,7 @@ exports.pushOnApplicationUpdated = functions.region("europe-west1").firestore.do
         title: "Candidatura Actualizada",
         body: `El estado de tu solicitud es ahora: ${after.status}`,
       },
-      data: { appId: context.params.appId, type: "APPLICATION_UPDATED" },
+      data: { appId: event.params.appId, type: "APPLICATION_UPDATED" },
     });
   } catch (e) {
     console.error("Error en pushOnApplicationUpdated:", e);
@@ -723,8 +740,11 @@ exports.pushOnApplicationUpdated = functions.region("europe-west1").firestore.do
  * 18. pushOnApplicationCreated
  * Notifica al administrador cuando se crea una nueva solicitud/candidatura.
  */
-exports.pushOnApplicationCreated = functions.region("europe-west1").firestore.document("applications/{appId}").onCreate(async (snap, context) => {
-  console.log(`Nueva candidatura creada: ${context.params.appId}`);
+exports.pushOnApplicationCreated = onDocumentCreated({
+  document: "applications/{appId}",
+  region: "europe-west1",
+}, async (event) => {
+  console.log(`Nueva candidatura creada: ${event.params.appId}`);
   return null;
 });
 
@@ -732,7 +752,10 @@ exports.pushOnApplicationCreated = functions.region("europe-west1").firestore.do
  * 19. pushOnJobOfferCreated
  * Notifica a los cuidadores cualificados cuando se publica una nueva oferta.
  */
-exports.pushOnJobOfferCreated = functions.region("europe-west1").firestore.document("jobOffers/{offerId}").onCreate(async (snap, context) => {
-  console.log(`Nueva oferta de empleo publicada: ${context.params.offerId}`);
+exports.pushOnJobOfferCreated = onDocumentCreated({
+  document: "jobOffers/{offerId}",
+  region: "europe-west1",
+}, async (event) => {
+  console.log(`Nueva oferta de empleo publicada: ${event.params.offerId}`);
   return null;
 });
