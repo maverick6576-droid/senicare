@@ -1,4 +1,12 @@
-const functions = require("firebase-functions");
+let functions;
+try {
+  functions = require("firebase-functions/v1");
+} catch (e) {
+  functions = require("firebase-functions");
+}
+if (!functions.region && functions.v1 && functions.v1.region) {
+  functions = functions.v1;
+}
 const admin = require("firebase-admin");
 const Stripe = require("stripe");
 
@@ -6,7 +14,14 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // Inicialización de Stripe (usar STRIPE_SECRET_KEY en env/secrets o fallback a sandbox por defecto)
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY || functions.config().stripe?.secret || "sk_test_51MockStripeSecretKeyForSeniCareSandbox";
+let stripeSecretKey = process.env.STRIPE_SECRET_KEY || "sk_test_51MockStripeSecretKeyForSeniCareSandbox";
+try {
+  if (functions.config && functions.config() && functions.config().stripe?.secret) {
+    stripeSecretKey = functions.config().stripe.secret;
+  }
+} catch (e) {
+  // Ignorar error si functions.config() no está disponible en este entorno
+}
 const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" });
 
 /**
