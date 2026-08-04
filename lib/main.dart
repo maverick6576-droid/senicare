@@ -72,6 +72,7 @@ class Booking {
   final double appCommission;
   final double totalPaid;
   bool isEscrowReleased;
+  bool isRefunded;
 
   Booking({
     required this.id,
@@ -84,6 +85,7 @@ class Booking {
     required this.appCommission,
     required this.totalPaid,
     this.isEscrowReleased = false,
+    this.isRefunded = false,
   });
 }
 
@@ -227,7 +229,19 @@ class AppState extends ChangeNotifier {
   void rejectBooking(String bookingId) {
     final idx = bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
-      bookings[idx].status = BookingStatus.Cancelled;
+      final booking = bookings[idx];
+      booking.status = BookingStatus.Cancelled;
+      booking.isRefunded = true;
+      booking.isEscrowReleased = false;
+
+      chatMessages.add(
+        ChatMessage(
+          sender: ChatSender.Caregiver,
+          text: 'Hola. Lamentamos informarte que tu solicitud de reserva para el día ${booking.day} a las ${booking.slot} ha sido declinada.\n\n'
+                '💳 Devolución automática procesada: Hemos devuelto íntegramente el importe pagado (\$${booking.totalPaid.toStringAsFixed(2)}) a tu cuenta bancaria de origen.',
+          timestamp: DateTime.now(),
+        ),
+      );
       notifyListeners();
     }
   }
@@ -887,6 +901,32 @@ class BookingsScreen extends StatelessWidget {
                 Text('Fecha: ${b.day} a las ${b.slot}', style: theme.textTheme.bodyMedium),
                 const SizedBox(height: 16),
                 
+                if (b.status == BookingStatus.Cancelled) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline, color: Colors.red, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            isClient
+                                ? 'Solicitud rechazada. Reembolso íntegro (\$${b.totalPaid.toStringAsFixed(2)}) devuelto automáticamente a tu cuenta.'
+                                : 'Solicitud rechazada. Reembolso del 100% (\$${b.totalPaid.toStringAsFixed(2)}) devuelto al cliente y notificación enviada.',
+                            style: const TextStyle(color: Colors.red, fontSize: 13, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 // Dynamic Action buttons depending on role and current status
                 if (isClient && b.status == BookingStatus.Confirmed)
                   ElevatedButton(
@@ -902,7 +942,15 @@ class BookingsScreen extends StatelessWidget {
                     children: [
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => context.read<AppState>().confirmBooking(b.id),
+                          onPressed: () {
+                            context.read<AppState>().confirmBooking(b.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Cita aceptada. El cliente ha sido notificado.'),
+                                backgroundColor: AppTheme.primary,
+                              ),
+                            );
+                          },
                           style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
                           child: const Text('Aceptar Cita'),
                         ),
@@ -910,7 +958,15 @@ class BookingsScreen extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: () => context.read<AppState>().rejectBooking(b.id),
+                          onPressed: () {
+                            context.read<AppState>().rejectBooking(b.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Solicitud rechazada. Reembolso devuelto al cliente automáticamente y notificación enviada por chat.'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          },
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red,
                             side: const BorderSide(color: Colors.red),
@@ -947,7 +1003,7 @@ class BookingsScreen extends StatelessWidget {
         break;
       case BookingStatus.Cancelled:
         color = Colors.red;
-        text = 'Cancelada';
+        text = 'Rechazada / Reembolsada';
         break;
     }
     return Container(
@@ -1125,13 +1181,71 @@ class CaregiverDashboard extends StatelessWidget {
           const Text('No tienes nuevas solicitudes.')
         else
           ...pendingBookings.map((b) => Card(
-            child: ListTile(
-              title: Text('Reserva el ${b.day} a las ${b.slot}'),
-              subtitle: Text('Ganancia estimada: ${currencyFormat.format(b.cost * 0.85)}'),
-              trailing: const Icon(Icons.arrow_forward_ios),
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ve a la pestaña Reservas para gestionar esta solicitud.')));
-              },
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Reserva el ${b.day} a las ${b.slot}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange),
+                        ),
+                        child: const Text('Pendiente', style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Ganancia estimada: ${currencyFormat.format(b.cost * 0.85)}', style: TextStyle(color: Colors.grey.shade600)),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            context.read<AppState>().confirmBooking(b.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Cita aceptada. El cliente ha sido notificado.'),
+                                backgroundColor: AppTheme.primary,
+                              ),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+                          child: const Text('Aceptar Cita'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () {
+                            context.read<AppState>().rejectBooking(b.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Solicitud rechazada. Reembolso devuelto al cliente automáticamente y notificación enviada por chat.'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            minimumSize: Size(0, seniorMode ? 64 : 48),
+                          ),
+                          child: const Text('Rechazar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           )),
         const SizedBox(height: 24),
