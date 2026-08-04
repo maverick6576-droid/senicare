@@ -26,6 +26,49 @@ try {
 const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" });
 
 /**
+ * Helper de SeniCare: Calcula comisión de plataforma (18% -> 10% -> 6%) y payout neto
+ * en función del historial de recurrencia entre la familia (client) y el cuidador (caregiver).
+ * - Primer servicio (0 previos completados): Comisión 18% -> Cuidador recibe 82%
+ * - Cliente recurrente (1 a 4 previos completados): Comisión 10% -> Cuidador recibe 90%
+ * - Cliente fidelizado (5+ previos completados): Comisión 6% -> Cuidador recibe 94%
+ */
+async function calculateCaregiverPayout(clientId, caregiverId, totalAmountInCents) {
+  let commissionRate = 0.18; // 18% base por defecto (primer servicio)
+  let commissionTier = "18% (Primer servicio con la familia)";
+
+  if (clientId && caregiverId) {
+    try {
+      const completedQuery = await db.collection("bookings")
+        .where("clientId", "==", clientId)
+        .where("caregiverId", "==", caregiverId)
+        .where("escrowStatus", "==", "released")
+        .get();
+
+      const completedCount = completedQuery.size;
+      if (completedCount >= 5) {
+        commissionRate = 0.06;
+        commissionTier = `6% (Familia fidelizada - ${completedCount} servicios previos)`;
+      } else if (completedCount >= 1) {
+        commissionRate = 0.10;
+        commissionTier = `10% (Familia recurrente - ${completedCount} servicios previos)`;
+      }
+    } catch (err) {
+      console.warn("⚠️ Error consultando historial de recurrencia, aplicando tarifa base 18%:", err.message);
+    }
+  }
+
+  const transferAmountInCents = Math.round(totalAmountInCents * (1 - commissionRate));
+  const platformFeeInCents = totalAmountInCents - transferAmountInCents;
+
+  return {
+    transferAmountInCents,
+    platformFeeInCents,
+    commissionRatePercent: Math.round(commissionRate * 100),
+    commissionTier,
+  };
+}
+
+/**
  * 1. createConnectAccount
  * Crea una cuenta conectada en Stripe (Express) para el cuidador profesional.
  */
@@ -167,8 +210,15 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
     const destinationAccountId = booking.caregiverStripeAccountId;
     const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
 
-    // En servicio finalizado, el cuidador recibe el 90% (plataforma retiene 10% comisión)
-    const transferAmountInCents = Math.round(totalAmountInCents * 0.90);
+    // Cálculo dinámico de comisión SeniCare: 18% (primer servicio) -> 10% (recurrente) -> 6% (fidelizado)
+    const {
+      transferAmountInCents,
+      platformFeeInCents,
+      commissionRatePercent,
+      commissionTier,
+    } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents);
+
+    console.log(`ℹ️ Liquidando reserva #${bookingId} con comisión del ${commissionRatePercent}% (${commissionTier}) -> Cuidador: ${transferAmountInCents} céntimos, Plataforma: ${platformFeeInCents} céntimos.`);
 
     if (destinationAccountId && transferAmountInCents > 0) {
       try {
@@ -185,6 +235,9 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
           escrowStatus: "pending_kyc_transfer",
           status: "Completed",
           releasedAmountInCents: transferAmountInCents,
+          platformFeeInCents: platformFeeInCents,
+          commissionRatePercent: commissionRatePercent,
+          commissionTier: commissionTier,
           lastTransferError: transferError.message,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -192,6 +245,10 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
           success: true,
           escrowStatus: "pending_kyc_transfer",
           message: "Servicio completado, transferencia pendiente de verificación KYC de Stripe.",
+          releasedAmountInCents: transferAmountInCents,
+          platformFeeInCents: platformFeeInCents,
+          commissionRatePercent: commissionRatePercent,
+          commissionTier: commissionTier,
         };
       }
     }
@@ -200,11 +257,20 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
       escrowStatus: "released",
       status: "Completed",
       releasedAmountInCents: transferAmountInCents,
+      platformFeeInCents: platformFeeInCents,
+      commissionRatePercent: commissionRatePercent,
+      commissionTier: commissionTier,
       releasedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return { success: true, releasedAmountInCents: transferAmountInCents };
+    return {
+      success: true,
+      releasedAmountInCents: transferAmountInCents,
+      platformFeeInCents: platformFeeInCents,
+      commissionRatePercent: commissionRatePercent,
+      commissionTier: commissionTier,
+    };
   } catch (error) {
     console.error("Error liberando pago en Escrow:", error);
     throw new functions.https.HttpsError("internal", error.message);
@@ -351,7 +417,12 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
       const booking = doc.data();
       const destinationAccountId = booking.caregiverStripeAccountId;
       const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
-      const transferAmountInCents = Math.round(totalAmountInCents * 0.90);
+      const {
+        transferAmountInCents,
+        platformFeeInCents,
+        commissionRatePercent,
+        commissionTier,
+      } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents);
 
       if (destinationAccountId && transferAmountInCents > 0) {
         await stripe.transfers.create({
@@ -365,6 +436,9 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
       await doc.ref.update({
         escrowStatus: "released",
         releasedAmountInCents: transferAmountInCents,
+        platformFeeInCents: platformFeeInCents,
+        commissionRatePercent: commissionRatePercent,
+        commissionTier: commissionTier,
         releasedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       releasedCount++;
