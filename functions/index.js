@@ -18,6 +18,13 @@ exports.createConnectAccount = functions.region("europe-west1").https.onCall(asy
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para conectar cuenta bancaria.");
   }
   try {
+    const caregiverRef = db.collection("caregivers").doc(context.auth.uid);
+    const caregiverDoc = await caregiverRef.get();
+    if (caregiverDoc.exists && caregiverDoc.data().stripeConnectedAccountId) {
+      console.log(`✅ Cuidador ${context.auth.uid} ya posee cuenta Stripe Connect: ${caregiverDoc.data().stripeConnectedAccountId}`);
+      return { success: true, accountId: caregiverDoc.data().stripeConnectedAccountId, existing: true };
+    }
+
     const { email, country = "ES" } = data;
     const account = await stripe.accounts.create({
       type: "express",
@@ -28,7 +35,7 @@ exports.createConnectAccount = functions.region("europe-west1").https.onCall(asy
       },
     });
 
-    await db.collection("caregivers").doc(context.auth.uid).set({
+    await caregiverRef.set({
       stripeConnectedAccountId: account.id,
       stripeKycStatus: "pending",
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -134,6 +141,9 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
     }
 
     const booking = bookingDoc.data();
+    if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "No tienes permiso para liberar el pago de esta reserva.");
+    }
     if (booking.escrowStatus === "released") {
       throw new functions.https.HttpsError("failed-precondition", "El pago ya ha sido liberado previamente.");
     }
@@ -145,13 +155,29 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
     const transferAmountInCents = Math.round(totalAmountInCents * 0.90);
 
     if (destinationAccountId && transferAmountInCents > 0) {
-      await stripe.transfers.create({
-        amount: transferAmountInCents,
-        currency: "eur",
-        destination: destinationAccountId,
-        transfer_group: booking.transferGroup || `booking_${bookingId}`,
-        description: `Liquidación servicio completado - Reserva #${bookingId}`,
-      });
+      try {
+        await stripe.transfers.create({
+          amount: transferAmountInCents,
+          currency: "eur",
+          destination: destinationAccountId,
+          transfer_group: booking.transferGroup || `booking_${bookingId}`,
+          description: `Liquidación servicio completado - Reserva #${bookingId}`,
+        });
+      } catch (transferError) {
+        console.warn(`⚠️ Error en stripe.transfers.create (¿KYC pendiente?): ${transferError.message}`);
+        await bookingRef.update({
+          escrowStatus: "pending_kyc_transfer",
+          status: "Completed",
+          releasedAmountInCents: transferAmountInCents,
+          lastTransferError: transferError.message,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return {
+          success: true,
+          escrowStatus: "pending_kyc_transfer",
+          message: "Servicio completado, transferencia pendiente de verificación KYC de Stripe.",
+        };
+      }
     }
 
     await bookingRef.update({
@@ -191,6 +217,10 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
   }
 
   const booking = bookingDoc.data();
+  if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
+    throw new functions.https.HttpsError("permission-denied", "No tienes permiso para cancelar esta reserva.");
+  }
+
   const paymentIntentId = booking.paymentIntentId || booking.chargeId;
   const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
 
@@ -215,15 +245,23 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
   let caregiverCompensationInCents = 0;
   let cancellationType = "EARLY_CANCELLATION";
 
-  if (hoursUntilBooking < 24) {
-    // --- CANCELACIÓN TARDÍA (< 24 HORAS) ---
+  const cancelledByCaregiver = (context.auth.uid === booking.caregiverId);
+
+  if (cancelledByCaregiver) {
+    // --- CANCELACIÓN INICIADA POR EL CUIDADOR ---
+    cancellationType = "CAREGIVER_CANCELLED";
+    // El cliente SIEMPRE recibe el 100% de reembolso sin penalización
+    clientRefundAmountInCents = totalAmountInCents;
+    caregiverCompensationInCents = 0;
+  } else if (hoursUntilBooking < 24) {
+    // --- CANCELACIÓN TARDÍA DEL CLIENTE (< 24 HORAS) ---
     cancellationType = "LATE_CANCELLATION";
     // 45% compensación para el Cuidador por tiempo bloqueado
     caregiverCompensationInCents = Math.round(totalAmountInCents * 0.45);
     // 45% reembolso para el Cliente (plataforma retiene 10% operativa)
     clientRefundAmountInCents = Math.round(totalAmountInCents * 0.45);
   } else {
-    // --- CANCELACIÓN ANTICIPADA (>= 24 HORAS) ---
+    // --- CANCELACIÓN ANTICIPADA DEL CLIENTE (>= 24 HORAS) ---
     cancellationType = "EARLY_CANCELLATION";
     clientRefundAmountInCents = totalAmountInCents;
     caregiverCompensationInCents = 0;
@@ -267,9 +305,11 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
       cancellationType,
       clientRefundAmountInCents,
       caregiverCompensationInCents,
-      message: hoursUntilBooking < 24
-        ? "Cancelación tardía procesada: 45% devuelto al cliente y 45% transferido al cuidador."
-        : "Cancelación anticipada procesada correctamente con reembolso completo al cliente.",
+      message: cancelledByCaregiver
+        ? "Cancelación realizada por el profesional: 100% devuelto al cliente."
+        : (hoursUntilBooking < 24
+          ? "Cancelación tardía procesada: 45% devuelto al cliente y 45% transferido al cuidador."
+          : "Cancelación anticipada procesada correctamente con reembolso completo al cliente."),
     };
   } catch (error) {
     console.error("❌ Error procesando cancelación en Stripe:", error);
