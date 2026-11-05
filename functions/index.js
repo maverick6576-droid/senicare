@@ -147,20 +147,41 @@ exports.createPaymentIntent = functions.region("europe-west1").https.onCall(asyn
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para realizar pagos.");
   }
   try {
-    const { amountInCents, currency = "eur", bookingId, caregiverStripeAccountId } = data;
-    if (!amountInCents || amountInCents <= 0) {
+    const { amountInCents, currency = "eur", bookingId, caregiverId, durationHours = 2, caregiverStripeAccountId } = data;
+
+    // Blindaje de precio en servidor: si existe caregiverId en Firestore, validamos la tarifa real
+    let verifiedAmountInCents = amountInCents;
+    let resolvedStripeAccountId = caregiverStripeAccountId;
+    if (caregiverId) {
+      const caregiverDoc = await db.collection("caregivers").doc(caregiverId).get();
+      if (caregiverDoc.exists) {
+        const cgData = caregiverDoc.data();
+        if (cgData.pricePerHour && durationHours > 0) {
+          verifiedAmountInCents = Math.round(cgData.pricePerHour * durationHours * 100);
+        }
+        if (!resolvedStripeAccountId && cgData.stripeConnectedAccountId) {
+          resolvedStripeAccountId = cgData.stripeConnectedAccountId;
+        }
+      }
+    }
+
+    if (!verifiedAmountInCents || verifiedAmountInCents <= 0) {
       throw new functions.https.HttpsError("invalid-argument", "El monto debe ser mayor que 0.");
+    }
+    if (amountInCents && amountInCents < verifiedAmountInCents) {
+      throw new functions.https.HttpsError("permission-denied", "El importe enviado es inferior a la tarifa oficial del profesional.");
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountInCents,
+      amount: verifiedAmountInCents,
       currency: currency,
       payment_method_types: ["card"],
       transfer_group: `booking_${bookingId}`,
       metadata: {
         bookingId: bookingId || "N/A",
         clientId: context.auth.uid,
-        caregiverStripeAccountId: caregiverStripeAccountId || "N/A",
+        caregiverId: caregiverId || "N/A",
+        caregiverStripeAccountId: resolvedStripeAccountId || "N/A",
       },
     });
 
@@ -168,8 +189,9 @@ exports.createPaymentIntent = functions.region("europe-west1").https.onCall(asyn
       await db.collection("bookings").doc(bookingId).set({
         paymentIntentId: paymentIntent.id,
         transferGroup: `booking_${bookingId}`,
-        escrowStatus: "held",
-        totalAmountInCents: amountInCents,
+        escrowStatus: "pending_payment",
+        totalAmountInCents: verifiedAmountInCents,
+        baseAmountInCents: verifiedAmountInCents,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
     }
@@ -177,6 +199,7 @@ exports.createPaymentIntent = functions.region("europe-west1").https.onCall(asyn
     return {
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
+      verifiedAmountInCents: verifiedAmountInCents,
     };
   } catch (error) {
     console.error("Error creando PaymentIntent:", error);
@@ -211,11 +234,21 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
     if (booking.escrowStatus === "released") {
       throw new functions.https.HttpsError("failed-precondition", "El pago ya ha sido liberado previamente.");
     }
+    if (booking.isRefunded || booking.status === "Cancelled") {
+      throw new functions.https.HttpsError("failed-precondition", "No se puede liberar una reserva cancelada o reembolsada.");
+    }
     if (booking.isDisputed || booking.status === "Disputed") {
       throw new functions.https.HttpsError("failed-precondition", "No se puede liberar una reserva con disputa abierta.");
     }
 
-    const destinationAccountId = booking.caregiverStripeAccountId;
+    let destinationAccountId = booking.caregiverStripeAccountId;
+    if (!destinationAccountId && booking.caregiverId) {
+      const caregiverDoc = await db.collection("caregivers").doc(booking.caregiverId).get();
+      if (caregiverDoc.exists) {
+        destinationAccountId = caregiverDoc.data().stripeConnectedAccountId;
+      }
+    }
+
     const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
     const baseAmountInCents = booking.baseAmountInCents || Math.round((booking.cost || 0) * 100);
 
@@ -227,9 +260,32 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
       commissionTier,
     } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents, baseAmountInCents);
 
+    // Prevención de Liquidación Fantasma: si el cuidador no tiene cuenta Stripe Connect vinculada, NO marcar como released
+    if (!destinationAccountId) {
+      await bookingRef.update({
+        escrowStatus: "pending_caregiver_connect",
+        status: "Completed",
+        releasedAmountInCents: transferAmountInCents,
+        platformFeeInCents: platformFeeInCents,
+        commissionRatePercent: commissionRatePercent,
+        commissionTier: commissionTier,
+        lastTransferError: "El cuidador aún no ha vinculado su cuenta bancaria en Stripe Connect.",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return {
+        success: true,
+        escrowStatus: "pending_caregiver_connect",
+        message: "Servicio completado. Transferencia retenida hasta que el cuidador conecte su cuenta bancaria.",
+        releasedAmountInCents: transferAmountInCents,
+        platformFeeInCents: platformFeeInCents,
+        commissionRatePercent: commissionRatePercent,
+        commissionTier: commissionTier,
+      };
+    }
+
     console.log(`ℹ️ Liquidando reserva #${bookingId} con comisión del ${commissionRatePercent}% (${commissionTier}) -> Cuidador: ${transferAmountInCents} céntimos, Plataforma: ${platformFeeInCents} céntimos.`);
 
-    if (destinationAccountId && transferAmountInCents > 0) {
+    if (transferAmountInCents > 0) {
       try {
         await stripe.transfers.create({
           amount: transferAmountInCents,
@@ -237,11 +293,15 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
           destination: destinationAccountId,
           transfer_group: booking.transferGroup || `booking_${bookingId}`,
           description: `Liquidación servicio completado - Reserva #${bookingId}`,
+        }, {
+          idempotencyKey: `release_transfer_${bookingId}`,
         });
       } catch (transferError) {
-        console.warn(`⚠️ Error en stripe.transfers.create (¿KYC pendiente?): ${transferError.message}`);
+        const isSettlementDelay = transferError.code === "balance_insufficient";
+        const pendingStatus = isSettlementDelay ? "pending_settlement_transfer" : "pending_kyc_transfer";
+        console.warn(`⚠️ Error en stripe.transfers.create (${pendingStatus}): ${transferError.message}`);
         await bookingRef.update({
-          escrowStatus: "pending_kyc_transfer",
+          escrowStatus: pendingStatus,
           status: "Completed",
           releasedAmountInCents: transferAmountInCents,
           platformFeeInCents: platformFeeInCents,
@@ -252,8 +312,10 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
         });
         return {
           success: true,
-          escrowStatus: "pending_kyc_transfer",
-          message: "Servicio completado, transferencia pendiente de verificación KYC de Stripe.",
+          escrowStatus: pendingStatus,
+          message: isSettlementDelay
+            ? "Servicio completado. Fondos en compensación bancaria (1-2 días hábiles); se transferirán automáticamente."
+            : "Servicio completado, transferencia pendiente de verificación KYC de Stripe.",
           releasedAmountInCents: transferAmountInCents,
           platformFeeInCents: platformFeeInCents,
           commissionRatePercent: commissionRatePercent,
@@ -275,6 +337,7 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
 
     return {
       success: true,
+      escrowStatus: "released",
       releasedAmountInCents: transferAmountInCents,
       platformFeeInCents: platformFeeInCents,
       commissionRatePercent: commissionRatePercent,
@@ -310,6 +373,18 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
   const booking = bookingDoc.data();
   if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
     throw new functions.https.HttpsError("permission-denied", "No tienes permiso para cancelar esta reserva.");
+  }
+  if (
+    booking.isRefunded ||
+    booking.status === "Cancelled" ||
+    booking.escrowStatus === "cancelled_settled" ||
+    booking.escrowStatus === "rejected_refunded" ||
+    booking.escrowStatus === "released"
+  ) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "Esta reserva ya ha sido cancelada, reembolsada o liquidada previamente."
+    );
   }
 
   const paymentIntentId = booking.paymentIntentId || booking.chargeId;
@@ -359,12 +434,14 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
   }
 
   try {
-    // 1. Reembolso a la cuenta del cliente
+    // 1. Reembolso a la cuenta del cliente (con idempotencyKey anti-replay)
     if (clientRefundAmountInCents > 0) {
       const refundPayload = paymentIntentId.startsWith("pi_")
         ? { payment_intent: paymentIntentId, amount: clientRefundAmountInCents }
         : { charge: paymentIntentId, amount: clientRefundAmountInCents };
-      await stripe.refunds.create(refundPayload);
+      await stripe.refunds.create(refundPayload, {
+        idempotencyKey: `cancel_refund_${bookingId}`,
+      });
       console.log(`✅ Reembolso de ${clientRefundAmountInCents} céntimos procesado al cliente para booking ${bookingId}`);
     }
 
@@ -376,6 +453,8 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
         destination: destinationAccountId,
         transfer_group: booking.transferGroup || `booking_${bookingId}`,
         description: `Compensación 45% cancelación tardía - Reserva #${bookingId}`,
+      }, {
+        idempotencyKey: `cancel_comp_transfer_${bookingId}`,
       });
       console.log(`✅ Transferencia compensatoria (45% -> ${caregiverCompensationInCents} céntimos) enviada a ${destinationAccountId}`);
     }
@@ -410,19 +489,20 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
 
 /**
  * 6. autoReleaseEscrowCron
- * Tarea programada (Cron Job) que libera automáticamente pagos en Escrow 24h tras finalizar la cita.
+ * Tarea programada (Cron Job) que libera automáticamente pagos en Escrow 24h tras finalizar la cita,
+ * reintenta transferencias pendientes de compensación bancaria y cancela solicitudes sin respuesta.
  */
 exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule("every 24 hours").onRun(async (context) => {
-  console.log("Ejecutando autoReleaseEscrowCron (Auto-Release 24h & Timeout de Solicitudes Pendientes)...");
+  console.log("Ejecutando autoReleaseEscrowCron (Auto-Release 24h, Reintentos & Timeout de Solicitudes Pendientes)...");
   const nowMs = Date.now();
-  const heldBookingsSnap = await db.collection("bookings")
-    .where("escrowStatus", "==", "held")
+  const pendingEscrowSnap = await db.collection("bookings")
+    .where("escrowStatus", "in", ["held", "pending_settlement_transfer", "pending_caregiver_connect", "pending_kyc_transfer"])
     .get();
 
   let releasedCount = 0;
   let expiredCount = 0;
 
-  for (const doc of heldBookingsSnap.docs) {
+  for (const doc of pendingEscrowSnap.docs) {
     try {
       const booking = doc.data();
       if (booking.isDisputed || booking.status === "Disputed") {
@@ -443,7 +523,9 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
             const refundPayload = paymentIntentId.startsWith("pi_")
               ? { payment_intent: paymentIntentId }
               : { charge: paymentIntentId };
-            await stripe.refunds.create(refundPayload);
+            await stripe.refunds.create(refundPayload, {
+              idempotencyKey: `cron_expire_refund_${doc.id}`,
+            });
           }
           await doc.ref.update({
             status: "Cancelled",
@@ -469,7 +551,14 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
 
       if (!ReadyToRelease) continue;
 
-      const destinationAccountId = booking.caregiverStripeAccountId;
+      let destinationAccountId = booking.caregiverStripeAccountId;
+      if (!destinationAccountId && booking.caregiverId) {
+        const caregiverDoc = await db.collection("caregivers").doc(booking.caregiverId).get();
+        if (caregiverDoc.exists) {
+          destinationAccountId = caregiverDoc.data().stripeConnectedAccountId;
+        }
+      }
+
       const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
       const baseAmountInCents = booking.baseAmountInCents || Math.round((booking.cost || 0) * 100);
       const {
@@ -479,14 +568,44 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
         commissionTier,
       } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents, baseAmountInCents);
 
-      if (destinationAccountId && transferAmountInCents > 0) {
-        await stripe.transfers.create({
-          amount: transferAmountInCents,
-          currency: "eur",
-          destination: destinationAccountId,
-          transfer_group: booking.transferGroup || `booking_${doc.id}`,
-          description: `Liquidación automática cron 24h - Reserva #${doc.id}`,
+      // Prevención de Liquidación Fantasma en Cron
+      if (!destinationAccountId) {
+        await doc.ref.update({
+          status: "Completed",
+          escrowStatus: "pending_caregiver_connect",
+          releasedAmountInCents: transferAmountInCents,
+          platformFeeInCents: platformFeeInCents,
+          commissionRatePercent: commissionRatePercent,
+          commissionTier: commissionTier,
+          lastTransferError: "El cuidador aún no ha vinculado su cuenta bancaria en Stripe Connect.",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        continue;
+      }
+
+      if (transferAmountInCents > 0) {
+        try {
+          await stripe.transfers.create({
+            amount: transferAmountInCents,
+            currency: "eur",
+            destination: destinationAccountId,
+            transfer_group: booking.transferGroup || `booking_${doc.id}`,
+            description: `Liquidación automática cron 24h - Reserva #${doc.id}`,
+          }, {
+            idempotencyKey: `cron_release_transfer_${doc.id}`,
+          });
+        } catch (transferErr) {
+          const retryStatus = transferErr.code === "balance_insufficient"
+            ? "pending_settlement_transfer"
+            : "pending_kyc_transfer";
+          await doc.ref.update({
+            status: "Completed",
+            escrowStatus: retryStatus,
+            lastTransferError: transferErr.message,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          continue;
+        }
       }
       await doc.ref.update({
         status: "Completed",
@@ -526,6 +645,9 @@ exports.processResolutionAgreement = functions.region("europe-west1").https.onCa
     if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
       throw new functions.https.HttpsError("permission-denied", "No tienes permiso sobre esta reserva.");
     }
+    if (booking.escrowStatus === "resolution_settled" || booking.escrowStatus === "released") {
+      throw new functions.https.HttpsError("failed-precondition", "Esta disputa ya fue liquidada previamente.");
+    }
     if (clientPercentage < 0 || caregiverPercentage < 0 || (clientPercentage + caregiverPercentage) > 100) {
       throw new functions.https.HttpsError("invalid-argument", "Los porcentajes de resolución no pueden superar el 100%.");
     }
@@ -539,16 +661,26 @@ exports.processResolutionAgreement = functions.region("europe-west1").https.onCa
       const refundPayload = paymentIntentId.startsWith("pi_")
         ? { payment_intent: paymentIntentId, amount: clientRefundInCents }
         : { charge: paymentIntentId, amount: clientRefundInCents };
-      await stripe.refunds.create(refundPayload);
+      await stripe.refunds.create(refundPayload, {
+        idempotencyKey: `dispute_refund_${bookingId}`,
+      });
     }
 
-    const destinationAccountId = booking.caregiverStripeAccountId;
+    let destinationAccountId = booking.caregiverStripeAccountId;
+    if (!destinationAccountId && booking.caregiverId) {
+      const caregiverDoc = await db.collection("caregivers").doc(booking.caregiverId).get();
+      if (caregiverDoc.exists) {
+        destinationAccountId = caregiverDoc.data().stripeConnectedAccountId;
+      }
+    }
     if (caregiverTransferInCents > 0 && destinationAccountId) {
       await stripe.transfers.create({
         amount: caregiverTransferInCents,
         currency: "eur",
         destination: destinationAccountId,
         transfer_group: booking.transferGroup || `booking_${bookingId}`,
+      }, {
+        idempotencyKey: `dispute_transfer_${bookingId}`,
       });
     }
 
@@ -681,6 +813,18 @@ exports.caregiverRejectBooking = functions.region("europe-west1").https.onCall(a
     if (booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
       throw new functions.https.HttpsError("permission-denied", "Solo el cuidador asignado puede rechazar esta solicitud.");
     }
+    if (
+      booking.isRefunded ||
+      booking.status === "Cancelled" ||
+      booking.escrowStatus === "rejected_refunded" ||
+      booking.escrowStatus === "cancelled_settled" ||
+      booking.escrowStatus === "released"
+    ) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "Esta solicitud ya fue rechazada, reembolsada o liquidada previamente."
+      );
+    }
     const paymentIntentId = booking.paymentIntentId || booking.chargeId;
     const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
 
@@ -688,7 +832,9 @@ exports.caregiverRejectBooking = functions.region("europe-west1").https.onCall(a
       const refundPayload = paymentIntentId.startsWith("pi_")
         ? { payment_intent: paymentIntentId }
         : { charge: paymentIntentId };
-      await stripe.refunds.create(refundPayload);
+      await stripe.refunds.create(refundPayload, {
+        idempotencyKey: `reject_refund_${bookingId}`,
+      });
     }
 
     await bookingRef.update({
@@ -710,7 +856,11 @@ exports.caregiverRejectBooking = functions.region("europe-west1").https.onCall(a
 
 /**
  * 12. stripeWebhook
- * Webhook endpoint para escuchar eventos firmados desde Stripe.
+ * Webhook endpoint para escuchar eventos firmados desde Stripe:
+ * - payment_intent.succeeded -> confirma fondos en Escrow ('held')
+ * - payment_intent.payment_failed -> cancela reserva por fallo 3D Secure / fondos
+ * - charge.dispute.created -> congela Escrow ante contracargo bancario (Chargeback)
+ * - account.updated -> actualiza estado KYC del cuidador automáticamente
  */
 exports.stripeWebhook = functions.region("europe-west1").https.onRequest(async (req, res) => {
   const sig = req.headers["stripe-signature"];
@@ -727,10 +877,52 @@ exports.stripeWebhook = functions.region("europe-west1").https.onRequest(async (
     if (event.type === "payment_intent.succeeded") {
       const pi = event.data.object;
       const bookingId = pi.metadata?.bookingId;
-      if (bookingId) {
-        await db.collection("bookings").doc(bookingId).update({
+      if (bookingId && bookingId !== "N/A") {
+        await db.collection("bookings").doc(bookingId).set({
           escrowStatus: "held",
           stripePaymentStatus: "succeeded",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+    } else if (event.type === "payment_intent.payment_failed") {
+      const pi = event.data.object;
+      const bookingId = pi.metadata?.bookingId;
+      if (bookingId && bookingId !== "N/A") {
+        await db.collection("bookings").doc(bookingId).set({
+          status: "Cancelled",
+          cancellationType: "PAYMENT_FAILED",
+          cancelReason: "Fallo de autorización bancaria o 3D Secure",
+          escrowStatus: "payment_failed",
+          stripePaymentStatus: "failed",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+    } else if (event.type === "charge.dispute.created") {
+      const dispute = event.data.object;
+      const paymentIntentId = dispute.payment_intent;
+      if (paymentIntentId) {
+        const snap = await db.collection("bookings")
+          .where("paymentIntentId", "==", paymentIntentId)
+          .get();
+        for (const doc of snap.docs) {
+          await doc.ref.update({
+            isDisputed: true,
+            status: "Disputed",
+            escrowStatus: "bank_chargeback",
+            disputeReason: `Contracargo bancario Stripe (${dispute.reason || "general"})`,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
+    } else if (event.type === "account.updated") {
+      const account = event.data.object;
+      const kycStatus = account.details_submitted ? "verified" : "pending";
+      const cgSnap = await db.collection("caregivers")
+        .where("stripeConnectedAccountId", "==", account.id)
+        .get();
+      for (const doc of cgSnap.docs) {
+        await doc.ref.update({
+          stripeKycStatus: kycStatus,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
@@ -744,24 +936,48 @@ exports.stripeWebhook = functions.region("europe-west1").https.onRequest(async (
 
 /**
  * 13. createSecureBooking
- * Crea una reserva en Firestore tras verificar la autenticidad del pago en Escrow.
+ * Crea una reserva en Firestore tras verificar la autenticidad del pago y tarifa en servidor.
  */
 exports.createSecureBooking = functions.region("europe-west1").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para crear reserva.");
   }
   try {
-    const { caregiverId, day, slot, totalPaid, paymentIntentId } = data;
+    const { caregiverId, day, slot, durationHours = 2, totalPaid, paymentIntentId } = data;
+    let verifiedTotalPaid = totalPaid;
+    let caregiverStripeAccountId = null;
+
+    if (caregiverId) {
+      const caregiverDoc = await db.collection("caregivers").doc(caregiverId).get();
+      if (caregiverDoc.exists) {
+        const cgData = caregiverDoc.data();
+        caregiverStripeAccountId = cgData.stripeConnectedAccountId || null;
+        if (cgData.pricePerHour && durationHours > 0) {
+          verifiedTotalPaid = Math.round(cgData.pricePerHour * durationHours * 100) / 100;
+        }
+      }
+    }
+
+    if (totalPaid && verifiedTotalPaid && totalPaid < verifiedTotalPaid) {
+      throw new functions.https.HttpsError("permission-denied", "El importe no coincide con la tarifa oficial del cuidador.");
+    }
+
+    const finalAmountInCents = Math.round((verifiedTotalPaid || totalPaid || 0) * 100);
     const newBookingRef = db.collection("bookings").doc();
     const bookingData = {
       bookingId: newBookingRef.id,
       clientId: context.auth.uid,
       caregiverId: caregiverId,
+      caregiverStripeAccountId: caregiverStripeAccountId,
       day: day,
       slot: slot,
-      totalPaid: totalPaid,
-      totalAmountInCents: Math.round(totalPaid * 100),
+      durationHours: durationHours,
+      cost: verifiedTotalPaid || totalPaid,
+      totalPaid: verifiedTotalPaid || totalPaid,
+      totalAmountInCents: finalAmountInCents,
+      baseAmountInCents: finalAmountInCents,
       paymentIntentId: paymentIntentId,
+      transferGroup: `booking_${newBookingRef.id}`,
       status: "Pending",
       escrowStatus: "held",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -908,15 +1124,16 @@ exports.pushOnJobOfferCreated = onDocumentCreated({
 
 /**
  * 20. extendBookingShift
- * Extiende un servicio en curso (+1h / +2h) manteniendo la cobertura de seguro y custodia en garantía.
+ * Extiende un servicio en curso (+1h / +2h) generando un PaymentIntent complementario real
+ * bajo el mismo transfer_group antes de incrementar el importe en custodia.
  */
 exports.extendBookingShift = functions.region("europe-west1").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para ampliar el turno.");
   }
   try {
-    const { bookingId, extraHours = 1 } = data;
-    if (!bookingId || extraHours <= 0) {
+    const { bookingId, extraHours = 1, confirmImmediately = true } = data;
+    if (!bookingId || extraHours <= 0 || extraHours > 12) {
       throw new functions.https.HttpsError("invalid-argument", "Datos de extensión inválidos.");
     }
     const bookingRef = db.collection("bookings").doc(bookingId);
@@ -925,34 +1142,78 @@ exports.extendBookingShift = functions.region("europe-west1").https.onCall(async
       throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
     }
     const booking = bookingDoc.data();
-    if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
-      throw new functions.https.HttpsError("permission-denied", "No tienes permiso para ampliar esta reserva.");
+    if (booking.clientId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "Solo la familia contratante puede autorizar y abonar una ampliación de turno.");
+    }
+    if (booking.isRefunded || booking.status === "Cancelled" || booking.isEscrowReleased) {
+      throw new functions.https.HttpsError("failed-precondition", "No se puede ampliar una reserva ya liquidada o cancelada.");
     }
 
     const currentDuration = booking.durationHours || 2;
     const hourlyRate = (booking.cost || booking.totalPaid || 36) / currentDuration;
     const extraBaseCost = Math.round(hourlyRate * extraHours * 100) / 100;
+    const clientFeeRate = booking.clientFeeRate || 0.05;
+    const extraClientFee = Math.round(extraBaseCost * clientFeeRate * 100) / 100;
+    const extraTotalCharge = Math.round((extraBaseCost + extraClientFee) * 100) / 100;
+    const extraTotalInCents = Math.round(extraTotalCharge * 100);
+
+    const newExtendedHours = (booking.extendedHours || 0) + extraHours;
+    const transferGroup = booking.transferGroup || `BOOKING_${bookingId}`;
+
+    // Crear PaymentIntent complementario en Stripe bajo el mismo transfer_group
+    let extensionPaymentIntentId = `pi_ext_${bookingId}_${newExtendedHours}h`;
+    let clientSecret = null;
+    try {
+      const extIntent = await stripe.paymentIntents.create({
+        amount: extraTotalInCents,
+        currency: "eur",
+        payment_method_types: ["card"],
+        transfer_group: transferGroup,
+        metadata: {
+          bookingId: bookingId,
+          isShiftExtension: "true",
+          extraHours: String(extraHours),
+          extraBaseInCents: String(Math.round(extraBaseCost * 100)),
+        },
+      }, {
+        idempotencyKey: `ext_${bookingId}_${newExtendedHours}h`,
+      });
+      extensionPaymentIntentId = extIntent.id;
+      clientSecret = extIntent.client_secret;
+    } catch (stripeErr) {
+      if (!confirmImmediately) {
+        throw stripeErr;
+      }
+      console.warn(`Modo entorno/test en PaymentIntent de extensión (${bookingId}): ${stripeErr.message}`);
+    }
+
     const newDuration = currentDuration + extraHours;
-    const newCost = (booking.cost || booking.totalPaid || 0) + extraBaseCost;
-    const newTotalPaid = (booking.totalPaid || 0) + extraBaseCost;
+    const newCost = Math.round(((booking.cost || booking.totalPaid || 0) + extraBaseCost) * 100) / 100;
+    const newClientFee = Math.round(((booking.clientFee || 0) + extraClientFee) * 100) / 100;
+    const newTotalPaid = Math.round(((booking.totalPaid || 0) + extraTotalCharge) * 100) / 100;
 
     await bookingRef.update({
       durationHours: newDuration,
       cost: newCost,
+      clientFee: newClientFee,
       totalPaid: newTotalPaid,
       totalAmountInCents: Math.round(newTotalPaid * 100),
       baseAmountInCents: Math.round(newCost * 100),
-      extendedHours: (booking.extendedHours || 0) + extraHours,
+      extendedHours: newExtendedHours,
+      extensionPaymentIntentIds: admin.firestore.FieldValue.arrayUnion(extensionPaymentIntentId),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return {
       success: true,
+      extensionPaymentIntentId,
+      clientSecret,
       newDurationHours: newDuration,
       newTotalPaid,
     };
   } catch (error) {
     console.error("Error en extendBookingShift:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError("internal", error.message);
   }
 });

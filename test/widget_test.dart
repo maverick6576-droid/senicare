@@ -227,4 +227,64 @@ void main() {
     expect(activeBooking.reviewRating, 5);
     expect(appState.caregivers.first.reviewsCount, 125);
   });
+
+  test('Payment & Escrow Safeguards: Ghost Release Prevention, Idempotency & Chargebacks', () {
+    final appState = AppState();
+
+    // 1. Prevent Ghost Release when caregiver has not connected a Stripe bank account
+    appState.caregivers.first.hasStripeConnectedAccount = false;
+    appState.addBooking(Booking(
+      id: 'b_no_bank',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Miércoles',
+      slot: '11:00',
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      status: BookingStatus.InProgress,
+    ));
+
+    final releasedEarly = appState.releaseEscrow('b_no_bank');
+    expect(releasedEarly, false);
+    final pendingConnectBooking = appState.bookings.firstWhere((b) => b.id == 'b_no_bank');
+    expect(pendingConnectBooking.status, BookingStatus.Completed);
+    expect(pendingConnectBooking.isEscrowReleased, false);
+    expect(pendingConnectBooking.escrowStatus, 'pending_caregiver_connect');
+
+    // When caregiver completes Stripe Connect onboarding, pending funds automatically release
+    final settledCount = appState.connectCaregiverStripeAccount('c1');
+    expect(settledCount, 1);
+    expect(pendingConnectBooking.isEscrowReleased, true);
+    expect(pendingConnectBooking.escrowStatus, 'released');
+
+    // 2. Anti-double refund / replay idempotency on rejectBooking
+    appState.addBooking(Booking(
+      id: 'b_reject_once',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Jueves',
+      slot: '17:00',
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+    ));
+    expect(appState.rejectBooking('b_reject_once'), true);
+    expect(appState.rejectBooking('b_reject_once'), false); // Second call blocked
+
+    // 3. Bank Chargeback freezes Escrow
+    appState.addBooking(Booking(
+      id: 'b_chargeback',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Viernes',
+      slot: '20:00',
+      cost: 44.0,
+      appCommission: 7.92,
+      totalPaid: 44.0,
+      status: BookingStatus.InProgress,
+    ));
+    expect(appState.handleBankChargeback('b_chargeback'), true);
+    expect(appState.releaseEscrow('b_chargeback'), false);
+  });
 }

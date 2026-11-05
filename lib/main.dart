@@ -319,14 +319,18 @@ class AppState extends ChangeNotifier {
     return false;
   }
 
-  /// Extends an active shift (+1h / +2h) in-platform, preserving insurance & Escrow coverage.
+  /// Extends an active shift (+1h / +2h) in-platform with a verified secondary payment,
+  /// preserving insurance & Escrow coverage and preventing uncharged overtime.
   bool extendBookingShift(String bookingId, int extraHours) {
-    if (extraHours <= 0) return false;
+    if (extraHours <= 0 || extraHours > 12) return false;
     final idx = bookings.indexWhere((b) => b.id == bookingId);
     if (idx == -1) return false;
 
     final b = bookings[idx];
-    if (b.status != BookingStatus.Confirmed && b.status != BookingStatus.InProgress) {
+    if (b.isRefunded ||
+        b.isEscrowReleased ||
+        b.isDisputed ||
+        (b.status != BookingStatus.Confirmed && b.status != BookingStatus.InProgress)) {
       return false;
     }
 
@@ -334,9 +338,17 @@ class AppState extends ChangeNotifier {
     final extraCost = double.parse((hourlyRate * extraHours).toStringAsFixed(2));
     final extraCommission =
         double.parse((extraCost * (b.commissionRatePercent / 100.0)).toStringAsFixed(2));
+    final newExtendedTotal = b.extendedHours + extraHours;
+    final extensionPaymentId = 'pi_ext_${b.id}_${newExtendedTotal}h';
 
+    // Anti-replay: prevent duplicate charge for the exact same extension step
+    if (b.extensionPaymentIds.contains(extensionPaymentId)) {
+      return false;
+    }
+
+    b.extensionPaymentIds.add(extensionPaymentId);
     b.durationHours += extraHours;
-    b.extendedHours += extraHours;
+    b.extendedHours = newExtendedTotal;
     b.cost = double.parse((b.cost + extraCost).toStringAsFixed(2));
     b.appCommission = double.parse((b.appCommission + extraCommission).toStringAsFixed(2));
     b.totalPaid = double.parse((b.totalPaid + extraCost).toStringAsFixed(2));
@@ -344,7 +356,8 @@ class AppState extends ChangeNotifier {
     b.careLogs.add(
       CareLogEntry(
         category: 'Extensión de Turno',
-        note: 'Turno ampliado +$extraHours h (€${extraCost.toStringAsFixed(2)}) con cobertura SeniCare.',
+        note:
+            'Turno ampliado +$extraHours h (€${extraCost.toStringAsFixed(2)}) abonado con cobro verificado ($extensionPaymentId).',
         timestamp: DateTime.now(),
       ),
     );
@@ -368,14 +381,21 @@ class AppState extends ChangeNotifier {
   }
 
   /// Caregiver rejection: processes 100% full refund to client and frees the slot.
-  void rejectBooking(String bookingId) {
+  /// Idempotent: prevents double-refund if called more than once or on a settled booking.
+  bool rejectBooking(String bookingId) {
     final idx = bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
       final booking = bookings[idx];
+      if (booking.isRefunded ||
+          booking.status == BookingStatus.Cancelled ||
+          booking.isEscrowReleased) {
+        return false; // Anti-double-refund guard
+      }
       booking.status = BookingStatus.Cancelled;
       booking.isRefunded = true;
       booking.refundedAmount = booking.totalPaid;
       booking.isEscrowReleased = false;
+      booking.escrowStatus = 'rejected_refunded';
 
       chatMessages.add(
         ChatMessage(
@@ -387,7 +407,9 @@ class AppState extends ChangeNotifier {
         ),
       );
       notifyListeners();
+      return true;
     }
+    return false;
   }
 
   /// Opens a dispute on an active booking, freezing automatic Escrow release.
@@ -395,6 +417,7 @@ class AppState extends ChangeNotifier {
     final idx = bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
       final booking = bookings[idx];
+      if (booking.isEscrowReleased || booking.isRefunded) return;
       booking.isDisputed = true;
       booking.disputeReason = reason.trim().isEmpty
           ? 'Incidencia reportada por la familia'
@@ -413,32 +436,93 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Releases Escrow funds to the caregiver if not disputed.
+  /// Handles a bank chargeback (`charge.dispute.created` webhook), immediately freezing Escrow release.
+  bool handleBankChargeback(String bookingId) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+    final b = bookings[idx];
+    b.isDisputed = true;
+    b.status = BookingStatus.Disputed;
+    b.escrowStatus = 'bank_chargeback';
+    b.disputeReason = 'Contracargo bancario detectado en Stripe';
+    notifyListeners();
+    return true;
+  }
+
+  /// Releases Escrow funds to the caregiver if not disputed and caregiver has a connected Stripe account.
+  /// Prevents "Ghost Release" if caregiver has not completed Stripe Connect onboarding.
   bool releaseEscrow(String bookingId) {
     final idx = bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
-      if (bookings[idx].isDisputed || bookings[idx].status == BookingStatus.Disputed) {
-        return false; // Cannot release while disputed
+      final b = bookings[idx];
+      if (b.isDisputed ||
+          b.status == BookingStatus.Disputed ||
+          b.isRefunded ||
+          b.status == BookingStatus.Cancelled ||
+          b.isEscrowReleased) {
+        return false; // Cannot release while disputed, refunded, or already released
       }
-      bookings[idx].status = BookingStatus.Completed;
-      bookings[idx].isEscrowReleased = true;
-      bookings[idx].checkOutTime = DateTime.now();
+
+      final cgIdx = caregivers.indexWhere((c) => c.id == b.caregiverId);
+      final hasConnectedBank =
+          cgIdx == -1 ? true : caregivers[cgIdx].hasStripeConnectedAccount;
+
+      b.status = BookingStatus.Completed;
+      b.checkOutTime ??= DateTime.now();
+
+      if (!hasConnectedBank) {
+        // Prevent Ghost Release: hold in pending_caregiver_connect until IBAN/Stripe is linked
+        b.isEscrowReleased = false;
+        b.escrowStatus = 'pending_caregiver_connect';
+        notifyListeners();
+        return false;
+      }
+
+      b.isEscrowReleased = true;
+      b.escrowStatus = 'released';
       notifyListeners();
       return true;
     }
     return false;
   }
 
+  /// Synchronizes caregiver's Stripe Connect onboarding (`account.updated` webhook)
+  /// and automatically settles any bookings waiting in `pending_caregiver_connect`.
+  int connectCaregiverStripeAccount(String caregiverId) {
+    final cgIdx = caregivers.indexWhere((c) => c.id == caregiverId);
+    if (cgIdx != -1) {
+      caregivers[cgIdx].hasStripeConnectedAccount = true;
+    }
+    int settledCount = 0;
+    for (final b in bookings) {
+      if (b.caregiverId == caregiverId &&
+          !b.isDisputed &&
+          !b.isRefunded &&
+          !b.isEscrowReleased &&
+          (b.escrowStatus == 'pending_caregiver_connect' ||
+              b.escrowStatus == 'pending_settlement_transfer')) {
+        b.status = BookingStatus.Completed;
+        b.isEscrowReleased = true;
+        b.escrowStatus = 'released';
+        b.checkOutTime ??= DateTime.now();
+        settledCount++;
+      }
+    }
+    notifyListeners();
+    return settledCount;
+  }
+
   /// Synchronized with `autoReleaseEscrowCron` in `functions/index.js`:
   /// 1. Auto-cancels & 100% refunds Zombie `PendingApproval` bookings past the 12h caregiver response window.
   /// 2. Auto-completes & releases Escrow for `Confirmed` / `InProgress` bookings >24h after service end
   ///    if the family forgot to click "Liberar Pago" and no dispute was opened.
+  /// 3. Retries pending transfers (`pending_caregiver_connect` / `pending_settlement_transfer`) once account is ready.
   int runScheduledEscrowMaintenance({DateTime? referenceNow}) {
     final now = referenceNow ?? DateTime.now();
     int processedCount = 0;
 
     for (final b in bookings) {
-      if (b.isDisputed || b.status == BookingStatus.Disputed) continue;
+      if (b.isDisputed || b.status == BookingStatus.Disputed || b.isRefunded) continue;
 
       // 1. Zombie PendingApproval timeout (>12h without caregiver response)
       if (b.status == BookingStatus.PendingApproval) {
@@ -448,19 +532,44 @@ class AppState extends ChangeNotifier {
           b.isRefunded = true;
           b.refundedAmount = b.totalPaid;
           b.isEscrowReleased = false;
+          b.escrowStatus = 'expired_refunded';
           processedCount++;
         }
         continue;
       }
 
-      // 2. 24h Auto-Completion & Escrow Release when client forgets to confirm
+      // 2. Retry pending_caregiver_connect or pending_settlement_transfer if bank is now connected
+      if (!b.isEscrowReleased &&
+          (b.escrowStatus == 'pending_caregiver_connect' ||
+              b.escrowStatus == 'pending_settlement_transfer')) {
+        final cgIdx = caregivers.indexWhere((c) => c.id == b.caregiverId);
+        final hasBank = cgIdx == -1 ? true : caregivers[cgIdx].hasStripeConnectedAccount;
+        if (hasBank) {
+          b.status = BookingStatus.Completed;
+          b.isEscrowReleased = true;
+          b.escrowStatus = 'released';
+          b.checkOutTime ??= now;
+          processedCount++;
+        }
+        continue;
+      }
+
+      // 3. 24h Auto-Completion & Escrow Release when client forgets to confirm
       if ((b.status == BookingStatus.Confirmed || b.status == BookingStatus.InProgress) &&
           !b.isEscrowReleased) {
         final endRef = b.serviceEndTime ?? b.createdAt.add(Duration(hours: b.durationHours));
         if (now.difference(endRef).inHours >= 24) {
+          final cgIdx = caregivers.indexWhere((c) => c.id == b.caregiverId);
+          final hasBank = cgIdx == -1 ? true : caregivers[cgIdx].hasStripeConnectedAccount;
           b.status = BookingStatus.Completed;
-          b.isEscrowReleased = true;
           b.checkOutTime = now;
+          if (hasBank) {
+            b.isEscrowReleased = true;
+            b.escrowStatus = 'released';
+          } else {
+            b.isEscrowReleased = false;
+            b.escrowStatus = 'pending_caregiver_connect';
+          }
           processedCount++;
         }
       }

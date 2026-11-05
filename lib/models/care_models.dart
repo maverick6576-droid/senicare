@@ -79,6 +79,7 @@ class CaregiverProfile {
   final bool verified;
   final String verificationBadge;
   final int yearsExperience;
+  bool hasStripeConnectedAccount;
   final Map<String, List<String>> availableSlots;
 
   CaregiverProfile({
@@ -95,6 +96,7 @@ class CaregiverProfile {
     required this.verified,
     this.verificationBadge = 'DNI, Penales y Titulación Verificados',
     this.yearsExperience = 5,
+    this.hasStripeConnectedAccount = true,
     required this.availableSlots,
   });
 }
@@ -141,6 +143,7 @@ class Booking {
   final String checkInPin;
   final DateTime createdAt;
   DateTime? serviceEndTime;
+  String escrowStatus; // 'held', 'pending_caregiver_connect', 'pending_settlement_transfer', 'released', 'rejected_refunded', 'cancelled_settled', 'bank_chargeback'
   bool isEscrowReleased;
   bool isRefunded;
   bool isGpsCheckedIn;
@@ -152,6 +155,7 @@ class Booking {
   double caregiverCompensation;
   int? reviewRating;
   String? reviewComment;
+  final List<String> extensionPaymentIds;
   final List<CareLogEntry> careLogs;
 
   Booking({
@@ -174,6 +178,7 @@ class Booking {
     this.checkInPin = '4829',
     DateTime? createdAt,
     this.serviceEndTime,
+    this.escrowStatus = 'held',
     this.isEscrowReleased = false,
     this.isRefunded = false,
     this.isGpsCheckedIn = false,
@@ -185,9 +190,11 @@ class Booking {
     this.caregiverCompensation = 0.0,
     this.reviewRating,
     this.reviewComment,
+    List<String>? extensionPaymentIds,
     List<CareLogEntry>? careLogs,
   })  : createdAt = createdAt ?? DateTime.now(),
         refundedAmount = refundedAmount ?? 0.0,
+        extensionPaymentIds = extensionPaymentIds ?? [],
         careLogs = careLogs ?? [];
 
   /// Net amount released or scheduled to be released to the caregiver's connected bank account.
