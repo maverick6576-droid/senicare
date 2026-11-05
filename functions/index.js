@@ -415,6 +415,10 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
   for (const doc of pendingBookingsSnap.docs) {
     try {
       const booking = doc.data();
+      if (booking.isDisputed || booking.status === "Disputed") {
+        console.log(`⏸️ Omitiendo auto-liberación para reserva #${doc.id} por disputa abierta.`);
+        continue;
+      }
       const destinationAccountId = booking.caregiverStripeAccountId;
       const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
       const {
@@ -466,6 +470,12 @@ exports.processResolutionAgreement = functions.region("europe-west1").https.onCa
       throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
     }
     const booking = bookingDoc.data();
+    if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "No tienes permiso sobre esta reserva.");
+    }
+    if (clientPercentage < 0 || caregiverPercentage < 0 || (clientPercentage + caregiverPercentage) > 100) {
+      throw new functions.https.HttpsError("invalid-argument", "Los porcentajes de resolución no pueden superar el 100%.");
+    }
     const paymentIntentId = booking.paymentIntentId || booking.chargeId;
     const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
 
@@ -615,6 +625,9 @@ exports.caregiverRejectBooking = functions.region("europe-west1").https.onCall(a
       throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
     }
     const booking = bookingDoc.data();
+    if (booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "Solo el cuidador asignado puede rechazar esta solicitud.");
+    }
     const paymentIntentId = booking.paymentIntentId || booking.chargeId;
     const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
 
@@ -744,6 +757,9 @@ exports.adminResolveDispute = functions.region("europe-west1").https.onCall(asyn
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   }
+  if (!context.auth.token.admin) {
+    throw new functions.https.HttpsError("permission-denied", "Acceso exclusivo para administradores de SeniCare.");
+  }
   try {
     const { bookingId, resolution } = data;
     await db.collection("bookings").doc(bookingId).update({
@@ -765,6 +781,9 @@ exports.adminResolveDispute = functions.region("europe-west1").https.onCall(asyn
 exports.adminBlockCaregiver = functions.region("europe-west1").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  if (!context.auth.token.admin) {
+    throw new functions.https.HttpsError("permission-denied", "Acceso exclusivo para administradores de SeniCare.");
   }
   try {
     const { caregiverId, reason } = data;

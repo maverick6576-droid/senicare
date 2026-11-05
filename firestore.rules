@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Perfiles de usuarios (Clientes y Familiares)
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // Perfiles públicos de cuidadores en el Marketplace
+    match /caregivers/{caregiverId} {
+      allow read: if true;
+      allow create: if isOwner(caregiverId) || isAdmin();
+      allow update: if isAdmin() || (
+        isOwner(caregiverId) &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['isKycVerified', 'stripeConnectedAccountId', 'stripeKycStatus', 'isBlocked'])
+      );
+    }
+
+    // Reservas y Custodia en Garantía (Escrow)
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn() && (
+        resource.data.clientId == request.auth.uid ||
+        resource.data.caregiverId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && request.resource.data.clientId == request.auth.uid;
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        (resource.data.clientId == request.auth.uid || resource.data.caregiverId == request.auth.uid) &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['escrowStatus', 'releasedAmountInCents', 'platformFeeInCents', 'paymentIntentId'])
+      );
+    }
+
+    // Chats privados entre Familia y Cuidador
+    match /chats/{chatId} {
+      allow read, write: if isSignedIn() && (
+        resource.data.clientId == request.auth.uid ||
+        resource.data.caregiverId == request.auth.uid ||
+        isAdmin()
+      );
+
+      match /messages/{messageId} {
+        allow read, create: if isSignedIn() && (
+          get(/databases/$(database)/documents/chats/$(chatId)).data.clientId == request.auth.uid ||
+          get(/databases/$(database)/documents/chats/$(chatId)).data.caregiverId == request.auth.uid ||
+          isAdmin()
+        );
+      }
+    }
+  }
+}
