@@ -1,7 +1,8 @@
 // main.dart
 // SeniCare - Production-Ready Architecture & Senior-Accessible Marketplace
 // Connects families and seniors with verified caregivers using Escrow protection,
-// dynamic loyalty commissions (18% -> 10% -> 6%), GPS check-in, Care Logs, and WCAG AAA Senior Mode.
+// dynamic loyalty commissions (18% -> 10% -> 6%), 24h auto-completion, context-aware chat,
+// GPS + 4-digit PIN check-in, Patient Medical Sheet, Shift Overtime Extension, and Verified Reviews.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -29,14 +30,15 @@ void main() {
 // 1. STATE MANAGEMENT & CLOUD GATEWAY
 // ==========================================
 
-/// Central state manager synchronizing UI, Escrow lifecycle, slot locking,
-/// dynamic commission tiers (18% -> 10% -> 6%), GPS verification, and Senior Mode.
 class AppState extends ChangeNotifier {
   String currentRole = 'client'; // 'client' or 'caregiver'
   bool seniorMode = false; // Toggles WCAG AAA Senior Accessibility Mode & Senior Home Panel
   String selectedSpecialty = 'Todos';
   String searchQuery = '';
   bool sosAlertActive = false;
+
+  // Patient Medical, Access & Insurance Sheet
+  final PatientMedicalSheet patientMedicalSheet = const PatientMedicalSheet();
 
   // Medication reminders for the Senior Accessible Mode
   final List<MedicationReminder> medications = [
@@ -123,7 +125,6 @@ class AppState extends ChangeNotifier {
     ),
   ];
 
-  /// Predefined specialties for filtering
   List<String> get availableSpecialties => [
         'Todos',
         'Compañía',
@@ -132,7 +133,6 @@ class AppState extends ChangeNotifier {
         'Soporte Digital',
       ];
 
-  /// Computes filtered caregivers based on specialty and search query
   List<CaregiverProfile> get filteredCaregivers {
     return caregivers.where((c) {
       final matchesSpecialty =
@@ -144,10 +144,16 @@ class AppState extends ChangeNotifier {
     }).toList();
   }
 
-  /// Dynamic Commission Engine synchronized with `functions/index.js` (`calculateCaregiverPayout`):
-  /// - 0 completed bookings with this caregiver: 18% fee
-  /// - 1 to 4 completed bookings: 10% fee
-  /// - 5+ completed bookings: 6% fee
+  /// True when there is an active confirmed or in-progress booking, unlocking contact details in chat.
+  bool get hasActiveConfirmedBooking => bookings.any(
+        (b) => b.status == BookingStatus.Confirmed || b.status == BookingStatus.InProgress,
+      );
+
+  /// Unified 1:1 Commission Engine synchronized with `functions/index.js` (`calculateCaregiverPayout`):
+  /// - 0 completed bookings with this caregiver: 18% fee (82% net caregiver)
+  /// - 1 to 4 completed bookings: 10% fee (90% net caregiver)
+  /// - 5+ completed bookings: 6% fee (94% net caregiver)
+  /// `totalClientPayable == baseCost == caregiverNetPayout + platformFee` (zero double-dipping).
   CommissionQuote calculateCommissionQuote({
     required String caregiverId,
     required double pricePerHour,
@@ -171,10 +177,10 @@ class AppState extends ChangeNotifier {
       tier = '10% (Familia recurrente - $completedCount servicios previos)';
     }
 
-    final baseCost = pricePerHour * durationHours;
+    final baseCost = double.parse((pricePerHour * durationHours).toStringAsFixed(2));
     final platformFee = double.parse((baseCost * rate).toStringAsFixed(2));
-    final totalClientPayable = double.parse((baseCost + platformFee).toStringAsFixed(2));
-    final caregiverNet = double.parse((baseCost * (1.0 - rate)).toStringAsFixed(2));
+    final caregiverNet = double.parse((baseCost - platformFee).toStringAsFixed(2));
+    final totalClientPayable = baseCost; // All-inclusive transparent price: caregiverNet + platformFee == baseCost
 
     return CommissionQuote(
       baseCost: baseCost,
@@ -196,13 +202,12 @@ class AppState extends ChangeNotifier {
         b.status != BookingStatus.Cancelled);
   }
 
-  /// Returns only the unbooked slots for a given caregiver and day.
   List<String> getAvailableSlotsForDay(CaregiverProfile caregiver, String day) {
     final allSlots = caregiver.availableSlots[day] ?? [];
     return allSlots.where((slot) => !isSlotBooked(caregiver.id, day, slot)).toList();
   }
 
-  // --- Mutators ---
+  // --- Mutators & Lifecycle Actions ---
 
   void toggleSeniorMode(bool value) {
     seniorMode = value;
@@ -222,7 +227,8 @@ class AppState extends ChangeNotifier {
     chatMessages.add(
       ChatMessage(
         sender: ChatSender.Client,
-        text: '🚨 ALERTA SOS ACTIVADA: Se ha enviado la ubicación GPS actual a los familiares responsables y al cuidador asignado.',
+        text:
+            '🚨 ALERTA SOS ACTIVADA: Se ha enviado la ubicación GPS actual y la Ficha Médica de ${patientMedicalSheet.patientName} a los familiares responsables y a la cuidadora.',
         timestamp: DateTime.now(),
       ),
     );
@@ -244,7 +250,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Adds a booking if the slot is not already reserved (prevents double-booking).
   bool addBooking(Booking booking) {
     if (isSlotBooked(booking.caregiverId, booking.day, booking.slot)) {
       return false;
@@ -257,7 +262,17 @@ class AppState extends ChangeNotifier {
   void confirmBooking(String bookingId) {
     final idx = bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
-      bookings[idx].status = BookingStatus.Confirmed;
+      final b = bookings[idx];
+      b.status = BookingStatus.Confirmed;
+      b.serviceEndTime = DateTime.now().add(Duration(hours: b.durationHours));
+      chatMessages.add(
+        ChatMessage(
+          sender: ChatSender.Caregiver,
+          text:
+              '✅ Cita confirmada para el ${b.day} a las ${b.slot} h (${b.durationHours}h). Chat desbloqueado para coordinar llegada. Código PIN de respaldo en domicilio: ${b.checkInPin}.',
+          timestamp: DateTime.now(),
+        ),
+      );
       notifyListeners();
     }
   }
@@ -279,6 +294,62 @@ class AppState extends ChangeNotifier {
       );
       notifyListeners();
     }
+  }
+
+  /// 4-Digit Family PIN Check-in fallback for indoor apartments without GPS satellite coverage
+  bool checkInWithPin(String bookingId, String enteredPin) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx != -1) {
+      final b = bookings[idx];
+      if (b.checkInPin == enteredPin.trim()) {
+        b.isGpsCheckedIn = true;
+        b.checkInTime = DateTime.now();
+        b.status = BookingStatus.InProgress;
+        b.careLogs.add(
+          CareLogEntry(
+            category: 'Llegada PIN',
+            note: 'Entrada verificada mediante código PIN familiar en domicilio.',
+            timestamp: DateTime.now(),
+          ),
+        );
+        notifyListeners();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Extends an active shift (+1h / +2h) in-platform, preserving insurance & Escrow coverage.
+  bool extendBookingShift(String bookingId, int extraHours) {
+    if (extraHours <= 0) return false;
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+
+    final b = bookings[idx];
+    if (b.status != BookingStatus.Confirmed && b.status != BookingStatus.InProgress) {
+      return false;
+    }
+
+    final hourlyRate = b.cost / b.durationHours;
+    final extraCost = double.parse((hourlyRate * extraHours).toStringAsFixed(2));
+    final extraCommission =
+        double.parse((extraCost * (b.commissionRatePercent / 100.0)).toStringAsFixed(2));
+
+    b.durationHours += extraHours;
+    b.extendedHours += extraHours;
+    b.cost = double.parse((b.cost + extraCost).toStringAsFixed(2));
+    b.appCommission = double.parse((b.appCommission + extraCommission).toStringAsFixed(2));
+    b.totalPaid = double.parse((b.totalPaid + extraCost).toStringAsFixed(2));
+
+    b.careLogs.add(
+      CareLogEntry(
+        category: 'Extensión de Turno',
+        note: 'Turno ampliado +$extraHours h (€${extraCost.toStringAsFixed(2)}) con cobertura SeniCare.',
+        timestamp: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+    return true;
   }
 
   /// Appends an entry to the Daily Care Log ("Cuaderno de Cuidados")
@@ -358,9 +429,82 @@ class AppState extends ChangeNotifier {
     return false;
   }
 
-  /// Appends a new chat message and runs the semantic Anti-Bypass Validator.
+  /// Synchronized with `autoReleaseEscrowCron` in `functions/index.js`:
+  /// 1. Auto-cancels & 100% refunds Zombie `PendingApproval` bookings past the 12h caregiver response window.
+  /// 2. Auto-completes & releases Escrow for `Confirmed` / `InProgress` bookings >24h after service end
+  ///    if the family forgot to click "Liberar Pago" and no dispute was opened.
+  int runScheduledEscrowMaintenance({DateTime? referenceNow}) {
+    final now = referenceNow ?? DateTime.now();
+    int processedCount = 0;
+
+    for (final b in bookings) {
+      if (b.isDisputed || b.status == BookingStatus.Disputed) continue;
+
+      // 1. Zombie PendingApproval timeout (>12h without caregiver response)
+      if (b.status == BookingStatus.PendingApproval) {
+        final hoursPending = now.difference(b.createdAt).inHours;
+        if (hoursPending >= 12) {
+          b.status = BookingStatus.Cancelled;
+          b.isRefunded = true;
+          b.refundedAmount = b.totalPaid;
+          b.isEscrowReleased = false;
+          processedCount++;
+        }
+        continue;
+      }
+
+      // 2. 24h Auto-Completion & Escrow Release when client forgets to confirm
+      if ((b.status == BookingStatus.Confirmed || b.status == BookingStatus.InProgress) &&
+          !b.isEscrowReleased) {
+        final endRef = b.serviceEndTime ?? b.createdAt.add(Duration(hours: b.durationHours));
+        if (now.difference(endRef).inHours >= 24) {
+          b.status = BookingStatus.Completed;
+          b.isEscrowReleased = true;
+          b.checkOutTime = now;
+          processedCount++;
+        }
+      }
+    }
+
+    if (processedCount > 0) {
+      notifyListeners();
+    }
+    return processedCount;
+  }
+
+  /// Submits a verified 1-5 star review for a completed booking and updates the caregiver's rating.
+  bool submitBookingReview(String bookingId, int rating, String comment) {
+    if (rating < 1 || rating > 5) return false;
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+
+    final b = bookings[idx];
+    if (b.status != BookingStatus.Completed || b.reviewRating != null) {
+      return false;
+    }
+
+    b.reviewRating = rating;
+    b.reviewComment = comment.trim();
+
+    final cgIdx = caregivers.indexWhere((c) => c.id == b.caregiverId);
+    if (cgIdx != -1) {
+      final cg = caregivers[cgIdx];
+      final totalScore = (cg.rating * cg.reviewsCount) + rating;
+      cg.reviewsCount += 1;
+      cg.rating = double.parse((totalScore / cg.reviewsCount).toStringAsFixed(1));
+    }
+
+    notifyListeners();
+    return true;
+  }
+
+  /// Appends a new chat message and runs the Context-Aware Anti-Bypass Validator.
+  /// Unlocks contact & address exchange once a booking is Confirmed or InProgress.
   AntiBypassResult sendChatMessage(String text) {
-    final result = AntiBypassValidator.evaluate(text);
+    final result = AntiBypassValidator.evaluate(
+      text,
+      hasConfirmedBooking: hasActiveConfirmedBooking,
+    );
 
     chatMessages.add(ChatMessage(
       sender: ChatSender.Client,
@@ -449,7 +593,6 @@ class _MainLayoutState extends State<MainLayout> {
           ],
         ),
         actions: [
-          // Senior Mode Accessibility Switch
           Row(
             children: [
               Text(
@@ -466,7 +609,6 @@ class _MainLayoutState extends State<MainLayout> {
               ),
             ],
           ),
-          // Role Switcher
           PopupMenuButton<String>(
             tooltip: 'Cambiar vista de usuario',
             icon: const Icon(Icons.switch_account, color: AppTheme.darkSlate),
@@ -532,7 +674,6 @@ class ExplorerScreen extends StatelessWidget {
 
     return CustomScrollView(
       slivers: [
-        // 1. Top Location & Friendly Guarantee Banner
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -577,14 +718,10 @@ class ExplorerScreen extends StatelessWidget {
             ),
           ),
         ),
-
-        // 2. If Senior Mode is active: Render the Ultra-Friendly Senior Home Hub
         if (state.seniorMode)
           SliverToBoxAdapter(
             child: _SeniorAccessibleHub(),
           ),
-
-        // 3. Search Bar
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
@@ -607,8 +744,6 @@ class ExplorerScreen extends StatelessWidget {
             ),
           ),
         ),
-
-        // 4. Specialties Filter Chips
         SliverToBoxAdapter(
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -635,8 +770,6 @@ class ExplorerScreen extends StatelessWidget {
             ),
           ),
         ),
-
-        // 5. Caregivers Marketplace List
         SliverPadding(
           padding: const EdgeInsets.all(16),
           sliver: SliverList(
@@ -773,7 +906,6 @@ class ExplorerScreen extends StatelessWidget {
   }
 }
 
-/// Dedicated Senior-Friendly Hub (WCAG AAA) shown when Senior Mode is active.
 class _SeniorAccessibleHub extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -788,8 +920,6 @@ class _SeniorAccessibleHub extends StatelessWidget {
         children: [
           Text('Hola, bienvenido a tu panel 👋', style: theme.textTheme.headlineSmall),
           const SizedBox(height: 12),
-
-          // CARD 1: Today's Caregiver Quick Call & Chat
           Card(
             color: AppTheme.primaryLight,
             shape: RoundedRectangleBorder(
@@ -866,8 +996,6 @@ class _SeniorAccessibleHub extends StatelessWidget {
               ),
             ),
           ),
-
-          // CARD 2: Medication Checklist
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -933,8 +1061,6 @@ class _SeniorAccessibleHub extends StatelessWidget {
               ),
             ),
           ),
-
-          // CARD 3: Emergency SOS Button
           Card(
             color: const Color(0xFFFEF2F2),
             shape: RoundedRectangleBorder(
@@ -1021,7 +1147,7 @@ class _SeniorAccessibleHub extends StatelessWidget {
   }
 }
 
-// --- SCREEN B: Caregiver Details, Flexible Duration & Slot Picker ---
+// --- SCREEN B: Caregiver Details, Flexible Duration, Key Custody & Recurring Plan ---
 class CaregiverDetailScreen extends StatefulWidget {
   final CaregiverProfile caregiver;
   const CaregiverDetailScreen({super.key, required this.caregiver});
@@ -1033,7 +1159,15 @@ class CaregiverDetailScreen extends StatefulWidget {
 class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   late String _selectedDay;
   int _selectedDurationHours = 2;
+  bool _isRecurringWeekly = false;
+  String _selectedKeyCustody = 'Portería / Conserje';
+
   final List<int> _durationOptions = [1, 2, 4, 8, 10];
+  final List<String> _keyCustodyOptions = [
+    'Portería / Conserje',
+    'Entrega en mano por familiar',
+    'Cajetín con código de seguridad',
+  ];
 
   @override
   void initState() {
@@ -1144,6 +1278,40 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                     );
                   }).toList(),
                 ),
+                const SizedBox(height: 16),
+
+                // Weekly Recurring Plan Option
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    '🔁 Cuidado Semanal Recurrente',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: const Text(
+                    'Repite este turno cada semana y reduce la comisión (18% ➔ 10% ➔ 6%).',
+                  ),
+                  value: _isRecurringWeekly,
+                  activeThumbColor: AppTheme.primary,
+                  onChanged: (val) => setState(() => _isRecurringWeekly = val),
+                ),
+                const SizedBox(height: 12),
+
+                // Key Custody Method Selector
+                Text('Protocolo de Acceso / Llaves', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedKeyCustody,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.vpn_key_rounded, color: AppTheme.primary),
+                  ),
+                  items: _keyCustodyOptions
+                      .map((k) => DropdownMenuItem(value: k, child: Text(k)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setState(() => _selectedKeyCustody = v);
+                  },
+                ),
                 const SizedBox(height: 24),
 
                 // Step 2: Select Day
@@ -1219,6 +1387,8 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                                 day: _selectedDay,
                                 slot: slot,
                                 durationHours: _selectedDurationHours,
+                                isRecurringWeekly: _isRecurringWeekly,
+                                keyCustodyMethod: _selectedKeyCustody,
                               ),
                             ),
                           );
@@ -1251,12 +1421,14 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   }
 }
 
-// --- SCREEN C: Secure Payment Confirmation with Dynamic Commission Tiers ---
+// --- SCREEN C: Secure Payment Confirmation with Unified Commission Math ---
 class PaymentScreen extends StatelessWidget {
   final CaregiverProfile caregiver;
   final String day;
   final String slot;
   final int durationHours;
+  final bool isRecurringWeekly;
+  final String keyCustodyMethod;
 
   const PaymentScreen({
     super.key,
@@ -1264,6 +1436,8 @@ class PaymentScreen extends StatelessWidget {
     required this.day,
     required this.slot,
     this.durationHours = 2,
+    this.isRecurringWeekly = false,
+    this.keyCustodyMethod = 'Portería / Conserje',
   });
 
   @override
@@ -1273,7 +1447,6 @@ class PaymentScreen extends StatelessWidget {
     final seniorMode = state.seniorMode;
     final currencyFormat = NumberFormat.currency(symbol: '€', decimalDigits: 2);
 
-    // Dynamic quote synchronized with Firebase Cloud Functions (18% -> 10% -> 6%)
     final quote = state.calculateCommissionQuote(
       caregiverId: caregiver.id,
       pricePerHour: caregiver.pricePerHour,
@@ -1313,16 +1486,32 @@ class PaymentScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Duración contratada:'),
-                      Text('$durationHours ${durationHours == 1 ? "hora" : "horas"}',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text(
+                        '$durationHours ${durationHours == 1 ? "hora" : "horas"}${isRecurringWeekly ? " (Semanal)" : ""}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Acceso / Llaves:'),
+                      Flexible(
+                        child: Text(
+                          keyCustodyMethod,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          textAlign: TextAlign.end,
+                        ),
+                      ),
                     ],
                   ),
                   const Divider(height: 32),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Importe Cuidado (${currencyFormat.format(caregiver.pricePerHour)}/h):'),
-                      Text(currencyFormat.format(quote.baseCost)),
+                      Text('Neto íntegro para ${caregiver.name}:'),
+                      Text(currencyFormat.format(quote.caregiverNetPayout)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -1330,7 +1519,7 @@ class PaymentScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                        child: Text('Gestión y Seguro (${quote.commissionTier}):'),
+                        child: Text('Seguro RC y Gestión (${quote.commissionTier}):'),
                       ),
                       Text(currencyFormat.format(quote.platformFee)),
                     ],
@@ -1340,7 +1529,7 @@ class PaymentScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Total a proteger:',
+                        'Total Todo Incluido:',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                       ),
                       Text(
@@ -1357,9 +1546,9 @@ class PaymentScreen extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // Friendly Trust Guarantee Box (No intimidating technical jargon)
+          // Insurance & Guarantee Box
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -1367,18 +1556,31 @@ class PaymentScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppTheme.primary),
             ),
-            child: const Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.shield_rounded, color: AppTheme.primary, size: 28),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Garantía 100% SeniCare: Tu dinero queda guardado de forma segura y solo se entrega a la cuidadora cuando confirmes que el servicio ha finalizado con éxito. Si rechaza o cancela, recibes el 100% al instante.',
-                    style: TextStyle(
-                      color: AppTheme.primary,
-                      fontWeight: FontWeight.w600,
+                const Row(
+                  children: [
+                    Icon(Icons.shield_rounded, color: AppTheme.primary, size: 26),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Garantía 100% SeniCare + Seguro RC Incluido',
+                        style: TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '• ${state.patientMedicalSheet.insurancePolicyNumber}\n'
+                  '• El pago se libera tras finalizar el cuidado (o automáticamente a las 24h si todo fue bien).\n'
+                  '• Si la cuidadora no responde en plazo o rechaza, recibes el 100% de reembolso automático.',
+                  style: const TextStyle(color: AppTheme.darkSlate, fontSize: 13),
                 ),
               ],
             ),
@@ -1410,6 +1612,8 @@ class PaymentScreen extends StatelessWidget {
                 totalPaid: quote.totalClientPayable,
                 commissionRatePercent: quote.commissionRatePercent,
                 commissionTier: quote.commissionTier,
+                isRecurringWeekly: isRecurringWeekly,
+                keyCustodyMethod: keyCustodyMethod,
                 status: BookingStatus.PendingApproval,
               );
               final added = context.read<AppState>().addBooking(booking);
@@ -1440,7 +1644,7 @@ class PaymentScreen extends StatelessWidget {
   }
 }
 
-// --- SCREEN D: Bookings, Care Logs, GPS Status & Dispute Resolution ---
+// --- SCREEN D: Bookings, Medical Sheet, Overtime, PIN/GPS & Verified Reviews ---
 class BookingsScreen extends StatelessWidget {
   const BookingsScreen({super.key});
 
@@ -1476,16 +1680,18 @@ class BookingsScreen extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Reserva #$shortId • ${b.durationHours}h',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                    Expanded(
+                      child: Text(
+                        'Reserva #$shortId • ${b.durationHours}h${b.isRecurringWeekly ? " 🔁 Semanal" : ""}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                      ),
                     ),
                     _buildStatusBadge(b.status),
                   ],
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  isClient ? 'Cuidadora: ${b.caregiverName}' : 'Familia: Cliente Verificado',
+                  isClient ? 'Cuidadora: ${b.caregiverName}' : 'Paciente: ${state.patientMedicalSheet.patientName}',
                   style: theme.textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
@@ -1493,8 +1699,48 @@ class BookingsScreen extends StatelessWidget {
                   'Horario: ${b.day} a las ${b.slot} h (${currencyFormat.format(b.totalPaid)})',
                   style: theme.textTheme.bodyMedium,
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  '🔑 Llaves: ${b.keyCustodyMethod} • PIN Domicilio: ${b.checkInPin}',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                ),
 
-                // GPS Verification Badge
+                // Patient Medical & Emergency Sheet for Active Bookings
+                if (b.status == BookingStatus.Confirmed || b.status == BookingStatus.InProgress) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0F9FF),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.medical_information_rounded, color: Colors.blue, size: 18),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Ficha Médica y Protocolo de Emergencia',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blue),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text('• Salud: ${state.patientMedicalSheet.conditions}', style: const TextStyle(fontSize: 12)),
+                        Text('• Alergias: ${state.patientMedicalSheet.allergies}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text('• Contacto Urgente: ${state.patientMedicalSheet.emergencyContactName} (${state.patientMedicalSheet.emergencyContactPhone})', style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // GPS / PIN Verification Badge
                 if (b.isGpsCheckedIn) ...[
                   const SizedBox(height: 10),
                   Container(
@@ -1508,12 +1754,14 @@ class BookingsScreen extends StatelessWidget {
                       children: [
                         Icon(Icons.my_location, color: AppTheme.primary, size: 16),
                         SizedBox(width: 6),
-                        Text(
-                          'Presencia en domicilio verificada por GPS (<100m)',
-                          style: TextStyle(
-                            color: AppTheme.primary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                        Flexible(
+                          child: Text(
+                            'Presencia en domicilio verificada (<100m GPS / PIN)',
+                            style: TextStyle(
+                              color: AppTheme.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
@@ -1572,7 +1820,7 @@ class BookingsScreen extends StatelessWidget {
                         Expanded(
                           child: Text(
                             isClient
-                                ? 'Solicitud rechazada. Reembolso íntegro (${currencyFormat.format(b.totalPaid)}) devuelto automáticamente a tu cuenta.'
+                                ? 'Solicitud rechazada o expirada. Reembolso íntegro (${currencyFormat.format(b.totalPaid)}) devuelto automáticamente a tu cuenta.'
                                 : 'Solicitud rechazada. Reembolso del 100% (${currencyFormat.format(b.totalPaid)}) devuelto al cliente y notificación enviada.',
                             style: const TextStyle(
                               color: Colors.red,
@@ -1608,9 +1856,40 @@ class BookingsScreen extends StatelessWidget {
                   ),
                 ],
 
+                // Completed & Review Section
+                if (b.status == BookingStatus.Completed) ...[
+                  const SizedBox(height: 12),
+                  if (b.reviewRating != null)
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.star, color: AppTheme.amber, size: 20),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Valoración enviada: ${b.reviewRating}/5 ★ — "${b.reviewComment}"',
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (isClient)
+                    OutlinedButton.icon(
+                      onPressed: () => _showReviewDialog(context, b.id),
+                      icon: const Icon(Icons.star_rate_rounded, color: AppTheme.amber),
+                      label: const Text('Valorar a la Cuidadora (1 a 5 ★)'),
+                    ),
+                ],
+
                 const SizedBox(height: 16),
 
-                // Client Actions: Release Escrow OR Report Incident/Dispute
+                // Client Actions: Extend Shift (+1h), Release Escrow, OR Report Incident/Dispute
                 if (isClient &&
                     (b.status == BookingStatus.Confirmed ||
                         b.status == BookingStatus.InProgress)) ...[
@@ -1629,19 +1908,40 @@ class BookingsScreen extends StatelessWidget {
                     label: const Text('Confirmar Éxito y Liberar Pago'),
                   ),
                   const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => _showDisputeDialog(context, b.id),
-                    icon: const Icon(Icons.report_problem_outlined),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.urgentRed,
-                      side: const BorderSide(color: AppTheme.urgentRed),
-                      minimumSize: Size(double.infinity, state.seniorMode ? 56 : 44),
-                    ),
-                    label: const Text('Reportar Incidencia / Abrir Disputa'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            context.read<AppState>().extendBookingShift(b.id, 1);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('⏱️ Turno ampliado +1 hora con Seguro SeniCare.'),
+                                backgroundColor: AppTheme.primary,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.more_time_rounded),
+                          label: const Text('Ampliar +1h'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _showDisputeDialog(context, b.id),
+                          icon: const Icon(Icons.report_problem_outlined),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.urgentRed,
+                            side: const BorderSide(color: AppTheme.urgentRed),
+                          ),
+                          label: const Text('Incidencia'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
 
-                // Caregiver Actions: Accept/Reject Pending OR GPS Check-in + Care Log
+                // Caregiver Actions: Accept/Reject Pending OR GPS/PIN Check-in + Care Log
                 if (!isClient && b.status == BookingStatus.PendingApproval)
                   Row(
                     children: [
@@ -1651,7 +1951,7 @@ class BookingsScreen extends StatelessWidget {
                             context.read<AppState>().confirmBooking(b.id);
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Cita aceptada. La familia ha sido notificada.'),
+                                content: Text('Cita aceptada. El chat y el PIN de acceso están activos.'),
                                 backgroundColor: AppTheme.primary,
                               ),
                             );
@@ -1688,18 +1988,36 @@ class BookingsScreen extends StatelessWidget {
                     (b.status == BookingStatus.Confirmed ||
                         b.status == BookingStatus.InProgress)) ...[
                   if (!b.isGpsCheckedIn)
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        context.read<AppState>().checkInGps(b.id);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('📍 Llegada verificada por GPS en el domicilio.'),
-                            backgroundColor: AppTheme.primary,
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.my_location),
-                      label: const Text('Fichar Entrada GPS en Domicilio'),
+                    Column(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            context.read<AppState>().checkInGps(b.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('📍 Llegada verificada por GPS en el domicilio.'),
+                                backgroundColor: AppTheme.primary,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.my_location),
+                          label: const Text('Fichar Entrada GPS en Domicilio'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            context.read<AppState>().checkInWithPin(b.id, b.checkInPin);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('🔢 Entrada validada con PIN familiar sin cobertura GPS.'),
+                                backgroundColor: AppTheme.primary,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.pin_rounded),
+                          label: Text('Fichar con PIN Familiar (${b.checkInPin})'),
+                        ),
+                      ],
                     )
                   else
                     OutlinedButton.icon(
@@ -1718,6 +2036,72 @@ class BookingsScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  void _showReviewDialog(BuildContext context, String bookingId) {
+    final commentController = TextEditingController();
+    int selectedStars = 5;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Valorar Servicio'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (idx) {
+                  final star = idx + 1;
+                  return IconButton(
+                    icon: Icon(
+                      star <= selectedStars ? Icons.star : Icons.star_border,
+                      color: AppTheme.amber,
+                      size: 32,
+                    ),
+                    onPressed: () => setDialogState(() => selectedStars = star),
+                  );
+                }),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: commentController,
+                decoration: const InputDecoration(
+                  hintText: '¿Cómo fue el trato y la puntualidad?',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                context.read<AppState>().submitBookingReview(
+                      bookingId,
+                      selectedStars,
+                      commentController.text.isEmpty
+                          ? 'Excelente trato y profesionalidad'
+                          : commentController.text,
+                    );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('⭐ ¡Gracias! Tu reseña verificada ha sido publicada.'),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                );
+              },
+              child: const Text('Publicar Reseña'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1827,7 +2211,7 @@ class BookingsScreen extends StatelessWidget {
         break;
       case BookingStatus.InProgress:
         color = AppTheme.primary;
-        text = 'En Curso (GPS)';
+        text = 'En Curso (GPS/PIN)';
         break;
       case BookingStatus.Completed:
         color = Colors.green.shade700;
@@ -1857,7 +2241,7 @@ class BookingsScreen extends StatelessWidget {
   }
 }
 
-// --- SCREEN E: Secured Chat with Semantic Anti-Bypass Protection ---
+// --- SCREEN E: Secured Chat with Context-Aware Post-Booking Unlocker ---
 class ChatScreen extends StatefulWidget {
   final bool isStandalone;
   const ChatScreen({super.key, this.isStandalone = false});
@@ -1898,9 +2282,38 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final isUnlocked = state.hasActiveConfirmedBooking;
 
     final content = Column(
       children: [
+        // Context-Aware Security Banner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          color: isUnlocked ? AppTheme.primaryLight : Colors.orange.withValues(alpha: 0.12),
+          child: Row(
+            children: [
+              Icon(
+                isUnlocked ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+                size: 18,
+                color: isUnlocked ? AppTheme.primary : Colors.orange.shade900,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isUnlocked
+                      ? 'Reserva Confirmada: Chat desbloqueado para compartir dirección, portero y teléfonos.'
+                      : 'Modo Pre-Reserva: Datos de contacto protegidos hasta confirmar la cita.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isUnlocked ? AppTheme.primary : Colors.orange.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
@@ -1942,7 +2355,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: TextField(
                   controller: _controller,
                   decoration: InputDecoration(
-                    hintText: 'Escribe un mensaje seguro...',
+                    hintText: isUnlocked
+                        ? 'Escribe dirección, portero o mensaje...'
+                        : 'Escribe un mensaje seguro...',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(24),
                     ),
@@ -1987,7 +2402,6 @@ class CaregiverDashboard extends StatelessWidget {
     final seniorMode = state.seniorMode;
     final currencyFormat = NumberFormat.currency(symbol: '€', decimalDigits: 2);
 
-    // Calculates released earnings using dynamic commission tiers (82%, 90%, or 94% net)
     final double earnings = state.bookings
         .where((b) => b.isEscrowReleased && b.caregiverId == 'c1')
         .fold(0.0, (sum, b) => sum + b.caregiverNetEarnings);

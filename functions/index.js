@@ -32,7 +32,7 @@ const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" });
  * - Cliente recurrente (1 a 4 previos completados): Comisión 10% -> Cuidador recibe 90%
  * - Cliente fidelizado (5+ previos completados): Comisión 6% -> Cuidador recibe 94%
  */
-async function calculateCaregiverPayout(clientId, caregiverId, totalAmountInCents) {
+async function calculateCaregiverPayout(clientId, caregiverId, totalAmountInCents, baseAmountInCents = null) {
   let commissionRate = 0.18; // 18% base por defecto (primer servicio)
   let commissionTier = "18% (Primer servicio con la familia)";
 
@@ -57,8 +57,13 @@ async function calculateCaregiverPayout(clientId, caregiverId, totalAmountInCent
     }
   }
 
-  const transferAmountInCents = Math.round(totalAmountInCents * (1 - commissionRate));
-  const platformFeeInCents = totalAmountInCents - transferAmountInCents;
+  // Si se proporciona baseAmountInCents (tarifa base del servicio), calculamos el neto del cuidador
+  // exactamente sobre esa base para mantener simetría contable 1:1 con el frontend.
+  const referenceBaseCents = (baseAmountInCents && baseAmountInCents > 0)
+    ? baseAmountInCents
+    : totalAmountInCents;
+  const transferAmountInCents = Math.round(referenceBaseCents * (1 - commissionRate));
+  const platformFeeInCents = Math.max(0, totalAmountInCents - transferAmountInCents);
 
   return {
     transferAmountInCents,
@@ -206,9 +211,13 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
     if (booking.escrowStatus === "released") {
       throw new functions.https.HttpsError("failed-precondition", "El pago ya ha sido liberado previamente.");
     }
+    if (booking.isDisputed || booking.status === "Disputed") {
+      throw new functions.https.HttpsError("failed-precondition", "No se puede liberar una reserva con disputa abierta.");
+    }
 
     const destinationAccountId = booking.caregiverStripeAccountId;
     const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
+    const baseAmountInCents = booking.baseAmountInCents || Math.round((booking.cost || 0) * 100);
 
     // Cálculo dinámico de comisión SeniCare: 18% (primer servicio) -> 10% (recurrente) -> 6% (fidelizado)
     const {
@@ -216,7 +225,7 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
       platformFeeInCents,
       commissionRatePercent,
       commissionTier,
-    } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents);
+    } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents, baseAmountInCents);
 
     console.log(`ℹ️ Liquidando reserva #${bookingId} con comisión del ${commissionRatePercent}% (${commissionTier}) -> Cuidador: ${transferAmountInCents} céntimos, Plataforma: ${platformFeeInCents} céntimos.`);
 
@@ -404,29 +413,71 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
  * Tarea programada (Cron Job) que libera automáticamente pagos en Escrow 24h tras finalizar la cita.
  */
 exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule("every 24 hours").onRun(async (context) => {
-  console.log("Ejecutando autoReleaseEscrowCron...");
-  const now = admin.firestore.Timestamp.now();
-  const pendingBookingsSnap = await db.collection("bookings")
-    .where("status", "==", "Completed")
+  console.log("Ejecutando autoReleaseEscrowCron (Auto-Release 24h & Timeout de Solicitudes Pendientes)...");
+  const nowMs = Date.now();
+  const heldBookingsSnap = await db.collection("bookings")
     .where("escrowStatus", "==", "held")
     .get();
 
   let releasedCount = 0;
-  for (const doc of pendingBookingsSnap.docs) {
+  let expiredCount = 0;
+
+  for (const doc of heldBookingsSnap.docs) {
     try {
       const booking = doc.data();
       if (booking.isDisputed || booking.status === "Disputed") {
         console.log(`⏸️ Omitiendo auto-liberación para reserva #${doc.id} por disputa abierta.`);
         continue;
       }
+
+      const createdAtMs = booking.createdAt?.toDate ? booking.createdAt.toDate().getTime() : (nowMs - 48 * 3600 * 1000);
+      const hoursSinceCreated = (nowMs - createdAtMs) / (1000 * 3600);
+
+      // 1. Timeout de solicitudes zombi sin respuesta del cuidador (12h máximo)
+      if (booking.status === "Pending" || booking.status === "PendingApproval") {
+        const timeoutHours = booking.isSameDayUrgent ? 2 : 12;
+        if (hoursSinceCreated >= timeoutHours) {
+          const paymentIntentId = booking.paymentIntentId || booking.chargeId;
+          const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
+          if (paymentIntentId && totalAmountInCents > 0) {
+            const refundPayload = paymentIntentId.startsWith("pi_")
+              ? { payment_intent: paymentIntentId }
+              : { charge: paymentIntentId };
+            await stripe.refunds.create(refundPayload);
+          }
+          await doc.ref.update({
+            status: "Cancelled",
+            cancellationType: "AUTO_EXPIRED_UNRESPONDED",
+            cancelReason: "Solicitud caducada por falta de respuesta en plazo",
+            isRefunded: true,
+            refundedAmountInCents: totalAmountInCents,
+            escrowStatus: "expired_refunded",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          expiredCount++;
+        }
+        continue;
+      }
+
+      // 2. Auto-completado y liberación a las 24h si el cliente olvidó confirmar manualmente
+      const serviceEndMs = booking.serviceEndTime?.toDate
+        ? booking.serviceEndTime.toDate().getTime()
+        : createdAtMs;
+      const hoursSinceServiceEnd = (nowMs - serviceEndMs) / (1000 * 3600);
+      const ReadyToRelease = booking.status === "Completed" ||
+        ((booking.status === "Confirmed" || booking.status === "InProgress") && hoursSinceServiceEnd >= 24);
+
+      if (!ReadyToRelease) continue;
+
       const destinationAccountId = booking.caregiverStripeAccountId;
       const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
+      const baseAmountInCents = booking.baseAmountInCents || Math.round((booking.cost || 0) * 100);
       const {
         transferAmountInCents,
         platformFeeInCents,
         commissionRatePercent,
         commissionTier,
-      } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents);
+      } = await calculateCaregiverPayout(booking.clientId, booking.caregiverId || booking.caregiver?.id, totalAmountInCents, baseAmountInCents);
 
       if (destinationAccountId && transferAmountInCents > 0) {
         await stripe.transfers.create({
@@ -434,10 +485,12 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
           currency: "eur",
           destination: destinationAccountId,
           transfer_group: booking.transferGroup || `booking_${doc.id}`,
-          description: `Liquidación automática cron - Reserva #${doc.id}`,
+          description: `Liquidación automática cron 24h - Reserva #${doc.id}`,
         });
       }
       await doc.ref.update({
+        status: "Completed",
+        autoCompletedByCron: booking.status !== "Completed",
         escrowStatus: "released",
         releasedAmountInCents: transferAmountInCents,
         platformFeeInCents: platformFeeInCents,
@@ -450,7 +503,7 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
       console.error(`Error en cron autoRelease para booking ${doc.id}:`, e);
     }
   }
-  console.log(`Cron finalizado: ${releasedCount} reservas liberadas.`);
+  console.log(`Cron finalizado: ${releasedCount} reservas liberadas, ${expiredCount} solicitudes caducadas reembolsadas.`);
   return null;
 });
 
@@ -851,4 +904,107 @@ exports.pushOnJobOfferCreated = onDocumentCreated({
 }, async (event) => {
   console.log(`Nueva oferta de empleo publicada: ${event.params.offerId}`);
   return null;
+});
+
+/**
+ * 20. extendBookingShift
+ * Extiende un servicio en curso (+1h / +2h) manteniendo la cobertura de seguro y custodia en garantía.
+ */
+exports.extendBookingShift = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para ampliar el turno.");
+  }
+  try {
+    const { bookingId, extraHours = 1 } = data;
+    if (!bookingId || extraHours <= 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Datos de extensión inválidos.");
+    }
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingDoc = await bookingRef.get();
+    if (!bookingDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
+    }
+    const booking = bookingDoc.data();
+    if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "No tienes permiso para ampliar esta reserva.");
+    }
+
+    const currentDuration = booking.durationHours || 2;
+    const hourlyRate = (booking.cost || booking.totalPaid || 36) / currentDuration;
+    const extraBaseCost = Math.round(hourlyRate * extraHours * 100) / 100;
+    const newDuration = currentDuration + extraHours;
+    const newCost = (booking.cost || booking.totalPaid || 0) + extraBaseCost;
+    const newTotalPaid = (booking.totalPaid || 0) + extraBaseCost;
+
+    await bookingRef.update({
+      durationHours: newDuration,
+      cost: newCost,
+      totalPaid: newTotalPaid,
+      totalAmountInCents: Math.round(newTotalPaid * 100),
+      baseAmountInCents: Math.round(newCost * 100),
+      extendedHours: (booking.extendedHours || 0) + extraHours,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return {
+      success: true,
+      newDurationHours: newDuration,
+      newTotalPaid,
+    };
+  } catch (error) {
+    console.error("Error en extendBookingShift:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 21. submitCaregiverReview
+ * Registra una valoración verificada (1-5 estrellas) tras completar el servicio y recalcula la media del cuidador.
+ */
+exports.submitCaregiverReview = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para valorar el servicio.");
+  }
+  try {
+    const { bookingId, rating, comment = "" } = data;
+    if (!bookingId || !rating || rating < 1 || rating > 5) {
+      throw new functions.https.HttpsError("invalid-argument", "La puntuación debe estar entre 1 y 5 estrellas.");
+    }
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingDoc = await bookingRef.get();
+    if (!bookingDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
+    }
+    const booking = bookingDoc.data();
+    if (booking.clientId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "Solo la familia contratante puede valorar este servicio.");
+    }
+
+    await bookingRef.update({
+      reviewRating: rating,
+      reviewComment: comment,
+      reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    if (booking.caregiverId) {
+      const caregiverRef = db.collection("caregivers").doc(booking.caregiverId);
+      const caregiverDoc = await caregiverRef.get();
+      if (caregiverDoc.exists) {
+        const cg = caregiverDoc.data();
+        const currentCount = cg.reviewsCount || 0;
+        const currentRating = cg.rating || 5.0;
+        const newCount = currentCount + 1;
+        const newRating = Math.round((((currentRating * currentCount) + rating) / newCount) * 10) / 10;
+        await caregiverRef.update({
+          rating: newRating,
+          reviewsCount: newCount,
+        });
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error en submitCaregiverReview:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  }
 });

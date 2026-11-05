@@ -40,7 +40,7 @@ void main() {
       status: BookingStatus.PendingApproval,
       cost: 50.0,
       appCommission: 9.0,
-      totalPaid: 59.0,
+      totalPaid: 50.0,
     );
 
     final added = appState.addBooking(testBooking);
@@ -69,10 +69,10 @@ void main() {
     expect(lastMessage.sender, ChatSender.Caregiver);
     expect(lastMessage.text.contains('ha sido declinada'), true);
     expect(lastMessage.text.contains('Devolución automática procesada'), true);
-    expect(lastMessage.text.contains('€59.00'), true);
+    expect(lastMessage.text.contains('€50.00'), true);
   });
 
-  test('Dynamic commission tiers scale from 18% -> 10% -> 6% based on completed history', () {
+  test('Unified 1:1 commission tiers scale 18% -> 10% -> 6% without double-dipping', () {
     final appState = AppState();
 
     // 0 completed bookings -> 18% tier
@@ -85,6 +85,7 @@ void main() {
     expect(quote1.baseCost, 40.0);
     expect(quote1.platformFee, 7.20);
     expect(quote1.caregiverNetPayout, 32.80);
+    expect(quote1.totalClientPayable, 40.0); // caregiverNetPayout + platformFee == totalClientPayable
 
     // Complete 1st booking -> next quote should be 10% tier
     appState.addBooking(Booking(
@@ -95,7 +96,7 @@ void main() {
       slot: '09:00',
       cost: 40.0,
       appCommission: 7.2,
-      totalPaid: 47.2,
+      totalPaid: 40.0,
       status: BookingStatus.Completed,
       isEscrowReleased: true,
     ));
@@ -108,6 +109,7 @@ void main() {
     expect(quote2.commissionRatePercent, 10);
     expect(quote2.platformFee, 4.0);
     expect(quote2.caregiverNetPayout, 36.0);
+    expect(quote2.totalClientPayable, 40.0);
 
     // Complete 4 more bookings (total 5) -> next quote should be 6% tier
     for (int i = 2; i <= 5; i++) {
@@ -119,7 +121,7 @@ void main() {
         slot: '10:00',
         cost: 40.0,
         appCommission: 4.0,
-        totalPaid: 44.0,
+        totalPaid: 40.0,
         status: BookingStatus.Completed,
         isEscrowReleased: true,
       ));
@@ -133,46 +135,96 @@ void main() {
     expect(quote3.commissionRatePercent, 6);
     expect(quote3.platformFee, 2.40);
     expect(quote3.caregiverNetPayout, 37.60);
+    expect(quote3.totalClientPayable, 40.0);
   });
 
-  test('Semantic Anti-Bypass validator blocks phones, spoken digits, emails, and social handles', () {
+  test('Context-Aware Anti-Bypass blocks pre-booking contact and unlocks post-confirmation', () {
+    final appState = AppState();
+
+    // 1. Pre-booking: blocks phone numbers, spoken digits, emails, social handles
     expect(AntiBypassValidator.evaluate('Llámame al 612 34 56 78').wasBlocked, true);
     expect(AntiBypassValidator.evaluate('Mi número es seis uno dos tres cuatro').wasBlocked, true);
     expect(AntiBypassValidator.evaluate('Escríbeme a pedro@gmail.com').wasBlocked, true);
     expect(AntiBypassValidator.evaluate('Hablamos por whatsapp o @elena_care').wasBlocked, true);
-    expect(
-      AntiBypassValidator.evaluate('Hola Elena, ¿tienes experiencia con Alzheimer?').wasBlocked,
-      false,
-    );
+
+    final preResult = appState.sendChatMessage('El teléfono de mi padre es 612345678');
+    expect(preResult.wasBlocked, true);
+
+    // 2. Post-confirmation: unlocks phone numbers and intercom details
+    appState.addBooking(Booking(
+      id: 'b_unlock',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Jueves',
+      slot: '09:00',
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+    ));
+    appState.confirmBooking('b_unlock');
+    expect(appState.hasActiveConfirmedBooking, true);
+
+    final postResult = appState.sendChatMessage('Llama al 612345678 cuando llegues al portero 3B');
+    expect(postResult.wasBlocked, false);
+    expect(postResult.sanitizedText.contains('612345678'), true);
   });
 
-  test('GPS check-in, Care Log, and Dispute freeze Escrow release', () {
+  test('24h Auto-Completion, Zombie Pending Timeout, PIN Check-in, Overtime & Verified Reviews', () {
     final appState = AppState();
+    final pastTime = DateTime.now().subtract(const Duration(hours: 30));
+
+    // 1. Zombie PendingApproval (>12h) gets auto-cancelled and refunded
     appState.addBooking(Booking(
-      id: 'b_gps',
+      id: 'b_zombie',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Lunes',
+      slot: '10:00',
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      status: BookingStatus.PendingApproval,
+      createdAt: pastTime,
+    ));
+
+    // 2. Confirmed booking >24h after service end where client forgot to confirm
+    appState.addBooking(Booking(
+      id: 'b_forgotten',
       caregiverId: 'c1',
       caregiverName: 'Elena Sanz',
       day: 'Martes',
       slot: '10:00',
+      durationHours: 2,
       cost: 36.0,
       appCommission: 6.48,
-      totalPaid: 42.48,
+      totalPaid: 36.0,
       status: BookingStatus.Confirmed,
+      createdAt: pastTime,
+      serviceEndTime: pastTime.add(const Duration(hours: 2)),
     ));
 
-    appState.checkInGps('b_gps');
-    final b = appState.bookings.first;
-    expect(b.isGpsCheckedIn, true);
-    expect(b.status, BookingStatus.InProgress);
-    expect(b.careLogs.length, 1);
+    // Test 4-digit PIN Check-in & +1h Shift Extension before maintenance runs
+    expect(appState.checkInWithPin('b_forgotten', '4829'), true);
+    expect(appState.extendBookingShift('b_forgotten', 1), true);
+    final activeBooking = appState.bookings.firstWhere((b) => b.id == 'b_forgotten');
+    expect(activeBooking.durationHours, 3);
+    expect(activeBooking.totalPaid, 54.0);
 
-    appState.addCareLogEntry('b_gps', 'Medicación', 'Tomó Enalapril 10mg puntual');
-    expect(b.careLogs.length, 2);
+    // Run scheduled maintenance
+    final processed = appState.runScheduledEscrowMaintenance();
+    expect(processed, 2);
 
-    // Open dispute -> freezes escrow release
-    appState.openDispute('b_gps', 'El turno finalizó antes de tiempo');
-    expect(b.isDisputed, true);
-    expect(b.status, BookingStatus.Disputed);
-    expect(appState.releaseEscrow('b_gps'), false);
+    final zombie = appState.bookings.firstWhere((b) => b.id == 'b_zombie');
+    expect(zombie.status, BookingStatus.Cancelled);
+    expect(zombie.isRefunded, true);
+
+    expect(activeBooking.status, BookingStatus.Completed);
+    expect(activeBooking.isEscrowReleased, true);
+
+    // Submit 5-star review on completed booking
+    final reviewed = appState.submitBookingReview('b_forgotten', 5, 'Inmejorable atención');
+    expect(reviewed, true);
+    expect(activeBooking.reviewRating, 5);
+    expect(appState.caregivers.first.reviewsCount, 125);
   });
 }

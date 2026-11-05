@@ -13,6 +13,27 @@ enum BookingStatus {
 /// Identifies the sender in the chat interface.
 enum ChatSender { Client, Caregiver, System }
 
+/// Represents the Patient's Medical, Access & Emergency Sheet visible during active care.
+class PatientMedicalSheet {
+  final String patientName;
+  final String conditions;
+  final String allergies;
+  final String emergencyContactName;
+  final String emergencyContactPhone;
+  final String homeAccessInstructions;
+  final String insurancePolicyNumber;
+
+  const PatientMedicalSheet({
+    this.patientName = 'Manuel Vila (82 años)',
+    this.conditions = 'Movilidad con andador, hipertensión controlada, deterioro cognitivo leve.',
+    this.allergies = 'Alergia a Penicilina • Dieta baja en sal',
+    this.emergencyContactName = 'Laura Vila (Hija)',
+    this.emergencyContactPhone = '+34 600 11 22 33',
+    this.homeAccessInstructions = 'Calle Goya 42, 3º B • Portero automático 3B',
+    this.insurancePolicyNumber = 'Póliza RC SeniCare #SC-2026-88412 (Cobertura 300.000 €)',
+  });
+}
+
 /// Represents a medication item in the Senior Accessible Mode checklist.
 class MedicationReminder {
   final String id;
@@ -50,8 +71,8 @@ class CaregiverProfile {
   final String title;
   final String bio;
   final double pricePerHour;
-  final double rating;
-  final int reviewsCount;
+  double rating;
+  int reviewsCount;
   final String distance;
   final String imageUrl;
   final List<String> specialties;
@@ -78,7 +99,7 @@ class CaregiverProfile {
   });
 }
 
-/// Represents a commission calculation quote aligned with Firebase Cloud Functions (`calculateCaregiverPayout`).
+/// Represents a commission calculation quote aligned 1:1 with Firebase Cloud Functions (`calculateCaregiverPayout`).
 class CommissionQuote {
   final double baseCost;
   final double commissionRate; // 0.18, 0.10, or 0.06
@@ -107,13 +128,19 @@ class Booking {
   final String caregiverName;
   final String day;
   final String slot;
-  final int durationHours;
+  int durationHours;
+  int extendedHours;
   BookingStatus status;
-  final double cost;
-  final double appCommission;
-  final double totalPaid;
+  double cost;
+  double appCommission;
+  double totalPaid;
   final int commissionRatePercent;
   final String commissionTier;
+  final bool isRecurringWeekly;
+  final String keyCustodyMethod;
+  final String checkInPin;
+  final DateTime createdAt;
+  DateTime? serviceEndTime;
   bool isEscrowReleased;
   bool isRefunded;
   bool isGpsCheckedIn;
@@ -123,6 +150,8 @@ class Booking {
   String? disputeReason;
   double refundedAmount;
   double caregiverCompensation;
+  int? reviewRating;
+  String? reviewComment;
   final List<CareLogEntry> careLogs;
 
   Booking({
@@ -133,12 +162,18 @@ class Booking {
     required this.day,
     required this.slot,
     this.durationHours = 2,
+    this.extendedHours = 0,
     this.status = BookingStatus.PendingApproval,
     required this.cost,
     required this.appCommission,
     required this.totalPaid,
     this.commissionRatePercent = 18,
     this.commissionTier = '18% (Primer servicio con la familia)',
+    this.isRecurringWeekly = false,
+    this.keyCustodyMethod = 'Portería / Conserje',
+    this.checkInPin = '4829',
+    DateTime? createdAt,
+    this.serviceEndTime,
     this.isEscrowReleased = false,
     this.isRefunded = false,
     this.isGpsCheckedIn = false,
@@ -148,12 +183,17 @@ class Booking {
     this.disputeReason,
     double? refundedAmount,
     this.caregiverCompensation = 0.0,
+    this.reviewRating,
+    this.reviewComment,
     List<CareLogEntry>? careLogs,
-  })  : refundedAmount = refundedAmount ?? 0.0,
+  })  : createdAt = createdAt ?? DateTime.now(),
+        refundedAmount = refundedAmount ?? 0.0,
         careLogs = careLogs ?? [];
 
   /// Net amount released or scheduled to be released to the caregiver's connected bank account.
-  double get caregiverNetEarnings => cost * (1.0 - (commissionRatePercent / 100.0));
+  /// Matches 1:1 with `calculateCaregiverPayout` in `functions/index.js`.
+  double get caregiverNetEarnings =>
+      double.parse((cost * (1.0 - (commissionRatePercent / 100.0))).toStringAsFixed(2));
 }
 
 /// A single message entity for the secured chat.

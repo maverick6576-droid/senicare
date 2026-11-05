@@ -10,9 +10,11 @@ class AntiBypassResult {
   });
 }
 
-/// Semantic and pattern-based Anti-Bypass validator for the SeniCare chat.
-/// Protects families and caregivers by keeping communication inside the insured platform
-/// prior to confirming a reservation.
+/// Context-aware Semantic and Pattern-based Anti-Bypass validator for the SeniCare chat.
+/// - Pre-booking (`hasConfirmedBooking == false`): Protects families and caregivers by keeping
+///   communication inside the insured platform prior to confirming a reservation.
+/// - Post-booking (`hasConfirmedBooking == true`): Unlocks phone numbers, intercom codes,
+///   and home addresses so the family and caregiver can coordinate arrival smoothly.
 class AntiBypassValidator {
   // 1. Numeric phones (Spanish mobile 6/7 and landline 8/9, even with spaces, dots, or hyphens)
   static final RegExp _phoneRegex = RegExp(
@@ -38,7 +40,18 @@ class AntiBypassValidator {
     caseSensitive: false,
   );
 
-  static AntiBypassResult evaluate(String input) {
+  static AntiBypassResult evaluate(
+    String input, {
+    bool hasConfirmedBooking = false,
+  }) {
+    // Once a booking is confirmed and insured in Escrow, allow full contact & address exchange
+    if (hasConfirmedBooking) {
+      return AntiBypassResult(
+        sanitizedText: input,
+        wasBlocked: false,
+      );
+    }
+
     String safeText = input;
     bool blocked = false;
     String? reason;
