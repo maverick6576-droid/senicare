@@ -287,4 +287,83 @@ void main() {
     expect(appState.handleBankChargeback('b_chargeback'), true);
     expect(appState.releaseEscrow('b_chargeback'), false);
   });
+
+  test('7 Market-Leader Solutions: Barthel Triage, 1-Tap Substitution, Handoff Report, Family Circle, Bidirectional Review, Bundles & Official Invoice', () {
+    final appState = AppState();
+
+    // 1. Clinical Dependency Triage (Escala Barthel): Grado III + Crane filters out non-certified caregivers (c2)
+    appState.updateDependencyTriage(
+      grade: 3,
+      requiresCrane: true,
+      filterCompatibleOnly: true,
+    );
+    expect(appState.filteredCaregivers.length, 2); // c1 and c3 are Grado III & Crane certified; c2 is Grado I
+
+    // 2. Guarantee of Urgent Substitution (1-Tap Backup Caregiver Re-assignment)
+    appState.addBooking(Booking(
+      id: 'b_sub',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Lunes',
+      slot: '09:00',
+      durationHours: 2,
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+    ));
+    appState.rejectBooking('b_sub');
+    expect(appState.reassignToBackupCaregiver('b_sub'), true);
+    final subBooking = appState.bookings.firstWhere((b) => b.id == 'b_sub');
+    expect(subBooking.wasSubstituted, true);
+    expect(subBooking.caregiverId, 'c3'); // Compatible Grado III backup caregiver
+    expect(subBooking.status, BookingStatus.Confirmed);
+    expect(subBooking.isRefunded, false);
+
+    // 3. Structured Check-out with Shift Hand-off Report
+    expect(
+      appState.completeShiftHandoffCheckout(
+        bookingId: 'b_sub',
+        medicationGiven: true,
+        mealIntake: 'Completa',
+        seniorMood: 'Tranquilo y animado',
+        keysReturnedAndLocked: true,
+        summaryNote: 'Tensión 12/8 estable y paseo matutino.',
+      ),
+      true,
+    );
+    expect(subBooking.handoffReport, isNotNull);
+    expect(subBooking.handoffReport!.mealIntake, 'Completa');
+
+    // 4. Shared Family Circle ("Círculo Familiar")
+    expect(appState.familyCircle.length, 3);
+    expect(
+      appState.addFamilyCircleMember(
+        name: 'Marta Vila',
+        relation: 'Nieta',
+        roleLabel: 'Familiar Supervisor',
+      ),
+      true,
+    );
+    expect(appState.familyCircle.length, 4);
+
+    // 5. Blind Bidirectional Review (Family <-> Caregiver)
+    expect(appState.releaseEscrow('b_sub'), true);
+    expect(appState.submitBookingReview('b_sub', 5, 'Excelente sustitución'), true);
+    expect(subBooking.isBidirectionalReviewPublished, false); // Waiting for caregiver review
+    expect(appState.submitClientReviewByCaregiver('b_sub', 5, 'Familia muy amable'), true);
+    expect(subBooking.isBidirectionalReviewPublished, true); // Both reviewed -> Published!
+
+    // 6. Prepaid Care Hour Bundle ("Bolsa de Horas Prepagada")
+    expect(appState.purchaseCareHourBundle(20), true);
+    expect(appState.prepaidHourBalance, 20);
+    expect(appState.applyPrepaidHoursToBooking('b_sub'), true);
+    expect(appState.prepaidHourBalance, 18);
+
+    // 7. Official Spanish Tax & Dependency Law Invoice (4% Super-reduced VAT)
+    final invoice = appState.generateOfficialInvoice('b_sub');
+    expect(invoice, isNotNull);
+    expect(invoice!.vatRatePercent, 4);
+    expect(invoice.totalPaidEur, 36.0);
+    expect(invoice.familyNif, '47892103-Z');
+  });
 }

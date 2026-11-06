@@ -13,7 +13,7 @@ enum BookingStatus {
 /// Identifies the sender in the chat interface.
 enum ChatSender { Client, Caregiver, System }
 
-/// Represents the Patient's Medical, Access & Emergency Sheet visible during active care.
+/// Represents the Patient's Medical, Access, Dependency Triage (Barthel) & Emergency Sheet.
 class PatientMedicalSheet {
   final String patientName;
   final String conditions;
@@ -22,8 +22,11 @@ class PatientMedicalSheet {
   final String emergencyContactPhone;
   final String homeAccessInstructions;
   final String insurancePolicyNumber;
+  int dependencyGrade; // 1: Grado I (Moderada), 2: Grado II (Severa), 3: Grado III (Gran Dependencia)
+  bool requiresCraneTransfer; // Si requiere grúa / movilización de encamado
+  String cognitiveStatus; // 'Lúcido', 'Deterioro Leve', 'Alzheimer / Demencia'
 
-  const PatientMedicalSheet({
+  PatientMedicalSheet({
     this.patientName = 'Manuel Vila (82 años)',
     this.conditions = 'Movilidad con andador, hipertensión controlada, deterioro cognitivo leve.',
     this.allergies = 'Alergia a Penicilina • Dieta baja en sal',
@@ -31,6 +34,91 @@ class PatientMedicalSheet {
     this.emergencyContactPhone = '+34 600 11 22 33',
     this.homeAccessInstructions = 'Calle Goya 42, 3º B • Portero automático 3B',
     this.insurancePolicyNumber = 'Póliza RC SeniCare #SC-2026-88412 (Cobertura 300.000 €)',
+    this.dependencyGrade = 1,
+    this.requiresCraneTransfer = false,
+    this.cognitiveStatus = 'Deterioro Leve',
+  });
+
+  String get dependencyGradeLabel {
+    switch (dependencyGrade) {
+      case 3:
+        return 'Grado III (Gran Dependencia / Encamado)';
+      case 2:
+        return 'Grado II (Dependencia Severa)';
+      default:
+        return 'Grado I (Autonomía Parcial / Andador)';
+    }
+  }
+}
+
+/// Structured Shift Hand-off Report ("Informe de Cierre de Turno") inspired by Rover / Birdie.
+class ShiftHandoffReport {
+  final bool medicationGiven;
+  final String mealIntake; // 'Completa', 'Parcial', 'Nula'
+  final String seniorMood; // 'Tranquilo y animado', 'Estable', 'Agitado / Cansado'
+  final bool keysReturnedAndLocked;
+  final String summaryNote;
+  final DateTime completedAt;
+
+  const ShiftHandoffReport({
+    required this.medicationGiven,
+    required this.mealIntake,
+    required this.seniorMood,
+    this.keysReturnedAndLocked = true,
+    required this.summaryNote,
+    required this.completedAt,
+  });
+}
+
+/// Represents a member of the shared "Círculo Familiar" (Family Circle) for multi-child coordination.
+class FamilyCircleMember {
+  final String id;
+  final String name;
+  final String relation;
+  final String roleLabel; // 'Titular / Pagador', 'Familiar Supervisor', 'Médico / Coordinador'
+  final bool receivesSosAlerts;
+  final bool canApprovePayments;
+
+  const FamilyCircleMember({
+    required this.id,
+    required this.name,
+    required this.relation,
+    required this.roleLabel,
+    this.receivesSosAlerts = true,
+    this.canApprovePayments = false,
+  });
+}
+
+/// Represents an official Spanish tax/dependency invoice (Ley 39/2006 de Dependencia & IRPF).
+class OfficialCareInvoice {
+  final String invoiceNumber;
+  final String bookingId;
+  final DateTime issueDate;
+  final String familyFullName;
+  final String familyNif;
+  final String caregiverName;
+  final String patientName;
+  final String dependencyGradeLabel;
+  final int durationHours;
+  final double baseTaxableEur;
+  final int vatRatePercent; // 4% IVA superreducido servicios de dependencia
+  final double vatAmountEur;
+  final double totalPaidEur;
+
+  const OfficialCareInvoice({
+    required this.invoiceNumber,
+    required this.bookingId,
+    required this.issueDate,
+    required this.familyFullName,
+    required this.familyNif,
+    required this.caregiverName,
+    required this.patientName,
+    required this.dependencyGradeLabel,
+    required this.durationHours,
+    required this.baseTaxableEur,
+    this.vatRatePercent = 4,
+    required this.vatAmountEur,
+    required this.totalPaidEur,
   });
 }
 
@@ -79,6 +167,8 @@ class CaregiverProfile {
   final bool verified;
   final String verificationBadge;
   final int yearsExperience;
+  final int maxDependencyGrade; // 1 (Grado I), 2 (Grado II), 3 (Grado III)
+  final bool certifiedForCraneTransfer;
   bool hasStripeConnectedAccount;
   final Map<String, List<String>> availableSlots;
 
@@ -96,6 +186,8 @@ class CaregiverProfile {
     required this.verified,
     this.verificationBadge = 'DNI, Penales y Titulación Verificados',
     this.yearsExperience = 5,
+    this.maxDependencyGrade = 3,
+    this.certifiedForCraneTransfer = true,
     this.hasStripeConnectedAccount = true,
     required this.availableSlots,
   });
@@ -126,8 +218,10 @@ class CommissionQuote {
 class Booking {
   final String id;
   final String clientId;
-  final String caregiverId;
-  final String caregiverName;
+  String caregiverId;
+  String caregiverName;
+  String? originalCaregiverName;
+  bool wasSubstituted;
   final String day;
   final String slot;
   int durationHours;
@@ -139,6 +233,7 @@ class Booking {
   final int commissionRatePercent;
   final String commissionTier;
   final bool isRecurringWeekly;
+  final bool paidWithHourBundle;
   final String keyCustodyMethod;
   final String checkInPin;
   final DateTime createdAt;
@@ -149,12 +244,16 @@ class Booking {
   bool isGpsCheckedIn;
   DateTime? checkInTime;
   DateTime? checkOutTime;
+  ShiftHandoffReport? handoffReport;
   bool isDisputed;
   String? disputeReason;
   double refundedAmount;
   double caregiverCompensation;
   int? reviewRating;
   String? reviewComment;
+  int? clientReviewRating; // Caregiver's 1-5 evaluation of the family/home environment
+  String? clientReviewComment;
+  OfficialCareInvoice? officialInvoice;
   final List<String> extensionPaymentIds;
   final List<CareLogEntry> careLogs;
 
@@ -163,6 +262,8 @@ class Booking {
     this.clientId = 'client_demo_1',
     required this.caregiverId,
     required this.caregiverName,
+    this.originalCaregiverName,
+    this.wasSubstituted = false,
     required this.day,
     required this.slot,
     this.durationHours = 2,
@@ -174,6 +275,7 @@ class Booking {
     this.commissionRatePercent = 18,
     this.commissionTier = '18% (Primer servicio con la familia)',
     this.isRecurringWeekly = false,
+    this.paidWithHourBundle = false,
     this.keyCustodyMethod = 'Portería / Conserje',
     this.checkInPin = '4829',
     DateTime? createdAt,
@@ -184,12 +286,16 @@ class Booking {
     this.isGpsCheckedIn = false,
     this.checkInTime,
     this.checkOutTime,
+    this.handoffReport,
     this.isDisputed = false,
     this.disputeReason,
     double? refundedAmount,
     this.caregiverCompensation = 0.0,
     this.reviewRating,
     this.reviewComment,
+    this.clientReviewRating,
+    this.clientReviewComment,
+    this.officialInvoice,
     List<String>? extensionPaymentIds,
     List<CareLogEntry>? careLogs,
   })  : createdAt = createdAt ?? DateTime.now(),
@@ -201,6 +307,11 @@ class Booking {
   /// Matches 1:1 with `calculateCaregiverPayout` in `functions/index.js`.
   double get caregiverNetEarnings =>
       double.parse((cost * (1.0 - (commissionRatePercent / 100.0))).toStringAsFixed(2));
+
+  /// Blind Bidirectional Review status (inspired by Airbnb/TaskRabbit):
+  /// Publicly visible once both Family and Caregiver have submitted their evaluation.
+  bool get isBidirectionalReviewPublished =>
+      reviewRating != null && clientReviewRating != null;
 }
 
 /// A single message entity for the secured chat.

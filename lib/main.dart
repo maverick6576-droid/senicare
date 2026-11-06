@@ -36,9 +36,41 @@ class AppState extends ChangeNotifier {
   String selectedSpecialty = 'Todos';
   String searchQuery = '';
   bool sosAlertActive = false;
+  bool filterByDependencyTriage = false;
+  int prepaidHourBalance = 0; // Bolsa de Horas Prepagada
+  String familyNif = '47892103-Z';
+  String familyFullName = 'Laura Vila Delicado';
 
-  // Patient Medical, Access & Insurance Sheet
-  final PatientMedicalSheet patientMedicalSheet = const PatientMedicalSheet();
+  // Patient Medical, Access, Dependency Triage (Barthel) & Insurance Sheet
+  final PatientMedicalSheet patientMedicalSheet = PatientMedicalSheet();
+
+  // Shared Family Circle ("Círculo Familiar") for multi-child & geriatric coordination
+  final List<FamilyCircleMember> familyCircle = [
+    const FamilyCircleMember(
+      id: 'fc_1',
+      name: 'Laura Vila (Madrid)',
+      relation: 'Hija • Titular',
+      roleLabel: 'Titular / Pagadora',
+      receivesSosAlerts: true,
+      canApprovePayments: true,
+    ),
+    const FamilyCircleMember(
+      id: 'fc_2',
+      name: 'Carlos Vila (Valencia)',
+      relation: 'Hijo',
+      roleLabel: 'Familiar Supervisor',
+      receivesSosAlerts: true,
+      canApprovePayments: false,
+    ),
+    const FamilyCircleMember(
+      id: 'fc_3',
+      name: 'Dra. Carmen Ortiz',
+      relation: 'Médico Geriatra',
+      roleLabel: 'Supervisión Clínica',
+      receivesSosAlerts: false,
+      canApprovePayments: false,
+    ),
+  ];
 
   // Medication reminders for the Senior Accessible Mode
   final List<MedicationReminder> medications = [
@@ -71,6 +103,8 @@ class AppState extends ChangeNotifier {
       specialties: ['Movilidad', 'Cocina Médica'],
       verified: true,
       yearsExperience: 10,
+      maxDependencyGrade: 3,
+      certifiedForCraneTransfer: true,
       availableSlots: {
         'Lunes': ['09:00', '10:00', '16:00'],
         'Martes': ['10:00', '11:00'],
@@ -90,6 +124,8 @@ class AppState extends ChangeNotifier {
       specialties: ['Compañía', 'Soporte Digital'],
       verified: true,
       yearsExperience: 6,
+      maxDependencyGrade: 1,
+      certifiedForCraneTransfer: false,
       availableSlots: {
         'Miércoles': ['15:00', '16:00', '17:00'],
         'Jueves': ['09:00', '12:00'],
@@ -108,6 +144,8 @@ class AppState extends ChangeNotifier {
       specialties: ['Movilidad', 'Cocina Médica', 'Compañía'],
       verified: true,
       yearsExperience: 12,
+      maxDependencyGrade: 3,
+      certifiedForCraneTransfer: true,
       availableSlots: {
         'Viernes': ['20:00', '21:00'],
         'Sábado': ['08:00', '09:00'],
@@ -133,6 +171,17 @@ class AppState extends ChangeNotifier {
         'Soporte Digital',
       ];
 
+  /// Evaluates if a caregiver meets the senior's clinical Dependency Grade (Barthel) and crane requirements.
+  bool isCaregiverCompatibleWithPatient(CaregiverProfile c) {
+    if (c.maxDependencyGrade < patientMedicalSheet.dependencyGrade) {
+      return false;
+    }
+    if (patientMedicalSheet.requiresCraneTransfer && !c.certifiedForCraneTransfer) {
+      return false;
+    }
+    return true;
+  }
+
   List<CaregiverProfile> get filteredCaregivers {
     return caregivers.where((c) {
       final matchesSpecialty =
@@ -140,7 +189,9 @@ class AppState extends ChangeNotifier {
       final matchesSearch =
           c.name.toLowerCase().contains(searchQuery.toLowerCase()) ||
               c.title.toLowerCase().contains(searchQuery.toLowerCase());
-      return matchesSpecialty && matchesSearch;
+      final matchesTriage =
+          !filterByDependencyTriage || isCaregiverCompatibleWithPatient(c);
+      return matchesSpecialty && matchesSearch && matchesTriage;
     }).toList();
   }
 
@@ -607,6 +658,217 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// 1. Clinical Dependency Triage (Escala Barthel rápida):
+  /// Updates patient's dependency level (Grado I, II, III) & crane transfer needs,
+  /// optionally filtering the marketplace to only certified compatible caregivers.
+  void updateDependencyTriage({
+    required int grade,
+    required bool requiresCrane,
+    String? cognitiveStatus,
+    bool filterCompatibleOnly = true,
+  }) {
+    patientMedicalSheet.dependencyGrade = grade.clamp(1, 3);
+    patientMedicalSheet.requiresCraneTransfer = requiresCrane;
+    if (cognitiveStatus != null && cognitiveStatus.trim().isNotEmpty) {
+      patientMedicalSheet.cognitiveStatus = cognitiveStatus.trim();
+    }
+    filterByDependencyTriage = filterCompatibleOnly;
+    notifyListeners();
+  }
+
+  /// 2. Guarantee of Urgent Substitution ("Garantía de Sustitución en 1 Toque"):
+  /// Reassigns a cancelled or pending booking to a verified compatible backup caregiver,
+  /// preserving the Escrow coverage without forcing the family to wait 3-5 days for a bank refund.
+  bool reassignToBackupCaregiver(String bookingId) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+    final b = bookings[idx];
+
+    final candidates = caregivers.where((c) =>
+        c.id != b.caregiverId &&
+        c.verified &&
+        isCaregiverCompatibleWithPatient(c));
+    if (candidates.isEmpty) return false;
+
+    final backup = candidates.first;
+    b.originalCaregiverName ??= b.caregiverName;
+    b.caregiverId = backup.id;
+    b.caregiverName = backup.name;
+    b.wasSubstituted = true;
+    b.status = BookingStatus.Confirmed;
+    b.isRefunded = false;
+    b.refundedAmount = 0.0;
+    b.escrowStatus = 'held';
+    b.serviceEndTime = DateTime.now().add(Duration(hours: b.durationHours));
+
+    b.careLogs.add(
+      CareLogEntry(
+        category: 'Garantía de Sustitución',
+        note:
+            'Reasignación inmediata a ${backup.name} (${backup.title}) manteniendo custodia y seguro RC.',
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    chatMessages.add(
+      ChatMessage(
+        sender: ChatSender.Caregiver,
+        text:
+            '⚡ GARANTÍA DE SUSTITUCIÓN ACTIVADA: ${backup.name} (${backup.title}) ha asumido tu servicio del ${b.day} a las ${b.slot} h en sustitución de ${b.originalCaregiverName}, manteniendo el importe en garantía sin sobrecoste.',
+        timestamp: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+    return true;
+  }
+
+  /// 3. Structured Check-out with "Informe de Cierre de Turno" (Shift Hand-off Report):
+  /// Records medication compliance, meal intake, senior mood, and key custody return before closing shift.
+  bool completeShiftHandoffCheckout({
+    required String bookingId,
+    required bool medicationGiven,
+    required String mealIntake,
+    required String seniorMood,
+    bool keysReturnedAndLocked = true,
+    required String summaryNote,
+  }) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+    final b = bookings[idx];
+
+    final report = ShiftHandoffReport(
+      medicationGiven: medicationGiven,
+      mealIntake: mealIntake,
+      seniorMood: seniorMood,
+      keysReturnedAndLocked: keysReturnedAndLocked,
+      summaryNote: summaryNote.trim().isEmpty
+          ? 'Turno finalizado sin incidencias. Constantes y bienestar revisados.'
+          : summaryNote.trim(),
+      completedAt: DateTime.now(),
+    );
+
+    b.handoffReport = report;
+    b.checkOutTime = report.completedAt;
+    b.careLogs.add(
+      CareLogEntry(
+        category: 'Informe Cierre de Turno',
+        note:
+            'Medicación: ${medicationGiven ? "Sí" : "No"} • Comida: $mealIntake • Ánimo: $seniorMood • Llaves cerradas: ${keysReturnedAndLocked ? "Sí" : "No"}. Nota: ${report.summaryNote}',
+        timestamp: report.completedAt,
+      ),
+    );
+
+    chatMessages.add(
+      ChatMessage(
+        sender: ChatSender.Caregiver,
+        text:
+            '📋 INFORME DE CIERRE DE TURNO (#${b.id}):\n'
+            '• Medicación administrada: ${medicationGiven ? "✅ Sí" : "⚠️ No requerida"}\n'
+            '• Ingesta de comida: $mealIntake\n'
+            '• Estado de ánimo: $seniorMood\n'
+            '• Resumen: ${report.summaryNote}',
+        timestamp: report.completedAt,
+      ),
+    );
+    notifyListeners();
+    return true;
+  }
+
+  /// 4. Shared "Círculo Familiar" (Family Circle) for multi-child & medical coordination:
+  bool addFamilyCircleMember({
+    required String name,
+    required String relation,
+    required String roleLabel,
+    bool receivesSosAlerts = true,
+    bool canApprovePayments = false,
+  }) {
+    if (name.trim().isEmpty) return false;
+    familyCircle.add(
+      FamilyCircleMember(
+        id: 'fc_${familyCircle.length + 1}',
+        name: name.trim(),
+        relation: relation.trim().isEmpty ? 'Familiar' : relation.trim(),
+        roleLabel: roleLabel,
+        receivesSosAlerts: receivesSosAlerts,
+        canApprovePayments: canApprovePayments,
+      ),
+    );
+    notifyListeners();
+    return true;
+  }
+
+  /// 5. Blind Bidirectional Review (Caregiver rates Client / Home Environment):
+  /// Protects caregivers from unsafe conditions and publishes reviews when both sides have evaluated.
+  bool submitClientReviewByCaregiver(String bookingId, int rating, String comment) {
+    if (rating < 1 || rating > 5) return false;
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+    final b = bookings[idx];
+    if (b.status != BookingStatus.Completed || b.clientReviewRating != null) {
+      return false;
+    }
+    b.clientReviewRating = rating;
+    b.clientReviewComment = comment.trim().isEmpty
+        ? 'Familia puntual, entorno seguro y pautas claras.'
+        : comment.trim();
+    notifyListeners();
+    return true;
+  }
+
+  /// 6. Prepaid Care Hour Bundle ("Bolsa de Horas Prepagada con Descuento"):
+  /// Allows families to buy monthly packs (e.g., 20h or 50h) for recurring care.
+  bool purchaseCareHourBundle(int hours) {
+    if (hours <= 0) return false;
+    prepaidHourBalance += hours;
+    notifyListeners();
+    return true;
+  }
+
+  /// Applies available prepaid hours from the family's Care Bundle to cover a booking.
+  bool applyPrepaidHoursToBooking(String bookingId) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+    final b = bookings[idx];
+    if (prepaidHourBalance < b.durationHours) return false;
+    prepaidHourBalance -= b.durationHours;
+    notifyListeners();
+    return true;
+  }
+
+  /// 7. Official Tax & Dependency Law Invoice Generator (Ley 39/2006 de Dependencia & IRPF):
+  /// Generates a compliant invoice with correlative numbering, NIF, and 4% reduced VAT breakdown.
+  OfficialCareInvoice? generateOfficialInvoice(String bookingId) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return null;
+    final b = bookings[idx];
+    if (b.isRefunded || b.status == BookingStatus.Cancelled) return null;
+
+    if (b.officialInvoice != null) {
+      return b.officialInvoice;
+    }
+
+    final baseTaxable = double.parse((b.totalPaid / 1.04).toStringAsFixed(2));
+    final vatAmount = double.parse((b.totalPaid - baseTaxable).toStringAsFixed(2));
+    final invoice = OfficialCareInvoice(
+      invoiceNumber: 'SC-${DateTime.now().year}-000${idx + 1}',
+      bookingId: b.id,
+      issueDate: DateTime.now(),
+      familyFullName: familyFullName,
+      familyNif: familyNif,
+      caregiverName: b.caregiverName,
+      patientName: patientMedicalSheet.patientName,
+      dependencyGradeLabel: patientMedicalSheet.dependencyGradeLabel,
+      durationHours: b.durationHours,
+      baseTaxableEur: baseTaxable,
+      vatRatePercent: 4,
+      vatAmountEur: vatAmount,
+      totalPaidEur: b.totalPaid,
+    );
+    b.officialInvoice = invoice;
+    notifyListeners();
+    return invoice;
+  }
+
   /// Appends a new chat message and runs the Context-Aware Anti-Bypass Validator.
   /// Unlocks contact & address exchange once a booking is Confirmed or InProgress.
   AntiBypassResult sendChatMessage(String text) {
@@ -833,6 +1095,50 @@ class ExplorerScreen extends StatelessWidget {
           ),
         SliverToBoxAdapter(
           child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.medical_information, size: 18, color: AppTheme.primary),
+                    label: Text(
+                      'Triaje: Grado ${state.patientMedicalSheet.dependencyGrade}${state.filterByDependencyTriage ? " (Filtro Activo)" : ""}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: state.filterByDependencyTriage
+                        ? AppTheme.primary.withValues(alpha: 0.18)
+                        : AppTheme.primaryLight,
+                    onPressed: () => _showDependencyTriageDialog(context),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.groups_rounded, size: 18, color: AppTheme.primary),
+                    label: Text(
+                      'Círculo Familiar (${state.familyCircle.length})',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: AppTheme.primaryLight,
+                    onPressed: () => _showFamilyCircleDialog(context),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.confirmation_number_rounded,
+                        size: 18, color: AppTheme.primary),
+                    label: Text(
+                      'Bolsa Horas: ${state.prepaidHourBalance}h',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: AppTheme.primaryLight,
+                    onPressed: () => _showHourBundlesDialog(context),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: TextField(
               onChanged: state.setSearchQuery,
@@ -946,6 +1252,15 @@ class ExplorerScreen extends StatelessWidget {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '🩺 Hasta Grado ${c.maxDependencyGrade} Dependencia${c.certifiedForCraneTransfer ? " • Certificada Grúa/Encamados" : ""}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             const SizedBox(height: 10),
                             Wrap(
                               spacing: 6,
@@ -1011,6 +1326,210 @@ class ExplorerScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  void _showDependencyTriageDialog(BuildContext context) {
+    final state = context.read<AppState>();
+    int grade = state.patientMedicalSheet.dependencyGrade;
+    bool requiresCrane = state.patientMedicalSheet.requiresCraneTransfer;
+    bool filterOnly = state.filterByDependencyTriage;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('🩺 Triaje Clínico (Escala Barthel)'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Configura el grado de dependencia de tu familiar para filtrar cuidadores físicamente capacitados:',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                initialValue: grade,
+                decoration: const InputDecoration(
+                  labelText: 'Grado Ley de Dependencia',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 1, child: Text('Grado I (Autonomía Parcial)')),
+                  DropdownMenuItem(value: 2, child: Text('Grado II (Dependencia Severa)')),
+                  DropdownMenuItem(value: 3, child: Text('Grado III (Gran Dependencia)')),
+                ],
+                onChanged: (v) {
+                  if (v != null) setDialogState(() => grade = v);
+                },
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Requiere grúa / movilización encamado'),
+                value: requiresCrane,
+                onChanged: (v) => setDialogState(() => requiresCrane = v),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Mostrar solo cuidadores compatibles'),
+                value: filterOnly,
+                onChanged: (v) => setDialogState(() => filterOnly = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                state.updateDependencyTriage(
+                  grade: grade,
+                  requiresCrane: requiresCrane,
+                  filterCompatibleOnly: filterOnly,
+                );
+                Navigator.pop(ctx);
+              },
+              child: const Text('Aplicar Triaje'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFamilyCircleDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final relationController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => Consumer<AppState>(
+        builder: (context, state, _) => AlertDialog(
+          title: const Text('👨‍👩‍👧 Círculo Familiar Compartido'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Miembros que reciben el Informe de Cierre de Turno y alertas SOS en tiempo real:',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                ...state.familyCircle.map(
+                  (m) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.verified_user, color: AppTheme.primary),
+                    title: Text(m.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${m.relation} • ${m.roleLabel}'),
+                  ),
+                ),
+                const Divider(),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre del familiar o médico',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: relationController,
+                  decoration: const InputDecoration(
+                    labelText: 'Parentesco (ej. Hijo, Nieta)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cerrar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.trim().isNotEmpty) {
+                  state.addFamilyCircleMember(
+                    name: nameController.text,
+                    relation: relationController.text,
+                    roleLabel: 'Familiar Supervisor',
+                  );
+                  nameController.clear();
+                  relationController.clear();
+                }
+              },
+              child: const Text('Añadir al Círculo'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showHourBundlesDialog(BuildContext context) {
+    final state = context.read<AppState>();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('🎟️ Bolsa de Horas Prepagada'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Saldo disponible actual: ${state.prepaidHourBalance} horas',
+              style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Adquiere bonos mensuales de cuidado recurrente con descuento directo y cobertura RC prioritaria:',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                state.purchaseCareHourBundle(20);
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🎟️ Bono Respiro +20h añadido a tu Bolsa de Horas.'),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.add_card),
+              label: const Text('Cargar Bono 20h (-10% dto.)'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                state.purchaseCareHourBundle(50);
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🎟️ Pack Dependencia +50h añadido a tu Bolsa de Horas.'),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.workspace_premium),
+              label: const Text('Cargar Pack Mensual 50h (-15% dto.)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1911,7 +2430,7 @@ class BookingsScreen extends StatelessWidget {
                   ),
                 ],
 
-                // Cancelled / Refunded Notice
+                // Cancelled / Refunded Notice + 1-Tap Guarantee of Substitution
                 if (b.status == BookingStatus.Cancelled) ...[
                   const SizedBox(height: 12),
                   Container(
@@ -1922,21 +2441,102 @@ class BookingsScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.info_outline, color: Colors.red, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            isClient
-                                ? 'Solicitud rechazada o expirada. Reembolso íntegro (${currencyFormat.format(b.totalPaid)}) devuelto automáticamente a tu cuenta.'
-                                : 'Solicitud rechazada. Reembolso del 100% (${currencyFormat.format(b.totalPaid)}) devuelto al cliente y notificación enviada.',
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
+                        Row(
+                          children: [
+                            const Icon(Icons.info_outline, color: Colors.red, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                isClient
+                                    ? 'Solicitud rechazada o expirada. Reembolso íntegro (${currencyFormat.format(b.totalPaid)}) devuelto automáticamente a tu cuenta.'
+                                    : 'Solicitud rechazada. Reembolso del 100% (${currencyFormat.format(b.totalPaid)}) devuelto al cliente y notificación enviada.',
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
+                          ],
+                        ),
+                        if (isClient) ...[
+                          const SizedBox(height: 10),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              final ok = context.read<AppState>().reassignToBackupCaregiver(b.id);
+                              if (ok) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        '⚡ Garantía de Sustitución activada: Cuidadora de guardia asignada inmediatamente.'),
+                                    backgroundColor: AppTheme.primary,
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.bolt_rounded),
+                            label: const Text('Activar Garantía de Sustitución en 1 Toque'),
                           ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+
+                // Guarantee of Substitution Badge
+                if (b.wasSubstituted) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.primary),
+                    ),
+                    child: Text(
+                      '⚡ Garantía de Sustitución Activa (Sustituye a ${b.originalCaregiverName})',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+
+                // Shift Hand-off Report Card ("Informe de Cierre de Turno")
+                if (b.handoffReport != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.green.shade400),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '✅ Informe de Cierre de Turno Verificado:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Colors.green,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '• Medicación: ${b.handoffReport!.medicationGiven ? "Sí" : "No"} | Comida: ${b.handoffReport!.mealIntake} | Ánimo: ${b.handoffReport!.seniorMood}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          '• Resumen: ${b.handoffReport!.summaryNote}',
+                          style: const TextStyle(fontSize: 12),
                         ),
                       ],
                     ),
@@ -1965,7 +2565,7 @@ class BookingsScreen extends StatelessWidget {
                   ),
                 ],
 
-                // Completed & Review Section
+                // Completed & Bidirectional Blind Review Section
                 if (b.status == BookingStatus.Completed) ...[
                   const SizedBox(height: 12),
                   if (b.reviewRating != null)
@@ -1981,7 +2581,7 @@ class BookingsScreen extends StatelessWidget {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Valoración enviada: ${b.reviewRating}/5 ★ — "${b.reviewComment}"',
+                              'Valoración familiar: ${b.reviewRating}/5 ★ — "${b.reviewComment}"',
                               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                             ),
                           ),
@@ -1994,9 +2594,41 @@ class BookingsScreen extends StatelessWidget {
                       icon: const Icon(Icons.star_rate_rounded, color: AppTheme.amber),
                       label: const Text('Valorar a la Cuidadora (1 a 5 ★)'),
                     ),
+                  if (!isClient && b.clientReviewRating == null) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => _showCaregiverClientReviewDialog(context, b.id),
+                      icon: const Icon(Icons.verified_user_outlined, color: AppTheme.primary),
+                      label: const Text('Evaluar Entorno Familiar (Reseña Bidireccional)'),
+                    ),
+                  ],
+                  if (b.isBidirectionalReviewPublished) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      '🔒 Reseña Ciega Bidireccional Publicada (Entorno Familiar: ${b.clientReviewRating}/5 ★)',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ],
 
-                const SizedBox(height: 16),
+                // Official Spanish Invoice Button (Ley de Dependencia / IRPF)
+                if (b.status != BookingStatus.Cancelled) ...[
+                  const SizedBox(height: 10),
+                  TextButton.icon(
+                    onPressed: () => _showOfficialInvoiceDialog(context, b.id),
+                    icon: const Icon(Icons.receipt_long_rounded, size: 18, color: AppTheme.primary),
+                    label: const Text(
+                      'Ver Factura Oficial (Ley Dependencia / IRPF 4% IVA)',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 12),
 
                 // Client Actions: Extend Shift (+1h), Release Escrow, OR Report Incident/Dispute
                 if (isClient &&
@@ -2050,7 +2682,7 @@ class BookingsScreen extends StatelessWidget {
                   ),
                 ],
 
-                // Caregiver Actions: Accept/Reject Pending OR GPS/PIN Check-in + Care Log
+                // Caregiver Actions: Accept/Reject Pending OR GPS/PIN Check-in + Care Log + Shift Hand-off
                 if (!isClient && b.status == BookingStatus.PendingApproval)
                   Row(
                     children: [
@@ -2129,15 +2761,27 @@ class BookingsScreen extends StatelessWidget {
                       ],
                     )
                   else
-                    OutlinedButton.icon(
-                      onPressed: () => _showAddCareLogDialog(context, b.id),
-                      icon: const Icon(Icons.note_add_rounded),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.primary,
-                        side: const BorderSide(color: AppTheme.primary),
-                        minimumSize: Size(double.infinity, state.seniorMode ? 58 : 44),
-                      ),
-                      label: const Text('Añadir Nota al Cuaderno de Cuidados'),
+                    Column(
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _showAddCareLogDialog(context, b.id),
+                          icon: const Icon(Icons.note_add_rounded),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.primary,
+                            side: const BorderSide(color: AppTheme.primary),
+                            minimumSize: Size(double.infinity, state.seniorMode ? 58 : 44),
+                          ),
+                          label: const Text('Añadir Nota al Cuaderno de Cuidados'),
+                        ),
+                        if (b.handoffReport == null) ...[
+                          const SizedBox(height: 8),
+                          ElevatedButton.icon(
+                            onPressed: () => _showShiftHandoffDialog(context, b.id),
+                            icon: const Icon(Icons.assignment_turned_in_rounded),
+                            label: const Text('Finalizar Turno y Enviar Informe'),
+                          ),
+                        ],
+                      ],
                     ),
                 ],
               ],
@@ -2302,6 +2946,237 @@ class BookingsScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showShiftHandoffDialog(BuildContext context, String bookingId) {
+    final summaryController = TextEditingController();
+    bool medicationGiven = true;
+    String mealIntake = 'Completa';
+    String seniorMood = 'Tranquilo y animado';
+    bool keysLocked = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('📋 Informe de Cierre de Turno'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('💊 Medicación pautada administrada'),
+                  value: medicationGiven,
+                  onChanged: (v) => setDialogState(() => medicationGiven = v),
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: mealIntake,
+                  decoration: const InputDecoration(
+                    labelText: '🍲 Ingesta de comida / hidratación',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Completa', child: Text('Completa (100%)')),
+                    DropdownMenuItem(value: 'Parcial', child: Text('Parcial (50%)')),
+                    DropdownMenuItem(value: 'Nula', child: Text('Inapetente / Nula')),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setDialogState(() => mealIntake = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: seniorMood,
+                  decoration: const InputDecoration(
+                    labelText: '😊 Estado de ánimo del mayor',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'Tranquilo y animado', child: Text('Tranquilo y animado')),
+                    DropdownMenuItem(value: 'Estable', child: Text('Estable / Descansando')),
+                    DropdownMenuItem(
+                        value: 'Agitado / Cansado', child: Text('Agitado / Cansado')),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setDialogState(() => seniorMood = v);
+                  },
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('🔑 Llaves entregadas / puerta cerrada'),
+                  value: keysLocked,
+                  onChanged: (v) => setDialogState(() => keysLocked = v),
+                ),
+                TextField(
+                  controller: summaryController,
+                  decoration: const InputDecoration(
+                    labelText: 'Resumen para el Círculo Familiar',
+                    hintText: 'Ej: Tensión 12/8, dimos paseo de 30 min.',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                context.read<AppState>().completeShiftHandoffCheckout(
+                      bookingId: bookingId,
+                      medicationGiven: medicationGiven,
+                      mealIntake: mealIntake,
+                      seniorMood: seniorMood,
+                      keysReturnedAndLocked: keysLocked,
+                      summaryNote: summaryController.text,
+                    );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        '📋 Informe de Cierre enviado a todos los miembros del Círculo Familiar.'),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                );
+              },
+              child: const Text('Enviar Informe y Cerrar Turno'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCaregiverClientReviewDialog(BuildContext context, String bookingId) {
+    final commentController = TextEditingController();
+    int selectedStars = 5;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('🔒 Evaluar Entorno Familiar'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Valora la puntualidad de acceso, seguridad del domicilio y exactitud de la ficha médica (Reseña ciega bidireccional):',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (idx) {
+                  final star = idx + 1;
+                  return IconButton(
+                    icon: Icon(
+                      star <= selectedStars ? Icons.star : Icons.star_border,
+                      color: AppTheme.amber,
+                      size: 32,
+                    ),
+                    onPressed: () => setDialogState(() => selectedStars = star),
+                  );
+                }),
+              ),
+              TextField(
+                controller: commentController,
+                decoration: const InputDecoration(
+                  hintText: 'Ej: Familia muy respetuosa y pautas claras.',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                context.read<AppState>().submitClientReviewByCaregiver(
+                      bookingId,
+                      selectedStars,
+                      commentController.text,
+                    );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🔒 Valoración bidireccional registrada correctamente.'),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                );
+              },
+              child: const Text('Guardar Evaluación'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showOfficialInvoiceDialog(BuildContext context, String bookingId) {
+    final invoice = context.read<AppState>().generateOfficialInvoice(bookingId);
+    if (invoice == null) return;
+    final currencyFormat = NumberFormat.currency(symbol: '€', decimalDigits: 2);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('🧾 Factura ${invoice.invoiceNumber}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Certificada para Deducción IRPF y Prestación Vinculada (Ley 39/2006 de Dependencia)',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary),
+            ),
+            const Divider(height: 20),
+            Text('Titular Fiscal: ${invoice.familyFullName}'),
+            Text('NIF / DNI: ${invoice.familyNif}'),
+            Text('Persona Atendida: ${invoice.patientName}'),
+            Text('Grado Reconocido: ${invoice.dependencyGradeLabel}'),
+            Text('Profesional: ${invoice.caregiverName} (${invoice.durationHours}h)'),
+            const Divider(height: 20),
+            Text('Base Imponible: ${currencyFormat.format(invoice.baseTaxableEur)}'),
+            Text(
+                'IVA Superreducido (${invoice.vatRatePercent}%): ${currencyFormat.format(invoice.vatAmountEur)}'),
+            const SizedBox(height: 6),
+            Text(
+              'TOTAL ABONADO: ${currencyFormat.format(invoice.totalPaidEur)}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      '📥 Factura Oficial ${invoice.invoiceNumber} exportada con desglose Ley de Dependencia.'),
+                  backgroundColor: AppTheme.primary,
+                ),
+              );
+            },
+            icon: const Icon(Icons.download_rounded),
+            label: const Text('Descargar PDF Oficial'),
+          ),
+        ],
       ),
     );
   }

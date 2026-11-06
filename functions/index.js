@@ -1220,14 +1220,15 @@ exports.extendBookingShift = functions.region("europe-west1").https.onCall(async
 
 /**
  * 21. submitCaregiverReview
- * Registra una valoración verificada (1-5 estrellas) tras completar el servicio y recalcula la media del cuidador.
+ * Registra una valoración verificada ciega bidireccional (Familia <-> Cuidador, 1-5 estrellas)
+ * tras completar el servicio y recalcula la media del cuidador.
  */
 exports.submitCaregiverReview = functions.region("europe-west1").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para valorar el servicio.");
   }
   try {
-    const { bookingId, rating, comment = "" } = data;
+    const { bookingId, rating, comment = "", reviewerRole = "client" } = data;
     if (!bookingId || !rating || rating < 1 || rating > 5) {
       throw new functions.https.HttpsError("invalid-argument", "La puntuación debe estar entre 1 y 5 estrellas.");
     }
@@ -1237,14 +1238,31 @@ exports.submitCaregiverReview = functions.region("europe-west1").https.onCall(as
       throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
     }
     const booking = bookingDoc.data();
+
+    if (reviewerRole === "caregiver") {
+      if (booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
+        throw new functions.https.HttpsError("permission-denied", "Solo el cuidador asignado puede evaluar el entorno familiar.");
+      }
+      const isPublished = Boolean(booking.reviewRating);
+      await bookingRef.update({
+        clientReviewRating: rating,
+        clientReviewComment: comment,
+        clientReviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+        isBidirectionalReviewPublished: isPublished,
+      });
+      return { success: true, isBidirectionalReviewPublished: isPublished };
+    }
+
     if (booking.clientId !== context.auth.uid && !context.auth.token.admin) {
       throw new functions.https.HttpsError("permission-denied", "Solo la familia contratante puede valorar este servicio.");
     }
 
+    const isPublished = Boolean(booking.clientReviewRating);
     await bookingRef.update({
       reviewRating: rating,
       reviewComment: comment,
       reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+      isBidirectionalReviewPublished: isPublished,
     });
 
     if (booking.caregiverId) {
@@ -1263,9 +1281,162 @@ exports.submitCaregiverReview = functions.region("europe-west1").https.onCall(as
       }
     }
 
-    return { success: true };
+    return { success: true, isBidirectionalReviewPublished: isPublished };
   } catch (error) {
     console.error("Error en submitCaregiverReview:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 22. reassignBackupCaregiver
+ * Garantía de Sustitución en 1 Toque: Reasigna una reserva cancelada o pendiente a un cuidador
+ * de guardia compatible con el Grado de Dependencia sin perder la custodia ni esperar reembolso bancario.
+ */
+exports.reassignBackupCaregiver = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  try {
+    const { bookingId, backupCaregiverId, backupCaregiverName } = data;
+    if (!bookingId || !backupCaregiverId) {
+      throw new functions.https.HttpsError("invalid-argument", "Faltan datos para la sustitución.");
+    }
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingDoc = await bookingRef.get();
+    if (!bookingDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
+    }
+    const booking = bookingDoc.data();
+    if (booking.clientId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "No autorizado.");
+    }
+
+    await bookingRef.update({
+      originalCaregiverId: booking.caregiverId,
+      originalCaregiverName: booking.caregiverName || "Cuidador Original",
+      caregiverId: backupCaregiverId,
+      caregiverName: backupCaregiverName || "Cuidadora de Guardia Verificada",
+      wasSubstituted: true,
+      status: "Confirmed",
+      isRefunded: false,
+      escrowStatus: "held",
+      substitutedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { success: true, newCaregiverId: backupCaregiverId };
+  } catch (error) {
+    console.error("Error en reassignBackupCaregiver:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 23. submitShiftHandoffReport
+ * Registra el Informe Estructurado de Cierre de Turno (medicación, comida, estado de ánimo, llaves)
+ * y notifica al Círculo Familiar.
+ */
+exports.submitShiftHandoffReport = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  try {
+    const {
+      bookingId,
+      medicationGiven = true,
+      mealIntake = "Completa",
+      seniorMood = "Tranquilo y animado",
+      keysReturnedAndLocked = true,
+      summaryNote = "",
+    } = data;
+    if (!bookingId) {
+      throw new functions.https.HttpsError("invalid-argument", "bookingId requerido.");
+    }
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingDoc = await bookingRef.get();
+    if (!bookingDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
+    }
+    const booking = bookingDoc.data();
+    if (booking.caregiverId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "Solo el cuidador asignado puede cerrar el turno.");
+    }
+
+    const handoffReport = {
+      medicationGiven: Boolean(medicationGiven),
+      mealIntake,
+      seniorMood,
+      keysReturnedAndLocked: Boolean(keysReturnedAndLocked),
+      summaryNote,
+      completedAt: new Date().toISOString(),
+    };
+
+    await bookingRef.update({
+      handoffReport,
+      checkOutTime: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { success: true, handoffReport };
+  } catch (error) {
+    console.error("Error en submitShiftHandoffReport:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 24. generateOfficialDependencyInvoice
+ * Genera la factura electrónica oficial con desglose de IVA superreducido (4%) y NIF
+ * para justificación de la Ley 39/2006 de Dependencia (PECEF / PVS) y deducciones autonómicas IRPF.
+ */
+exports.generateOfficialDependencyInvoice = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  try {
+    const { bookingId, familyNif = "47892103-Z", familyFullName = "Titular Familiar" } = data;
+    if (!bookingId) {
+      throw new functions.https.HttpsError("invalid-argument", "bookingId requerido.");
+    }
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingDoc = await bookingRef.get();
+    if (!bookingDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
+    }
+    const booking = bookingDoc.data();
+    const totalPaidEur = booking.totalPaid || (booking.totalAmountInCents ? booking.totalAmountInCents / 100 : 36);
+    const baseTaxableEur = Math.round((totalPaidEur / 1.04) * 100) / 100;
+    const vatAmountEur = Math.round((totalPaidEur - baseTaxableEur) * 100) / 100;
+    const year = new Date().getFullYear();
+    const invoiceNumber = `SC-${year}-${bookingId.slice(-5).toUpperCase()}`;
+
+    const officialInvoice = {
+      invoiceNumber,
+      bookingId,
+      issueDate: new Date().toISOString(),
+      familyFullName,
+      familyNif,
+      caregiverName: booking.caregiverName || "Profesional SeniCare",
+      durationHours: booking.durationHours || 2,
+      baseTaxableEur,
+      vatRatePercent: 4,
+      vatAmountEur,
+      totalPaidEur,
+      leyDependenciaCompliant: true,
+    };
+
+    await bookingRef.update({
+      officialInvoice,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { success: true, officialInvoice };
+  } catch (error) {
+    console.error("Error en generateOfficialDependencyInvoice:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError("internal", error.message);
   }
 });
