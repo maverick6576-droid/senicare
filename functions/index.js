@@ -521,8 +521,8 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
  * Tarea programada (Cron Job) que libera automáticamente pagos en Escrow 24h tras finalizar la cita,
  * reintenta transferencias pendientes de compensación bancaria y cancela solicitudes sin respuesta.
  */
-exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule("every 24 hours").onRun(async (context) => {
-  console.log("Ejecutando autoReleaseEscrowCron (Auto-Release 24h, Reintentos & Timeout de Solicitudes Pendientes)...");
+exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule("every 1 hours").onRun(async (context) => {
+  console.log("Ejecutando autoReleaseEscrowCron horario (Auto-Release 24h, Reintentos & Timeout 2h/12h de Solicitudes Pendientes)...");
   const nowMs = Date.now();
   const pendingEscrowSnap = await db.collection("bookings")
     .where("escrowStatus", "in", ["held", "pending_settlement_transfer", "pending_caregiver_connect", "pending_kyc_transfer"])
@@ -646,6 +646,31 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
         commissionTier: commissionTier,
         releasedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+      if (booking.isRecurringWeekly && !booking.nextRecurringBookingId) {
+        const nextBookingRef = db.collection("bookings").doc(`${doc.id}_next_week`);
+        const nextSnap = await nextBookingRef.get();
+        if (!nextSnap.exists) {
+          await nextBookingRef.set({
+            bookingId: nextBookingRef.id,
+            clientId: booking.clientId,
+            caregiverId: booking.caregiverId,
+            caregiverStripeAccountId: destinationAccountId,
+            day: `${booking.day || "Turno"} (Próx. Semana)`,
+            slot: booking.slot,
+            durationHours: booking.durationHours || 2,
+            cost: booking.cost,
+            totalPaid: booking.totalPaid,
+            totalAmountInCents: totalAmountInCents,
+            baseAmountInCents: baseAmountInCents,
+            isRecurringWeekly: true,
+            parentRecurringBookingId: doc.id,
+            status: "Confirmed",
+            escrowStatus: "pending_next_cycle_charge",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          await doc.ref.update({ nextRecurringBookingId: nextBookingRef.id });
+        }
+      }
       releasedCount++;
     } catch (e) {
       console.error(`Error en cron autoRelease para booking ${doc.id}:`, e);
@@ -702,7 +727,22 @@ exports.processResolutionAgreement = functions.region("europe-west1").https.onCa
         destinationAccountId = caregiverDoc.data().stripeConnectedAccountId;
       }
     }
-    if (caregiverTransferInCents > 0 && destinationAccountId) {
+    if (caregiverTransferInCents > 0) {
+      if (!destinationAccountId) {
+        await bookingRef.update({
+          status: "Resolved",
+          escrowStatus: "pending_caregiver_connect",
+          pendingResolutionTransferInCents: caregiverTransferInCents,
+          resolutionDetails: { clientPercentage, caregiverPercentage },
+          lastTransferError: "Transferencia de resolución retenida hasta que el cuidador vincule Stripe Connect.",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return {
+          success: true,
+          escrowStatus: "pending_caregiver_connect",
+          message: "Reembolso al cliente procesado; tramo del cuidador en espera de vinculación bancaria.",
+        };
+      }
       await stripe.transfers.create({
         amount: caregiverTransferInCents,
         currency: "eur",
@@ -1049,7 +1089,7 @@ exports.syncStripeKycStatus = functions.region("europe-west1").https.onCall(asyn
 
 /**
  * 15. adminResolveDispute
- * Función administrativa para resolver una disputa.
+ * Función administrativa para resolver una disputa con ejecución financiera real en Stripe.
  */
 exports.adminResolveDispute = functions.region("europe-west1").https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -1059,13 +1099,79 @@ exports.adminResolveDispute = functions.region("europe-west1").https.onCall(asyn
     throw new functions.https.HttpsError("permission-denied", "Acceso exclusivo para administradores de SeniCare.");
   }
   try {
-    const { bookingId, resolution } = data;
-    await db.collection("bookings").doc(bookingId).update({
+    const {
+      bookingId,
+      resolution,
+      clientPercentage = 50,
+      caregiverPercentage = 50,
+    } = data;
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingDoc = await bookingRef.get();
+    if (!bookingDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
+    }
+    const booking = bookingDoc.data();
+    if (booking.escrowStatus === "resolution_settled" || booking.escrowStatus === "released") {
+      throw new functions.https.HttpsError("failed-precondition", "Esta disputa ya fue liquidada financieramente.");
+    }
+    if (clientPercentage < 0 || caregiverPercentage < 0 || (clientPercentage + caregiverPercentage) > 100) {
+      throw new functions.https.HttpsError("invalid-argument", "Los porcentajes de resolución no pueden superar el 100%.");
+    }
+
+    const paymentIntentId = booking.paymentIntentId || booking.chargeId;
+    const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
+    const clientRefundInCents = Math.round(totalAmountInCents * (clientPercentage / 100));
+    const caregiverTransferInCents = Math.round(totalAmountInCents * (caregiverPercentage / 100));
+
+    if (clientRefundInCents > 0 && paymentIntentId) {
+      const refundPayload = paymentIntentId.startsWith("pi_")
+        ? { payment_intent: paymentIntentId, amount: clientRefundInCents }
+        : { charge: paymentIntentId, amount: clientRefundInCents };
+      await stripe.refunds.create(refundPayload, {
+        idempotencyKey: `admin_dispute_refund_${bookingId}`,
+      });
+    }
+
+    let destinationAccountId = booking.caregiverStripeAccountId;
+    if (!destinationAccountId && booking.caregiverId) {
+      const caregiverDoc = await db.collection("caregivers").doc(booking.caregiverId).get();
+      if (caregiverDoc.exists) {
+        destinationAccountId = caregiverDoc.data().stripeConnectedAccountId;
+      }
+    }
+
+    if (caregiverTransferInCents > 0) {
+      if (!destinationAccountId) {
+        await bookingRef.update({
+          status: "Resolved",
+          isDisputed: false,
+          adminResolution: resolution,
+          escrowStatus: "pending_caregiver_connect",
+          pendingResolutionTransferInCents: caregiverTransferInCents,
+          resolutionDetails: { clientPercentage, caregiverPercentage },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return { success: true, escrowStatus: "pending_caregiver_connect" };
+      }
+      await stripe.transfers.create({
+        amount: caregiverTransferInCents,
+        currency: "eur",
+        destination: destinationAccountId,
+        transfer_group: booking.transferGroup || `booking_${bookingId}`,
+      }, {
+        idempotencyKey: `admin_dispute_transfer_${bookingId}`,
+      });
+    }
+
+    await bookingRef.update({
       status: "Resolved",
+      isDisputed: false,
       adminResolution: resolution,
+      escrowStatus: "resolution_settled",
+      resolutionDetails: { clientPercentage, caregiverPercentage },
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    return { success: true };
+    return { success: true, escrowStatus: "resolution_settled" };
   } catch (error) {
     console.error("Error en adminResolveDispute:", error);
     throw new functions.https.HttpsError("internal", error.message);
@@ -1179,6 +1285,36 @@ exports.extendBookingShift = functions.region("europe-west1").https.onCall(async
     }
 
     const currentDuration = booking.durationHours || 2;
+    // Verificar que la ampliación no solape con otra cita del mismo cuidador en el mismo día
+    if (booking.caregiverId && booking.day && booking.slot) {
+      const parseSlotMin = (slotStr) => {
+        const m = /(\d{1,2}):(\d{2})/.exec(slotStr || "");
+        return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : -1;
+      };
+      const startMin = parseSlotMin(booking.slot);
+      if (startMin >= 0) {
+        const newEndMin = startMin + (currentDuration + extraHours) * 60;
+        const sameDaySnap = await db.collection("bookings")
+          .where("caregiverId", "==", booking.caregiverId)
+          .where("day", "==", booking.day)
+          .get();
+        for (const otherDoc of sameDaySnap.docs) {
+          if (otherDoc.id === bookingId) continue;
+          const other = otherDoc.data();
+          if (other.status === "Cancelled" || other.isRefunded) continue;
+          const otherStart = parseSlotMin(other.slot);
+          if (otherStart < 0) continue;
+          const otherEnd = otherStart + (other.durationHours || 2) * 60;
+          if (startMin < otherEnd && otherStart < newEndMin) {
+            throw new functions.https.HttpsError(
+              "failed-precondition",
+              "No es posible ampliar el turno porque solapa con otra cita confirmada del cuidador."
+            );
+          }
+        }
+      }
+    }
+
     const hourlyRate = (booking.cost || booking.totalPaid || 36) / currentDuration;
     const extraBaseCost = Math.round(hourlyRate * extraHours * 100) / 100;
     const clientFeeRate = booking.clientFeeRate || 0.05;

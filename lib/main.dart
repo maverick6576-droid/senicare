@@ -266,18 +266,51 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  /// Prevents double-booking race conditions by checking if a slot is already reserved.
-  bool isSlotBooked(String caregiverId, String day, String slot) {
-    return bookings.any((b) =>
-        b.caregiverId == caregiverId &&
-        b.day == day &&
-        b.slot == slot &&
-        b.status != BookingStatus.Cancelled);
+  /// Converts a `"HH:mm"` slot string to minutes from midnight.
+  static int parseSlotToMinutes(String slot) {
+    final parts = slot.trim().split(':');
+    final hour = parts.isNotEmpty ? (int.tryParse(parts[0]) ?? 9) : 9;
+    final min = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    return (hour * 60) + min;
   }
 
-  List<String> getAvailableSlotsForDay(CaregiverProfile caregiver, String day) {
+  /// Prevents double-booking and multi-hour shift overlap by checking interval collision `[startA, endA)` vs `[startB, endB)`.
+  bool isSlotBooked(
+    String caregiverId,
+    String day,
+    String slot, {
+    int durationHours = 1,
+    String? excludeBookingId,
+  }) {
+    final reqStart = parseSlotToMinutes(slot);
+    final reqEnd = reqStart + (durationHours * 60);
+
+    for (final b in bookings) {
+      if (b.id == excludeBookingId) continue;
+      if (b.caregiverId != caregiverId || b.day != day) continue;
+      if (b.status == BookingStatus.Cancelled || b.isRefunded) continue;
+
+      final bStart = parseSlotToMinutes(b.slot);
+      final bEnd = bStart + (b.durationHours * 60);
+
+      // Interval overlap condition: max(reqStart, bStart) < min(reqEnd, bEnd)
+      if (reqStart < bEnd && bStart < reqEnd) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  List<String> getAvailableSlotsForDay(
+    CaregiverProfile caregiver,
+    String day, {
+    int durationHours = 1,
+  }) {
     final allSlots = caregiver.availableSlots[day] ?? [];
-    return allSlots.where((slot) => !isSlotBooked(caregiver.id, day, slot)).toList();
+    return allSlots
+        .where((slot) =>
+            !isSlotBooked(caregiver.id, day, slot, durationHours: durationHours))
+        .toList();
   }
 
   // --- Mutators & Lifecycle Actions ---
@@ -324,7 +357,15 @@ class AppState extends ChangeNotifier {
   }
 
   bool addBooking(Booking booking) {
-    if (isSlotBooked(booking.caregiverId, booking.day, booking.slot)) {
+    if (bookings.any((b) => b.id == booking.id && !b.isRefunded && b.status != BookingStatus.Cancelled)) {
+      return false;
+    }
+    if (isSlotBooked(
+      booking.caregiverId,
+      booking.day,
+      booking.slot,
+      durationHours: booking.durationHours,
+    )) {
       return false;
     }
     bookings.add(booking);
@@ -393,7 +434,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// Extends an active shift (+1h / +2h) in-platform with a verified secondary payment,
-  /// preserving insurance & Escrow coverage and preventing uncharged overtime.
+  /// preserving insurance & Escrow coverage, preventing uncharged overtime, and checking
+  /// that the extension does not collide with a subsequent appointment of the caregiver.
   bool extendBookingShift(String bookingId, int extraHours) {
     if (extraHours <= 0 || extraHours > 12) return false;
     final idx = bookings.indexWhere((b) => b.id == bookingId);
@@ -404,6 +446,17 @@ class AppState extends ChangeNotifier {
         b.isEscrowReleased ||
         b.isDisputed ||
         (b.status != BookingStatus.Confirmed && b.status != BookingStatus.InProgress)) {
+      return false;
+    }
+
+    // Verify that extending the shift does not collide with another appointment on the same day
+    if (isSlotBooked(
+      b.caregiverId,
+      b.day,
+      b.slot,
+      durationHours: b.durationHours + extraHours,
+      excludeBookingId: b.id,
+    )) {
       return false;
     }
 
@@ -576,6 +629,8 @@ class AppState extends ChangeNotifier {
       b.status = BookingStatus.Completed;
       b.checkOutTime ??= DateTime.now();
 
+      _scheduleNextRecurringBookingIfNeeded(b);
+
       if (!hasConnectedBank) {
         // Prevent Ghost Release: hold in pending_caregiver_connect until IBAN/Stripe is linked
         b.isEscrowReleased = false;
@@ -590,6 +645,44 @@ class AppState extends ChangeNotifier {
       return true;
     }
     return false;
+  }
+
+  /// Automatically generates the next week's recurring booking when a weekly recurring shift completes,
+  /// updating loyalty commission tiers dynamically.
+  void _scheduleNextRecurringBookingIfNeeded(Booking completedBooking) {
+    if (!completedBooking.isRecurringWeekly) return;
+    final nextId = '${completedBooking.id}_next_week';
+    if (bookings.any((existing) => existing.id == nextId)) return;
+
+    final nextBookingDate = completedBooking.bookingDate.add(const Duration(days: 7));
+    final hourlyRate = completedBooking.durationHours > 0
+        ? (completedBooking.cost / completedBooking.durationHours)
+        : 18.0;
+    final quote = calculateCommissionQuote(
+      caregiverId: completedBooking.caregiverId,
+      pricePerHour: hourlyRate,
+      durationHours: completedBooking.durationHours,
+    );
+
+    bookings.add(
+      Booking(
+        id: nextId,
+        caregiverId: completedBooking.caregiverId,
+        caregiverName: completedBooking.caregiverName,
+        day: '${completedBooking.day} (Próx. Semana)',
+        slot: completedBooking.slot,
+        durationHours: completedBooking.durationHours,
+        cost: quote.baseCost,
+        appCommission: quote.platformFee,
+        totalPaid: quote.totalClientPayable,
+        commissionRatePercent: quote.commissionRatePercent,
+        commissionTier: quote.commissionTier,
+        isRecurringWeekly: true,
+        keyCustodyMethod: completedBooking.keyCustodyMethod,
+        bookingDate: nextBookingDate,
+        status: BookingStatus.Confirmed,
+      ),
+    );
   }
 
   /// Synchronizes caregiver's Stripe Connect onboarding (`account.updated` webhook)
@@ -627,7 +720,7 @@ class AppState extends ChangeNotifier {
     final now = referenceNow ?? DateTime.now();
     int processedCount = 0;
 
-    for (final b in bookings) {
+    for (final b in List<Booking>.from(bookings)) {
       if (b.isDisputed || b.status == BookingStatus.Disputed || b.isRefunded) continue;
 
       // 1. Zombie PendingApproval timeout (>12h without caregiver response)
@@ -655,6 +748,7 @@ class AppState extends ChangeNotifier {
           b.isEscrowReleased = true;
           b.escrowStatus = 'released';
           b.checkOutTime ??= now;
+          _scheduleNextRecurringBookingIfNeeded(b);
           processedCount++;
         }
         continue;
@@ -669,6 +763,7 @@ class AppState extends ChangeNotifier {
           final hasBank = cgIdx == -1 ? true : caregivers[cgIdx].hasStripeConnectedAccount;
           b.status = BookingStatus.Completed;
           b.checkOutTime = now;
+          _scheduleNextRecurringBookingIfNeeded(b);
           if (hasBank) {
             b.isEscrowReleased = true;
             b.escrowStatus = 'released';
@@ -1872,7 +1967,11 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
     final state = context.watch<AppState>();
     final theme = Theme.of(context);
     final c = widget.caregiver;
-    final availableSlots = state.getAvailableSlotsForDay(c, _selectedDay);
+    final availableSlots = state.getAvailableSlotsForDay(
+      c,
+      _selectedDay,
+      durationHours: _selectedDurationHours,
+    );
 
     return Scaffold(
       appBar: AppBar(title: Text(c.name)),

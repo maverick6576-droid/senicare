@@ -40,21 +40,38 @@ class AntiBypassValidator {
     caseSensitive: false,
   );
 
+  // 5. Off-platform cash / Bizum / IBAN evasion patterns
+  static final RegExp _offPlatformPaymentRegex = RegExp(
+    r'\b(bizum|en\s+mano|en\s+efectivo|pago\s+directo|fuera\s+de\s+la\s+app)\b|\bES\d{2}[\s\-]?(\d{4}[\s\-]?){5}\b',
+    caseSensitive: false,
+  );
+
   static AntiBypassResult evaluate(
     String input, {
     bool hasConfirmedBooking = false,
   }) {
-    // Once a booking is confirmed and insured in Escrow, allow full contact & address exchange
-    if (hasConfirmedBooking) {
-      return AntiBypassResult(
-        sanitizedText: input,
-        wasBlocked: false,
-      );
-    }
-
     String safeText = input;
     bool blocked = false;
     String? reason;
+
+    // Off-platform payment solicitation (Bizum / cash in hand / IBAN) is always blocked to preserve RC insurance & Escrow
+    if (_offPlatformPaymentRegex.hasMatch(safeText)) {
+      safeText = safeText.replaceAll(
+        _offPlatformPaymentRegex,
+        '[Pago externo bloqueado: Usa Garantía SeniCare]',
+      );
+      blocked = true;
+      reason = 'intento de pago fuera de la plataforma (Bizum / efectivo / IBAN)';
+    }
+
+    // Once a booking is confirmed and insured in Escrow, allow full contact & address exchange
+    if (hasConfirmedBooking) {
+      return AntiBypassResult(
+        sanitizedText: safeText,
+        wasBlocked: blocked,
+        blockReason: reason,
+      );
+    }
 
     if (_phoneRegex.hasMatch(safeText)) {
       safeText = safeText.replaceAll(_phoneRegex, '[Teléfono protegido hasta reservar]');

@@ -411,4 +411,78 @@ void main() {
     // 4. WCAG AAA High-Contrast Amber 700
     expect(AppTheme.amber, const Color(0xFFB45309));
   });
+
+  test('7 Deep Logic Fixes: Interval Overlap, Extension Collision, Weekly Recurrence & Bizum Anti-Bypass', () {
+    final appState = AppState();
+
+    // 1. Multi-hour interval overlap detection: booking 09:00 for 4h (09:00-13:00) blocks 10:00 and 11:00
+    appState.addBooking(Booking(
+      id: 'b_4h_morning',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Lunes',
+      slot: '09:00',
+      durationHours: 4,
+      cost: 72.0,
+      appCommission: 12.96,
+      totalPaid: 72.0,
+      status: BookingStatus.Confirmed,
+    ));
+
+    expect(appState.isSlotBooked('c1', 'Lunes', '10:00', durationHours: 1), true);
+    expect(appState.isSlotBooked('c1', 'Lunes', '11:00', durationHours: 2), true);
+    expect(appState.isSlotBooked('c1', 'Lunes', '13:00', durationHours: 2), false);
+    expect(appState.isSlotBooked('c1', 'Lunes', '08:00', durationHours: 2), true); // 08:00-10:00 overlaps 09:00
+
+    final availableFor2h = appState.getAvailableSlotsForDay(
+      appState.caregivers.first,
+      'Lunes',
+      durationHours: 2,
+    );
+    expect(availableFor2h.contains('09:00'), false);
+    expect(availableFor2h.contains('10:00'), false);
+    expect(availableFor2h.contains('16:00'), true);
+
+    // 2. Shift extension conflict check: cannot extend 09:00-13:00 by +4h (to 17:00) if 16:00 is booked
+    appState.addBooking(Booking(
+      id: 'b_afternoon_16',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Lunes',
+      slot: '16:00',
+      durationHours: 2,
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      status: BookingStatus.Confirmed,
+    ));
+    expect(appState.extendBookingShift('b_4h_morning', 4), false); // Collides with 16:00
+    expect(appState.extendBookingShift('b_4h_morning', 2), true); // 09:00-15:00 does not collide with 16:00
+
+    // 3. Weekly Recurring Booking ('isRecurringWeekly: true') auto-generates next week's shift on completion
+    appState.addBooking(Booking(
+      id: 'b_weekly_1',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Martes',
+      slot: '10:00',
+      durationHours: 2,
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      isRecurringWeekly: true,
+      status: BookingStatus.InProgress,
+    ));
+    expect(appState.releaseEscrow('b_weekly_1'), true);
+    final nextWeekBooking = appState.bookings.where((b) => b.id == 'b_weekly_1_next_week');
+    expect(nextWeekBooking.isNotEmpty, true);
+    expect(nextWeekBooking.first.status, BookingStatus.Confirmed);
+    expect(nextWeekBooking.first.isRecurringWeekly, true);
+
+    // 4. Anti-Bypass Validator blocks Bizum, cash-in-hand, off-platform phrases, and Spanish IBANs
+    expect(AntiBypassValidator.evaluate('Te hago un bizum luego').wasBlocked, true);
+    expect(AntiBypassValidator.evaluate('Te pago en mano sin comisión').wasBlocked, true);
+    expect(AntiBypassValidator.evaluate('Mi cuenta es ES91 2100 0418 4502 0005 1332').wasBlocked, true);
+    expect(AntiBypassValidator.evaluate('Perfecto, nos vemos mañana a las 10:00 en casa').wasBlocked, false);
+  });
 }
