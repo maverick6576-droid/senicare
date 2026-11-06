@@ -237,6 +237,7 @@ class Booking {
   final String keyCustodyMethod;
   final String checkInPin;
   final DateTime createdAt;
+  final DateTime bookingDate; // Exact scheduled start date/time for accurate 24h cancellation window
   DateTime? serviceEndTime;
   String escrowStatus; // 'held', 'pending_caregiver_connect', 'pending_settlement_transfer', 'released', 'rejected_refunded', 'cancelled_settled', 'bank_chargeback'
   bool isEscrowReleased;
@@ -279,6 +280,7 @@ class Booking {
     this.keyCustodyMethod = 'Portería / Conserje',
     this.checkInPin = '4829',
     DateTime? createdAt,
+    DateTime? bookingDate,
     this.serviceEndTime,
     this.escrowStatus = 'held',
     this.isEscrowReleased = false,
@@ -299,9 +301,34 @@ class Booking {
     List<String>? extensionPaymentIds,
     List<CareLogEntry>? careLogs,
   })  : createdAt = createdAt ?? DateTime.now(),
+        bookingDate = bookingDate ?? computeNextBookingDate(day, slot, from: createdAt),
         refundedAmount = refundedAmount ?? 0.0,
         extensionPaymentIds = extensionPaymentIds ?? [],
         careLogs = careLogs ?? [];
+
+  /// Computes the next calendar occurrence of a Spanish weekday (`Lunes`..`Domingo`) and `HH:mm` slot.
+  static DateTime computeNextBookingDate(String day, String slot, {DateTime? from}) {
+    final base = from ?? DateTime.now();
+    const weekdayMap = <String, int>{
+      'Lunes': DateTime.monday,
+      'Martes': DateTime.tuesday,
+      'Miércoles': DateTime.wednesday,
+      'Jueves': DateTime.thursday,
+      'Viernes': DateTime.friday,
+      'Sábado': DateTime.saturday,
+      'Domingo': DateTime.sunday,
+    };
+    final targetWeekday = weekdayMap[day] ?? base.weekday;
+    int daysAhead = (targetWeekday - base.weekday) % 7;
+    if (daysAhead <= 0) {
+      daysAhead += 7; // Default to next occurrence so new bookings are >= 24h ahead unless specified
+    }
+    final parts = slot.split(':');
+    final hour = parts.isNotEmpty ? (int.tryParse(parts[0]) ?? 9) : 9;
+    final minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    final targetDate = base.add(Duration(days: daysAhead));
+    return DateTime(targetDate.year, targetDate.month, targetDate.day, hour, minute);
+  }
 
   /// Net amount released or scheduled to be released to the caregiver's connected bank account.
   /// Matches 1:1 with `calculateCaregiverPayout` in `functions/index.js`.

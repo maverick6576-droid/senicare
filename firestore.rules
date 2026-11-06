@@ -11,35 +11,98 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Perfiles de usuarios (Clientes y Familiares)
+    // Perfiles de usuarios (Clientes y Familiares) — Bloqueo de escalada de privilegios
     match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
-    }
-
-    // Perfiles públicos de cuidadores en el Marketplace
-    match /caregivers/{caregiverId} {
-      allow read: if true;
-      allow create: if isOwner(caregiverId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) &&
+        !request.resource.data.keys().hasAny(['admin', 'isAdmin', 'role']) || isAdmin();
       allow update: if isAdmin() || (
-        isOwner(caregiverId) &&
+        isOwner(userId) &&
         !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['isKycVerified', 'stripeConnectedAccountId', 'stripeKycStatus', 'isBlocked'])
+          .hasAny(['admin', 'isAdmin', 'role'])
       );
     }
 
-    // Reservas y Custodia en Garantía (Escrow)
+    // Perfiles públicos de cuidadores en el Marketplace — Bloqueo de auto-verificación y reputación falsa
+    match /caregivers/{caregiverId} {
+      allow read: if true;
+      allow create: if isAdmin() || (
+        isOwner(caregiverId) &&
+        (!('verified' in request.resource.data) || request.resource.data.verified == false) &&
+        (!('isKycVerified' in request.resource.data) || request.resource.data.isKycVerified == false) &&
+        (!('isBlocked' in request.resource.data) || request.resource.data.isBlocked == false) &&
+        (!('reviewsCount' in request.resource.data) || request.resource.data.reviewsCount == 0)
+      );
+      allow update: if isAdmin() || (
+        isOwner(caregiverId) &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny([
+            'verified',
+            'isKycVerified',
+            'stripeConnectedAccountId',
+            'stripeKycStatus',
+            'isBlocked',
+            'rating',
+            'reviewsCount',
+            'maxDependencyGrade',
+            'certifiedForCraneTransfer'
+          ])
+      );
+    }
+
+    // Reservas y Custodia en Garantía (Escrow) — Blindaje total de campos financieros
     match /bookings/{bookingId} {
       allow read: if isSignedIn() && (
         resource.data.clientId == request.auth.uid ||
         resource.data.caregiverId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isSignedIn() && request.resource.data.clientId == request.auth.uid;
+      allow create: if isSignedIn() &&
+        request.resource.data.clientId == request.auth.uid &&
+        (!('isEscrowReleased' in request.resource.data) || request.resource.data.isEscrowReleased == false) &&
+        (!('isRefunded' in request.resource.data) || request.resource.data.isRefunded == false);
       allow update: if isAdmin() || (
         isSignedIn() &&
         (resource.data.clientId == request.auth.uid || resource.data.caregiverId == request.auth.uid) &&
         !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['escrowStatus', 'releasedAmountInCents', 'platformFeeInCents', 'paymentIntentId'])
+          .hasAny([
+            'escrowStatus',
+            'isEscrowReleased',
+            'isRefunded',
+            'refundedAmount',
+            'caregiverCompensation',
+            'cost',
+            'totalPaid',
+            'totalAmountInCents',
+            'baseAmountInCents',
+            'releasedAmountInCents',
+            'platformFeeInCents',
+            'paymentIntentId',
+            'transferId',
+            'extensionPaymentIntentIds',
+            'officialInvoice'
+          ])
+      );
+    }
+
+    // Ofertas de Empleo publicadas por Familias
+    match /jobOffers/{offerId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.clientId == request.auth.uid;
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.clientId == request.auth.uid);
+    }
+
+    // Candidaturas de Cuidadores a Ofertas de Empleo
+    match /applications/{appId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.clientId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        (resource.data.userId == request.auth.uid || resource.data.clientId == request.auth.uid)
       );
     }
 

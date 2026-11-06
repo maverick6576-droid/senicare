@@ -32,6 +32,7 @@ void main() {
 
 class AppState extends ChangeNotifier {
   String currentRole = 'client'; // 'client' or 'caregiver'
+  String activeCaregiverId = 'c1'; // Active professional profile in Caregiver Dashboard
   bool seniorMode = false; // Toggles WCAG AAA Senior Accessibility Mode & Senior Home Panel
   String selectedSpecialty = 'Todos';
   String searchQuery = '';
@@ -40,6 +41,27 @@ class AppState extends ChangeNotifier {
   int prepaidHourBalance = 0; // Bolsa de Horas Prepagada
   String familyNif = '47892103-Z';
   String familyFullName = 'Laura Vila Delicado';
+
+  void setActiveCaregiverId(String caregiverId) {
+    activeCaregiverId = caregiverId;
+    notifyListeners();
+  }
+
+  /// Dynamically computes total released earnings + late-cancellation compensation for any caregiver.
+  double getCaregiverReleasedEarnings([String? caregiverId]) {
+    final targetId = caregiverId ?? activeCaregiverId;
+    double total = 0.0;
+    for (final b in bookings) {
+      if (b.caregiverId == targetId) {
+        if (b.isEscrowReleased) {
+          total += b.caregiverNetEarnings;
+        } else if (b.status == BookingStatus.Cancelled && b.caregiverCompensation > 0) {
+          total += b.caregiverCompensation;
+        }
+      }
+    }
+    return double.parse(total.toStringAsFixed(2));
+  }
 
   // Patient Medical, Access, Dependency Triage (Barthel) & Insurance Sheet
   final PatientMedicalSheet patientMedicalSheet = PatientMedicalSheet();
@@ -461,6 +483,39 @@ class AppState extends ChangeNotifier {
       return true;
     }
     return false;
+  }
+
+  /// Client cancellation with accurate `bookingDate` window check:
+  /// - Early Cancellation (>= 24h before appointment): 100% full refund to family (0% penalty).
+  /// - Late Cancellation (< 24h before appointment): 45% refund to family, 45% compensation to caregiver.
+  bool cancelBookingByClient(String bookingId, {DateTime? referenceNow}) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx == -1) return false;
+    final b = bookings[idx];
+    if (b.isRefunded || b.status == BookingStatus.Cancelled || b.isEscrowReleased) {
+      return false;
+    }
+
+    final now = referenceNow ?? DateTime.now();
+    final hoursUntilBooking = b.bookingDate.difference(now).inHours;
+
+    b.status = BookingStatus.Cancelled;
+    b.isRefunded = true;
+    b.isEscrowReleased = false;
+    b.escrowStatus = 'cancelled_settled';
+
+    if (hoursUntilBooking >= 24) {
+      // Early Cancellation (>= 24h): 100% full refund
+      b.refundedAmount = b.totalPaid;
+      b.caregiverCompensation = 0.0;
+    } else {
+      // Late Cancellation (< 24h): 45% client refund, 45% caregiver compensation
+      b.refundedAmount = double.parse((b.totalPaid * 0.45).toStringAsFixed(2));
+      b.caregiverCompensation = double.parse((b.totalPaid * 0.45).toStringAsFixed(2));
+    }
+
+    notifyListeners();
+    return true;
   }
 
   /// Opens a dispute on an active booking, freezing automatic Escrow release.
@@ -965,18 +1020,25 @@ class _MainLayoutState extends State<MainLayout> {
         ),
         actions: [
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'Modo Mayor',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.darkSlate,
-                    ),
+              const Icon(Icons.elderly_rounded, size: 18, color: AppTheme.primary),
+              const SizedBox(width: 4),
+              const Text(
+                'Mayor',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.darkSlate,
+                ),
               ),
-              Switch(
-                value: state.seniorMode,
-                onChanged: (val) => state.toggleSeniorMode(val),
-                activeThumbColor: AppTheme.primary,
+              Transform.scale(
+                scale: 0.85,
+                child: Switch(
+                  value: state.seniorMode,
+                  onChanged: (val) => state.toggleSeniorMode(val),
+                  activeThumbColor: AppTheme.primary,
+                ),
               ),
             ],
           ),
@@ -1946,7 +2008,7 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                 Text('2. Selecciona el día', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 12),
                 SizedBox(
-                  height: 56,
+                  height: state.seniorMode ? 68 : 54,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     children: c.availableSlots.keys.map((day) {
@@ -2329,7 +2391,9 @@ class BookingsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '🔑 Llaves: ${b.keyCustodyMethod} • PIN Domicilio: ${b.checkInPin}',
+                  (isClient || b.status != BookingStatus.PendingApproval)
+                      ? '🔑 Llaves: ${b.keyCustodyMethod} • PIN Domicilio: ${b.checkInPin}'
+                      : '🔒 Llaves, PIN y Ficha Médica protegidos (RGPD Art. 9) hasta confirmar cita',
                   style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                 ),
 
@@ -2649,37 +2713,66 @@ class BookingsScreen extends StatelessWidget {
                     label: const Text('Confirmar Éxito y Liberar Pago'),
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            context.read<AppState>().extendBookingShift(b.id, 1);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('⏱️ Turno ampliado +1 hora con Seguro SeniCare.'),
-                                backgroundColor: AppTheme.primary,
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.more_time_rounded),
-                          label: const Text('Ampliar +1h'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _showDisputeDialog(context, b.id),
-                          icon: const Icon(Icons.report_problem_outlined),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.urgentRed,
-                            side: const BorderSide(color: AppTheme.urgentRed),
+                  if (state.seniorMode) ...[
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        context.read<AppState>().extendBookingShift(b.id, 1);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('⏱️ Turno ampliado +1 hora con Seguro SeniCare.'),
+                            backgroundColor: AppTheme.primary,
                           ),
-                          label: const Text('Incidencia'),
-                        ),
+                        );
+                      },
+                      icon: const Icon(Icons.more_time_rounded),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 60),
                       ),
-                    ],
-                  ),
+                      label: const Text('Ampliar +1h'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => _showDisputeDialog(context, b.id),
+                      icon: const Icon(Icons.report_problem_outlined),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.urgentRed,
+                        side: const BorderSide(color: AppTheme.urgentRed),
+                        minimumSize: const Size(double.infinity, 60),
+                      ),
+                      label: const Text('Incidencia'),
+                    ),
+                  ] else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              context.read<AppState>().extendBookingShift(b.id, 1);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('⏱️ Turno ampliado +1 hora con Seguro SeniCare.'),
+                                  backgroundColor: AppTheme.primary,
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.more_time_rounded),
+                            label: const Text('Ampliar +1h'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showDisputeDialog(context, b.id),
+                            icon: const Icon(Icons.report_problem_outlined),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.urgentRed,
+                              side: const BorderSide(color: AppTheme.urgentRed),
+                            ),
+                            label: const Text('Incidencia'),
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
 
                 // Caregiver Actions: Accept/Reject Pending OR GPS/PIN Check-in + Care Log + Shift Hand-off
@@ -3386,18 +3479,40 @@ class CaregiverDashboard extends StatelessWidget {
     final seniorMode = state.seniorMode;
     final currencyFormat = NumberFormat.currency(symbol: '€', decimalDigits: 2);
 
-    final double earnings = state.bookings
-        .where((b) => b.isEscrowReleased && b.caregiverId == 'c1')
-        .fold(0.0, (sum, b) => sum + b.caregiverNetEarnings);
+    final activeCg = state.caregivers.firstWhere(
+      (c) => c.id == state.activeCaregiverId,
+      orElse: () => state.caregivers.first,
+    );
+    final double earnings = state.getCaregiverReleasedEarnings(activeCg.id);
 
     final pendingBookings = state.bookings
-        .where((b) => b.status == BookingStatus.PendingApproval)
+        .where((b) =>
+            b.status == BookingStatus.PendingApproval &&
+            b.caregiverId == activeCg.id)
         .toList();
 
     return ListView(
       padding: EdgeInsets.all(seniorMode ? 24 : 16),
       children: [
-        Text('Hola, Elena 👋', style: theme.textTheme.headlineSmall),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text('Hola, ${activeCg.name.split(" ").first} 👋',
+                  style: theme.textTheme.headlineSmall),
+            ),
+            DropdownButton<String>(
+              value: activeCg.id,
+              underline: const SizedBox.shrink(),
+              items: state.caregivers
+                  .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
+                  .toList(),
+              onChanged: (id) {
+                if (id != null) state.setActiveCaregiverId(id);
+              },
+            ),
+          ],
+        ),
         const SizedBox(height: 16),
         Card(
           color: AppTheme.darkSlate,

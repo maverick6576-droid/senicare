@@ -366,4 +366,49 @@ void main() {
     expect(invoice.totalPaidEur, 36.0);
     expect(invoice.familyNif, '47892103-Z');
   });
+
+  test('Audit Fixes: Accurate 24h Cancellation Window, Dynamic Multi-Caregiver Earnings & WCAG Amber', () {
+    final appState = AppState();
+    final now = DateTime.now();
+
+    // 1. Early Cancellation (>= 24h before appointment) -> 100% full refund, 0% penalty
+    appState.addBooking(Booking(
+      id: 'b_early_cancel',
+      caregiverId: 'c2',
+      caregiverName: 'Javier Domínguez',
+      day: 'Miércoles',
+      slot: '15:00',
+      cost: 30.0,
+      appCommission: 5.4,
+      totalPaid: 30.0,
+      bookingDate: now.add(const Duration(hours: 48)),
+    ));
+    expect(appState.cancelBookingByClient('b_early_cancel', referenceNow: now), true);
+    final earlyCancelled = appState.bookings.firstWhere((b) => b.id == 'b_early_cancel');
+    expect(earlyCancelled.refundedAmount, 30.0);
+    expect(earlyCancelled.caregiverCompensation, 0.0);
+
+    // 2. Late Cancellation (< 24h before appointment) -> 45% client refund, 45% caregiver compensation
+    appState.addBooking(Booking(
+      id: 'b_late_cancel',
+      caregiverId: 'c3',
+      caregiverName: 'María Fernández',
+      day: 'Viernes',
+      slot: '20:00',
+      cost: 44.0,
+      appCommission: 7.92,
+      totalPaid: 44.0,
+      bookingDate: now.add(const Duration(hours: 6)),
+    ));
+    expect(appState.cancelBookingByClient('b_late_cancel', referenceNow: now), true);
+    final lateCancelled = appState.bookings.firstWhere((b) => b.id == 'b_late_cancel');
+    expect(lateCancelled.refundedAmount, 19.8);
+    expect(lateCancelled.caregiverCompensation, 19.8);
+
+    // 3. Dynamic Multi-Caregiver Earnings (works for c3 as well as c1)
+    expect(appState.getCaregiverReleasedEarnings('c3'), 19.8);
+
+    // 4. WCAG AAA High-Contrast Amber 700
+    expect(AppTheme.amber, const Color(0xFFB45309));
+  });
 }

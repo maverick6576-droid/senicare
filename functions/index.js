@@ -403,8 +403,37 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
     }
   }
 
-  // Calcular horas hasta la reserva para aplicar política de cancelación
-  const bookingDate = booking.bookingDate ? booking.bookingDate.toDate() : new Date(Date.now() + 12 * 3600 * 1000);
+  // Calcular fecha/hora real del turno a partir de bookingDate o day + slot (sin penalizar por defecto con 12h)
+  let bookingDate;
+  if (booking.bookingDate && typeof booking.bookingDate.toDate === "function") {
+    bookingDate = booking.bookingDate.toDate();
+  } else if (booking.bookingDate) {
+    bookingDate = new Date(booking.bookingDate);
+  } else if (booking.day) {
+    const weekdayMap = {
+      "Domingo": 0,
+      "Lunes": 1,
+      "Martes": 2,
+      "Miércoles": 3,
+      "Jueves": 4,
+      "Viernes": 5,
+      "Sábado": 6,
+    };
+    const base = booking.createdAt && typeof booking.createdAt.toDate === "function"
+      ? booking.createdAt.toDate()
+      : new Date();
+    const targetDay = weekdayMap[booking.day] !== undefined ? weekdayMap[booking.day] : base.getDay();
+    let daysAhead = (targetDay - base.getDay() + 7) % 7;
+    if (daysAhead <= 0) daysAhead += 7;
+    const slotParts = String(booking.slot || "09:00").split(":");
+    const hour = parseInt(slotParts[0], 10) || 9;
+    const minute = parseInt(slotParts[1], 10) || 0;
+    bookingDate = new Date(base.getTime() + daysAhead * 24 * 3600 * 1000);
+    bookingDate.setHours(hour, minute, 0, 0);
+  } else {
+    // Fallback seguro >= 48h para no aplicar penalización tardía injustificada si no se especificó fecha
+    bookingDate = new Date(Date.now() + 48 * 3600 * 1000);
+  }
   const hoursUntilBooking = (bookingDate.getTime() - Date.now()) / (1000 * 60 * 60);
 
   let clientRefundAmountInCents = 0;

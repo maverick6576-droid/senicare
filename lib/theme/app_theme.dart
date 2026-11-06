@@ -7,7 +7,8 @@ class AppTheme {
   static const Color primaryLight = Color(0xFFE6F4EF);
   static const Color darkSlate = Color(0xFF0F172A);
   static const Color backgroundNeutral = Color(0xFFF8FAFC);
-  static const Color amber = Colors.amber;
+  // High-contrast Amber 700 (#B45309) passing WCAG AA/AAA visibility against white cards for seniors
+  static const Color amber = Color(0xFFB45309);
   static const Color urgentRed = Color(0xFFB91C1C);
 
   /// Generates the ThemeData reacting to the Senior Mode switch.
