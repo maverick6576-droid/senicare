@@ -734,14 +734,95 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                   content: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Por tu seguridad y la de los clientes, necesitamos verificar tu identidad. Los archivos se guardan de forma segura en cuanto los subes.',
-                        style: TextStyle(color: Colors.grey),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          gradient: AppTheme.softTealGradient,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.lightbulb_outline_rounded, color: AppTheme.primary, size: 20),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '¡Fácil, rápido y 100% gratuito!',
+                                    style: TextStyle(fontWeight: FontWeight.w800, color: AppTheme.darkSlate, fontSize: 14),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'No te preocupes si no sabes cómo sacar el Certificado de Penales: se descarga gratis en 2 minutos desde el móvil. Tu progreso queda guardado automáticamente.',
+                              style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted, height: 1.4),
+                            ),
+                            const SizedBox(height: 10),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  shape: const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                                  ),
+                                  builder: (ctx) => Padding(
+                                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                                    child: SingleChildScrollView(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.verified_user, color: AppTheme.primary, size: 26),
+                                              const SizedBox(width: 10),
+                                              const Expanded(
+                                                child: Text(
+                                                  'Cómo conseguir y subir tus documentos en 2 minutos',
+                                                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                                                ),
+                                              ),
+                                              IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          const Text('1. DNI o NIE (Parte delantera):', style: TextStyle(fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 4),
+                                          const Text('• Pulsa "Escanear DNI/NIE (Cámara)" y haz una foto clara a tu documento.'),
+                                          const SizedBox(height: 12),
+                                          const Text('2. Certificado de Penales / Delitos Sexuales (Gratis):', style: TextStyle(fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 4),
+                                          const Text(
+                                            '• Entra en sede.mjusticia.gob.es desde tu navegador.\n'
+                                            '• Identifícate con Cl@ve PIN o Certificado Digital.\n'
+                                            '• Descarga el PDF oficial gratuito al instante y súbelo pulsando en "Subir Certificado de Penales".',
+                                          ),
+                                          const SizedBox(height: 16),
+                                          ElevatedButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            child: const Text('Entendido, volver al registro'),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.menu_book_rounded, size: 18),
+                              label: const Text('Ver guía paso a paso (2 min)'),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 16),
 
                       // DNI Section
-                      const Text('DNI/NIE', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text('1. Documento de Identidad (DNI/NIE)', style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
@@ -767,11 +848,13 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                               color: _dniUrl != null ? Colors.green : Colors.orange,
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              _dniUrl != null ? 'DNI guardado en la nube ✓' : 'Subiendo...',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: _dniUrl != null ? Colors.green : Colors.orange,
+                            Expanded(
+                              child: Text(
+                                _dniUrl != null ? 'DNI guardado en la nube ✓' : 'Subiendo...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _dniUrl != null ? Colors.green : Colors.orange,
+                                ),
                               ),
                             ),
                           ],
@@ -791,12 +874,12 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                       const Divider(height: 32),
 
                       // Criminal Record Section
-                      const Text('Certificado de Antecedentes Penales', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text('2. Certificado de Antecedentes Penales', style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
                         onPressed: _pickCriminalRecord,
                         icon: const Icon(Icons.upload_file),
-                        label: const Text('Subir Certificado de Penales'),
+                        label: const Text('Subir Certificado de Penales (PDF o Foto)'),
                       ),
                       if (_criminalPath != null) ...[
                         const SizedBox(height: 8),
@@ -858,7 +941,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Para poder recibir los pagos de tus servicios, debes registrar tu cuenta bancaria a través de nuestro proveedor seguro Stripe Connect.',
+                        'Para recibir el ingreso directo de cada guardia en tu banco (IBAN), vincula tu cuenta con Stripe Connect. Podrás cambiar de cuenta bancaria cuando quieras.',
                       ),
                       const SizedBox(height: 16),
                       SizedBox(
@@ -868,10 +951,12 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                             backgroundColor: _stripeAccountId != null ? Colors.green : Colors.deepPurple,
                             foregroundColor: Colors.white,
                           ),
-                          onPressed: _stripeAccountId != null ? null : _launchStripe,
+                          onPressed: _stripeAccountId != null
+                              ? () => StripeService.openBankAccountManagement(_stripeAccountId!)
+                              : _launchStripe,
                           child: Text(_stripeAccountId != null
-                              ? '✓ Stripe Conectado'
-                              : 'Conectar con Stripe Connect'),
+                              ? '✓ Stripe Conectado (Toca para cambiar IBAN)'
+                              : 'Conectar Cuenta Bancaria con Stripe'),
                         ),
                       ),
                       if (_stripeAccountId != null) ...[

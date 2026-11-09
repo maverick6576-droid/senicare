@@ -137,6 +137,28 @@ class _PaymentScreenState extends State<PaymentScreen> {
       return;
     }
 
+    // ── 2.5 Verify that selected slots are still available (Anti-Race Condition) ──
+    try {
+      final latestSlots = await DependencyInjection.caregivers
+          .fetchTimeSlots(widget.caregiver.id, widget.dateString);
+      for (final selected in widget.slots) {
+        final match = latestSlots.where((s) =>
+            s.dateTime.hour == selected.dateTime.hour &&
+            s.dateTime.minute == selected.dateTime.minute).firstOrNull;
+        if (match != null && !match.isAvailable) {
+          _safeSetState(() => _isProcessingPayment = false);
+          _showSnackBar(
+            scaffoldMessenger,
+            'La hora ${selected.dateTime.hour.toString().padLeft(2, '0')}:00 acaba de ser reservada por otra familia. Por favor, elige otro horario.',
+            Colors.orange.shade800,
+          );
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Slot verification warning: $e');
+    }
+
     // ── 3. Create Payment Intent ──
     Map<String, dynamic>? paymentIntentData;
     try {

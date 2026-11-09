@@ -134,23 +134,64 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.softTealGradient,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.shield_rounded, color: AppTheme.primary, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Protección SeniCare Incluida (Sin coste extra)',
+                              style: TextStyle(fontWeight: FontWeight.w800, color: AppTheme.darkSlate, fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        '• Pago seguro retenido hasta que el cuidador llega a casa.\n'
+                        '• DNI/NIE y Certificado de Antecedentes revisados.\n'
+                        '• Cobertura de Responsabilidad Civil y soporte ante incidencias.',
+                        style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
                 Text('Sobre mí', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Text(c.bio, style: theme.textTheme.bodyMedium),
                 const SizedBox(height: 24),
-                Text('Reserva tu cita', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 16),
-                CalendarDatePicker(
-                  initialDate: _selectedDate,
-                  firstDate: DateTime.now(),
-                  lastDate: DateTime.now().add(const Duration(days: 90)),
-                  onDateChanged: (date) {
-                    setState(() {
-                      _selectedDate = date;
-                      _selectedSlots.clear();
-                    });
-                    _loadSlots();
-                  },
+                Text('Reserva tu cita paso a paso', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 6),
+                const Text(
+                  '1. Elige el día en el calendario  →  2. Toca las horas que necesitas  →  3. Pulsa Reservar',
+                  style: TextStyle(fontSize: 13, color: AppTheme.primary, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: AppTheme.modernCardDecoration(),
+                  child: CalendarDatePicker(
+                    initialDate: _selectedDate,
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime.now().add(const Duration(days: 90)),
+                    onDateChanged: (date) {
+                      setState(() {
+                        _selectedDate = date;
+                        _selectedSlots.clear();
+                      });
+                      _loadSlots();
+                    },
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Builder(

@@ -221,6 +221,64 @@ exports.createPaymentIntent = functions.region("europe-west1").runWith({ secrets
   }
 });
 
+async function reopenBookingSlots(caregiverId, day, slotRange) {
+  if (!caregiverId || !day || !slotRange) return;
+  try {
+    const slotsRef = admin.firestore().collection("caregivers").doc(caregiverId)
+      .collection("availability").doc(day).collection("slots");
+    if (slotRange.includes("-")) {
+      const parts = slotRange.split("-");
+      const startHour = parseInt(parts[0].split(":")[0], 10);
+      const endHour = parseInt(parts[1].split(":")[0], 10);
+      if (!isNaN(startHour) && !isNaN(endHour) && endHour > startHour) {
+        const batch = admin.firestore().batch();
+        for (let h = startHour; h < endHour; h++) {
+          const slotId = `${String(h).padStart(2, "0")}:00`;
+          batch.set(slotsRef.doc(slotId), { isAvailable: true }, { merge: true });
+        }
+        await batch.commit();
+        return;
+      }
+    }
+    await slotsRef.doc(slotRange).set({ isAvailable: true }, { merge: true });
+  } catch (e) {
+    console.warn("Error reopening slots:", e.message);
+  }
+}
+
+async function createLinkedStripeTransfer(stripe, { amountInCents, destination, paymentIntentId, transferGroup, idempotencyKey }) {
+  let sourceTransaction = null;
+  if (paymentIntentId) {
+    try {
+      const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+      if (pi && pi.latest_charge) sourceTransaction = pi.latest_charge;
+    } catch (e) {
+      console.warn("Could not retrieve latest_charge for transfer, using transfer_group fallback:", e.message);
+    }
+  }
+  const params = {
+    amount: Math.round(amountInCents),
+    currency: "eur",
+    destination: destination,
+  };
+  if (sourceTransaction) {
+    params.source_transaction = sourceTransaction;
+  } else if (transferGroup) {
+    params.transfer_group = transferGroup;
+  }
+  const options = idempotencyKey ? { idempotencyKey } : undefined;
+  return await stripe.transfers.create(params, options);
+}
+
+async function createIdempotentRefund(stripe, { paymentIntentId, amountInCents, idempotencyKey }) {
+  const params = {
+    payment_intent: paymentIntentId,
+    amount: Math.round(amountInCents),
+  };
+  const options = idempotencyKey ? { idempotencyKey } : undefined;
+  return await stripe.refunds.create(params, options);
+}
+
 exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
@@ -235,7 +293,6 @@ exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secret
     
     // Security check: only the client who made the booking or an admin can release the escrow
     if (booking.clientId !== context.auth.uid) {
-      // Allow if admin (basic check, could check admins collection if needed)
       if (context.auth.token.email !== "maverick6576@gmail.com") {
         throw new functions.https.HttpsError("permission-denied", "No autorizado para liberar este pago.");
       }
@@ -257,11 +314,12 @@ exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secret
     const destinationAccountId = caregiverDoc.data().stripeAccountId;
     const amountInCents = Math.round(booking.caregiverPayout * 100);
 
-    const transfer = await stripe.transfers.create({
-      amount: amountInCents, 
-      currency: "eur", 
-      destination: destinationAccountId, 
-      transfer_group: booking.transferGroup,
+    const transfer = await createLinkedStripeTransfer(stripe, {
+      amountInCents,
+      destination: destinationAccountId,
+      paymentIntentId: booking.paymentIntentId,
+      transferGroup: booking.transferGroup,
+      idempotencyKey: `release_${bookingId}`,
     });
 
     await admin.firestore().collection("bookings").doc(bookingId).update({
@@ -294,6 +352,10 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
       }
     }
 
+    if (booking.status === "cancelled" || booking.status === "cancelledLate" || booking.escrowStatus === "refunded") {
+      return { success: true, alreadyCancelled: true };
+    }
+
     if (!isLate) {
       // Devolver todo menos un 5% de gastos de gestión (con un mínimo de 1.00€ para cubrir comisiones de pasarela)
       const managementFee = Math.max(1.00, booking.cost * 0.05);
@@ -301,22 +363,40 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
       if (refundAmount < 0) refundAmount = 0;
       
       if (booking.paymentIntentId && refundAmount > 0) {
-        await stripe.refunds.create({ payment_intent: booking.paymentIntentId, amount: Math.round(refundAmount * 100) });
+        await createIdempotentRefund(stripe, {
+          paymentIntentId: booking.paymentIntentId,
+          amountInCents: Math.round(refundAmount * 100),
+          idempotencyKey: `cancel_refund_${bookingId}`,
+        });
       }
       await admin.firestore().collection("bookings").doc(bookingId).update({ status: "cancelled", escrowStatus: "refunded", cancellationReason: reason });
+      await reopenBookingSlots(booking.caregiverId, booking.day, booking.slot);
       return { success: true };
     }
     // Cancelación Tardía (10% de castigo a la mitad de cada uno = 45% limpio)
     const refundAmount = booking.cost * 0.45;
     if (booking.paymentIntentId && refundAmount > 0) {
-      await stripe.refunds.create({ payment_intent: booking.paymentIntentId, amount: Math.round(refundAmount * 100) });
+      await createIdempotentRefund(stripe, {
+        paymentIntentId: booking.paymentIntentId,
+        amountInCents: Math.round(refundAmount * 100),
+        idempotencyKey: `late_cancel_refund_${bookingId}`,
+      });
     }
     const caregiverDoc = await admin.firestore().collection("caregivers").doc(booking.caregiverId).get();
-    if (caregiverDoc.data()?.stripeAccountId && booking.transferGroup) {
+    if (caregiverDoc.data()?.stripeAccountId && (booking.paymentIntentId || booking.transferGroup)) {
       const caregiverPayout = booking.cost * 0.45;
-      if (caregiverPayout > 0) await stripe.transfers.create({ amount: Math.round(caregiverPayout * 100), currency: "eur", destination: caregiverDoc.data().stripeAccountId, transfer_group: booking.transferGroup });
+      if (caregiverPayout > 0) {
+        await createLinkedStripeTransfer(stripe, {
+          amountInCents: Math.round(caregiverPayout * 100),
+          destination: caregiverDoc.data().stripeAccountId,
+          paymentIntentId: booking.paymentIntentId,
+          transferGroup: booking.transferGroup,
+          idempotencyKey: `late_cancel_transfer_${bookingId}`,
+        });
+      }
     }
     await admin.firestore().collection("bookings").doc(bookingId).update({ status: "cancelledLate", escrowStatus: "resolved_partial", cancellationReason: reason });
+    await reopenBookingSlots(booking.caregiverId, booking.day, booking.slot);
     return { success: true };
   } catch (error) { throw new functions.https.HttpsError("internal", error.message); }
 });
@@ -344,7 +424,11 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
       // Reembolso total (fue culpa/elección del cuidador)
       const refundAmount = booking.totalPaid || 0;
       if (booking.paymentIntentId && refundAmount > 0) {
-        await stripe.refunds.create({ payment_intent: booking.paymentIntentId, amount: Math.round(refundAmount * 100) });
+        await createIdempotentRefund(stripe, {
+          paymentIntentId: booking.paymentIntentId,
+          amountInCents: Math.round(refundAmount * 100),
+          idempotencyKey: `reject_refund_${bookingId}`,
+        });
       }
 
       await admin.firestore().collection("bookings").doc(bookingId).update({ 
@@ -352,6 +436,7 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
         escrowStatus: "refunded", 
         cancellationReason: "Rechazada por el cuidador" 
       });
+      await reopenBookingSlots(booking.caregiverId, booking.day, booking.slot);
 
       return { success: true };
     } catch (error) { throw new functions.https.HttpsError("internal", error.message); }
@@ -360,6 +445,22 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
 exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).pubsub.schedule('every 1 hours').onRun(async (context) => {
   const stripe = require("stripe")(stripeSecret.value());
   const now = new Date();
+
+  // 0. Limpieza automática de bloqueos temporales (Hold System TTL: > 30 min en pendingPayment)
+  try {
+    const staleHolds = await admin.firestore().collection("bookings").where("status", "==", "pendingPayment").get();
+    for (const holdDoc of staleHolds.docs) {
+      const hb = holdDoc.data();
+      const createdAt = hb.createdAt ? hb.createdAt.toDate() : null;
+      const ageMs = createdAt ? (now.getTime() - createdAt.getTime()) : (35 * 60 * 1000);
+      if (ageMs > 30 * 60 * 1000) {
+        await reopenBookingSlots(hb.caregiverId, hb.day, hb.slot);
+        await holdDoc.ref.delete();
+      }
+    }
+  } catch (holdErr) {
+    console.warn("Error cleaning stale pendingPayment holds:", holdErr.message);
+  }
   
   // 1. Manejo de reservas normales y No-Shows (24h tras fin teórico)
   const snapshot = await admin.firestore().collection("bookings").where("escrowStatus", "==", "held").where("status", "==", "confirmed").get();
@@ -386,9 +487,14 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
       if (now > payoutTime) {
         try {
           if (!b.checkInTime) {
-            // NO-SHOW: Cancelación fulminante
-            if (b.paymentIntentId && b.cost > 0) {
-              await stripe.refunds.create({ payment_intent: b.paymentIntentId, amount: Math.round(b.cost * 100) });
+            // NO-SHOW: Cancelación fulminante (reembolso íntegro al cliente)
+            const fullRefund = b.totalPaid || b.cost || 0;
+            if (b.paymentIntentId && fullRefund > 0) {
+              await createIdempotentRefund(stripe, {
+                paymentIntentId: b.paymentIntentId,
+                amountInCents: Math.round(fullRefund * 100),
+                idempotencyKey: `noshow_refund_${doc.id}`,
+              });
             }
             await doc.ref.update({ status: "cancelledLate", escrowStatus: "refunded", cancellationReason: "No-Show" });
             
@@ -416,12 +522,22 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
               const amountToRefund = b.cost - newCost; // Devolver al cliente el costo del tiempo perdido
               
               if (b.paymentIntentId && amountToRefund > 0) {
-                await stripe.refunds.create({ payment_intent: b.paymentIntentId, amount: Math.round(amountToRefund * 100) });
+                await createIdempotentRefund(stripe, {
+                  paymentIntentId: b.paymentIntentId,
+                  amountInCents: Math.round(amountToRefund * 100),
+                  idempotencyKey: `late_checkin_refund_${doc.id}`,
+                });
               }
               
               const caregiverDoc = await admin.firestore().collection("caregivers").doc(b.caregiverId).get();
-              if (caregiverDoc.data()?.stripeAccountId && b.transferGroup && newPayout > 0) {
-                await stripe.transfers.create({ amount: Math.round(newPayout * 100), currency: "eur", destination: caregiverDoc.data().stripeAccountId, transfer_group: b.transferGroup });
+              if (caregiverDoc.data()?.stripeAccountId && (b.paymentIntentId || b.transferGroup) && newPayout > 0) {
+                await createLinkedStripeTransfer(stripe, {
+                  amountInCents: Math.round(newPayout * 100),
+                  destination: caregiverDoc.data().stripeAccountId,
+                  paymentIntentId: b.paymentIntentId,
+                  transferGroup: b.transferGroup,
+                  idempotencyKey: `late_checkin_transfer_${doc.id}`,
+                });
               }
               
               await doc.ref.update({ 
@@ -436,8 +552,14 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
             } else {
               // A TIEMPO
               const caregiverDoc = await admin.firestore().collection("caregivers").doc(b.caregiverId).get();
-              if (caregiverDoc.data()?.stripeAccountId && b.transferGroup && b.caregiverPayout > 0) {
-                await stripe.transfers.create({ amount: Math.round(b.caregiverPayout * 100), currency: "eur", destination: caregiverDoc.data().stripeAccountId, transfer_group: b.transferGroup });
+              if (caregiverDoc.data()?.stripeAccountId && (b.paymentIntentId || b.transferGroup) && b.caregiverPayout > 0) {
+                await createLinkedStripeTransfer(stripe, {
+                  amountInCents: Math.round(b.caregiverPayout * 100),
+                  destination: caregiverDoc.data().stripeAccountId,
+                  paymentIntentId: b.paymentIntentId,
+                  transferGroup: b.transferGroup,
+                  idempotencyKey: `auto_release_${doc.id}`,
+                });
               }
               await doc.ref.update({ status: "completed", escrowStatus: "released_auto" });
               await addCompletedHours(b.clientId, b.caregiverId, b.slot);
@@ -462,7 +584,14 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
       if (now > timeoutDate) {
          try {
             // Silencio administrativo de 24h -> Devolver 100% al cliente
-            if (b.paymentIntentId && b.cost > 0) await stripe.refunds.create({ payment_intent: b.paymentIntentId, amount: Math.round(b.cost * 100) });
+            const disputeRefund = b.totalPaid || b.cost || 0;
+            if (b.paymentIntentId && disputeRefund > 0) {
+              await createIdempotentRefund(stripe, {
+                paymentIntentId: b.paymentIntentId,
+                amountInCents: Math.round(disputeRefund * 100),
+                idempotencyKey: `dispute_timeout_refund_${doc.id}`,
+              });
+            }
             await doc.ref.update({ escrowStatus: "refunded", status: "completed", cancellationReason: "Disputa resuelta a favor del cliente por inactividad del cuidador" });
          } catch(e) { console.error("Error timing out dispute", e); }
       }
@@ -492,7 +621,14 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
         
         if (now > timeoutDate) {
            try {
-              if (b.paymentIntentId && b.cost > 0) await stripe.refunds.create({ payment_intent: b.paymentIntentId, amount: Math.round(b.cost * 100) });
+              const legacyRefund = b.totalPaid || b.cost || 0;
+              if (b.paymentIntentId && legacyRefund > 0) {
+                await createIdempotentRefund(stripe, {
+                  paymentIntentId: b.paymentIntentId,
+                  amountInCents: Math.round(legacyRefund * 100),
+                  idempotencyKey: `legacy_dispute_refund_${doc.id}`,
+                });
+              }
               await doc.ref.update({ escrowStatus: "refunded", status: "completed", cancellationReason: "Disputa resuelta por inactividad (Legacy)" });
            } catch(e) { console.error("Error timing out legacy dispute", e); }
         }
@@ -517,7 +653,11 @@ exports.adminResolveDispute = functions.region("europe-west1").runWith({ secrets
     
     if (refundToClient > 0 && booking.paymentIntentId) {
       try {
-        await stripe.refunds.create({ payment_intent: booking.paymentIntentId, amount: Math.round(refundToClient * 100) });
+        await createIdempotentRefund(stripe, {
+          paymentIntentId: booking.paymentIntentId,
+          amountInCents: Math.round(refundToClient * 100),
+          idempotencyKey: `admin_dispute_refund_${bookingId}`,
+        });
       } catch(e) {
         console.error("Stripe refund error:", e.message);
       }
@@ -525,9 +665,15 @@ exports.adminResolveDispute = functions.region("europe-west1").runWith({ secrets
     
     if (payoutToCaregiver > 0) {
       const caregiverDoc = await admin.firestore().collection("caregivers").doc(booking.caregiverId).get();
-      if (caregiverDoc.data()?.stripeAccountId && booking.transferGroup) {
+      if (caregiverDoc.data()?.stripeAccountId && (booking.paymentIntentId || booking.transferGroup)) {
          try {
-           await stripe.transfers.create({ amount: Math.round(payoutToCaregiver * 100), currency: "eur", destination: caregiverDoc.data().stripeAccountId, transfer_group: booking.transferGroup });
+           await createLinkedStripeTransfer(stripe, {
+             amountInCents: Math.round(payoutToCaregiver * 100),
+             destination: caregiverDoc.data().stripeAccountId,
+             paymentIntentId: booking.paymentIntentId,
+             transferGroup: booking.transferGroup,
+             idempotencyKey: `admin_dispute_transfer_${bookingId}`,
+           });
          } catch(e) {
            console.error("Stripe transfer error:", e.message);
          }
@@ -1005,4 +1151,21 @@ exports.triggerSyncLastMessageOnDelete = onDocumentDeleted({
     });
   }
   return null;
+});
+
+exports.deleteUserAccountRgpd = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const db = admin.firestore();
+  try {
+    const batch = db.batch();
+    batch.delete(db.collection("users").doc(uid));
+    batch.delete(db.collection("clients").doc(uid));
+    batch.delete(db.collection("caregivers").doc(uid));
+    await batch.commit();
+    return { success: true };
+  } catch (error) {
+    console.error("Error in deleteUserAccountRgpd:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  }
 });

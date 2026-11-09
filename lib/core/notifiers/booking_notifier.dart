@@ -72,7 +72,7 @@ class BookingNotifier extends ChangeNotifier {
 
   Future<void> rejectBooking(String bookingId) async {
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('caregiverRejectBooking');
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1').httpsCallable('caregiverRejectBooking');
       await callable.call({
         'bookingId': bookingId,
       });
@@ -227,7 +227,7 @@ class BookingNotifier extends ChangeNotifier {
       });
       
       try {
-        final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('processResolutionAgreement');
+        final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1').httpsCallable('processResolutionAgreement');
         await callable.call(<String, dynamic>{
           'bookingId': bookingId,
         });

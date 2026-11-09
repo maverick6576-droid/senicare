@@ -67,7 +67,57 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         padding: const EdgeInsets.all(16),
         children: [
         if (user != null) _buildProfileAlerts(user, auth),
-        const Text('Resumen de Actividad', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        Container(
+          padding: const EdgeInsets.all(18),
+          margin: const EdgeInsets.only(bottom: 20),
+          decoration: AppTheme.modernCardDecoration(
+            radius: 20,
+            borderColor: AppTheme.primary.withValues(alpha: 0.2),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.calendar_month_rounded, color: AppTheme.primary, size: 28),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tu Disponibilidad Horaria',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Elige qué días y horas puedes trabajar.',
+                      style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CaregiverCalendarScreen()));
+                },
+                child: const Text('Editar Horarios', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
+        const Text('Resumen de Actividad', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
         const SizedBox(height: 16),
         Builder(
           builder: (context) {
