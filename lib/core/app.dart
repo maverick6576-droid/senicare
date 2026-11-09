@@ -69,9 +69,7 @@ class _SeniCareAppState extends State<SeniCareApp> {
       home: auth.isAuthenticated 
           ? (auth.currentRole == 'admin' 
               ? (auth.isAdminVerified2FA ? const AdminDashboard() : const Admin2FAScreen())
-              : (auth.currentRole == 'caregiver'
-                  ? const MainLayout()
-                  : (auth.onboardingComplete ? const MainLayout() : OnboardingRouterScreen())))
+              : (auth.onboardingComplete ? const MainLayout() : const OnboardingRouterScreen()))
           : const AuthScreen(),
     );
   }

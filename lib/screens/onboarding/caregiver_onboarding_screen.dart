@@ -551,8 +551,18 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         actions: [
           TextButton.icon(
             onPressed: () => _saveDraft(showFeedback: true),
-            icon: const Icon(Icons.save, size: 18),
+            icon: const Icon(Icons.save_outlined, size: 18),
             label: const Text('Guardar'),
+          ),
+          TextButton(
+            onPressed: () async {
+              await _saveDraft();
+              if (!context.mounted) return;
+              final auth = context.read<AuthNotifier>();
+              auth.onboardingComplete = true;
+              auth.forceRefresh();
+            },
+            child: const Text('Terminar luego'),
           ),
         ],
       ),

@@ -472,9 +472,16 @@ class _CaregiverProfileEditScreenState extends State<CaregiverProfileEditScreen>
     final isSenior = config.seniorMode;
     final fontMult = isSenior ? 1.3 : 1.0;
 
+    final canPop = ModalRoute.of(context)?.canPop ?? false;
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
+      appBar: canPop
+          ? AppBar(
+              title: const Text('Mi Perfil de Cuidador'),
+            )
+          : null,
+      floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
         onPressed: () {
           if (_isEditing) {
             _saveProfile();
@@ -482,7 +489,8 @@ class _CaregiverProfileEditScreenState extends State<CaregiverProfileEditScreen>
             setState(() => _isEditing = true);
           }
         },
-        child: Icon(_isEditing ? Icons.save : Icons.edit, color: Colors.white),
+        icon: Icon(_isEditing ? Icons.save : Icons.edit, color: Colors.white),
+        label: Text(_isEditing ? 'Guardar' : 'Editar Perfil'),
       ),
       body: SingleChildScrollView(
         child: Column(

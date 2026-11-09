@@ -330,7 +330,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _createdBookingIds.clear();
         _showSnackBar(
           scaffoldMessenger,
-          '✅ Pago completado con éxito. La reserva ha sido confirmada.',
+          '✅ Pago protegido recibido. Solicitud enviada al cuidador para su confirmación.',
           Colors.green,
         );
         navigator.popUntil((route) => route.isFirst);
@@ -517,7 +517,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'El pago será retenido de forma segura mediante Stripe Escrow y solo se transferirá a ${widget.caregiver.name.split(' ')[0]} una vez completada la visita de asistencia.',
+                    'Pagos por servicios asistenciales presenciales a domicilio (exentos de IAP digital conforme a App Store Guideline 3.1.5 / Google Play). El importe queda retenido en garantía (Stripe Escrow) y solo se transfiere a ${widget.caregiver.name.split(' ')[0]} tras realizar el servicio y validar su llegada.',
                     style: const TextStyle(color: Colors.blue, height: 1.5),
                   ),
                 ),

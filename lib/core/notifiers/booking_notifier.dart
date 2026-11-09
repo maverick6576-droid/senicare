@@ -222,17 +222,17 @@ class BookingNotifier extends ChangeNotifier {
     if (b == null) return;
 
     if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-        'escrowStatus': 'resolved_partial',
-      });
-      
       try {
         final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1').httpsCallable('processResolutionAgreement');
         await callable.call(<String, dynamic>{
           'bookingId': bookingId,
         });
+        b.escrowStatus = 'resolved_partial';
+        b.status = BookingStatus.completed;
+        notifyListeners();
       } catch (e) {
         debugPrint("Error calling processResolutionAgreement: $e");
+        rethrow;
       }
     }
   }

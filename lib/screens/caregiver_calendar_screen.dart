@@ -314,13 +314,60 @@ class _CaregiverCalendarScreenState extends State<CaregiverCalendarScreen> {
     }
   }
 
+  Future<void> _createSingleDaySlots(int startHour, int endHour) async {
+    if (mounted) setState(() => _isLoading = true);
+    try {
+      final caregiverId = _auth.currentUserId!;
+      final List<TimeSlot> daySlots = [];
+      for (int h = startHour; h < endHour; h++) {
+        daySlots.add(TimeSlot(
+          id: '$_dateStr-$h',
+          dateTime: DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, h),
+          isAvailable: true,
+        ));
+      }
+      await DependencyInjection.caregivers.clearDaySlots(caregiverId, _dateStr);
+      await DependencyInjection.caregivers.setBatchTimeSlots(caregiverId, _dateStr, daySlots);
+      await _loadSlots();
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: '✅ Horarios activados para este día. Puedes encender o apagar cada hora.',
+          type: SnackBarType.success,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(context, message: 'Error al crear horarios: $e', type: SnackBarType.error);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final config = context.watch<ConfigNotifier>();
     final fontMult = config.seniorMode ? 1.2 : 1.0;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mi Calendario')),
+      appBar: AppBar(
+        title: const Text('Mi Calendario de Horarios'),
+        actions: [
+          if (_slots.isNotEmpty)
+            TextButton.icon(
+              onPressed: _isLoading
+                  ? null
+                  : () async {
+                      setState(() => _isLoading = true);
+                      await DependencyInjection.caregivers.clearDaySlots(_auth.currentUserId!, _dateStr);
+                      await _loadSlots();
+                    },
+              icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+              label: const Text('Vaciar día', style: TextStyle(color: Colors.red)),
+            ),
+        ],
+      ),
       body: Column(
         children: [
           CalendarDatePicker(
@@ -340,26 +387,50 @@ class _CaregiverCalendarScreenState extends State<CaregiverCalendarScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : _slots.isEmpty
                     ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.calendar_today,
-                                size: 48, color: Colors.grey.shade400),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Sin horarios para este día.',
-                              style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 16 * fontMult),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Usa "Horario Recurrente" para generar franjas.',
-                              style: TextStyle(
-                                  color: Colors.grey.shade400,
-                                  fontSize: 13 * fontMult),
-                            ),
-                          ],
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.event_available_rounded,
+                                  size: 46, color: AppTheme.primary.withValues(alpha: 0.6)),
+                              const SizedBox(height: 10),
+                              Text(
+                                'Sin horarios activados en este día',
+                                style: TextStyle(
+                                    color: AppTheme.darkSlate,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16 * fontMult),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Pulsa un botón abajo para abrir horas solo hoy, o usa "Repetir Varias Semanas" si tienes un horario fijo.',
+                                style: TextStyle(
+                                    color: AppTheme.slateMuted,
+                                    fontSize: 13 * fontMult),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                alignment: WrapAlignment.center,
+                                children: [
+                                  ElevatedButton.icon(
+                                    onPressed: _isLoading ? null : () => _createSingleDaySlots(9, 18),
+                                    icon: const Icon(Icons.wb_sunny_outlined, size: 18),
+                                    label: const Text('Abrir este día (09:00 - 18:00)'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: _isLoading ? null : () => _createSingleDaySlots(8, 22),
+                                    icon: const Icon(Icons.schedule, size: 18),
+                                    label: const Text('Jornada completa (08:00 - 22:00)'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       )
                     : ListView.builder(

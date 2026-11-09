@@ -112,26 +112,40 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Mis Ofertas de Trabajo'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Activas'),
-              Tab(text: 'Historial'),
-            ],
-          ),
-        ),
-        body: TabBarView(
+        body: Column(
           children: [
-            buildList(activeOffers, _scrollActive),
-            buildList(historyOffers, _scrollHistory),
+            Container(
+              color: Colors.white,
+              child: const TabBar(
+                labelColor: AppTheme.primary,
+                unselectedLabelColor: AppTheme.slateMuted,
+                indicatorColor: AppTheme.primary,
+                indicatorWeight: 3,
+                labelStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                tabs: [
+                  Tab(text: 'Mis Ofertas Activas'),
+                  Tab(text: 'Historial'),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  buildList(activeOffers, _scrollActive),
+                  buildList(historyOffers, _scrollHistory),
+                ],
+              ),
+            ),
           ],
         ),
-        floatingActionButton: FloatingActionButton(
+        floatingActionButton: FloatingActionButton.extended(
           onPressed: () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateOfferScreen()));
           },
-          child: const Icon(Icons.add),
+          icon: const Icon(Icons.add),
+          label: const Text('Publicar Oferta'),
+          backgroundColor: AppTheme.primary,
+          foregroundColor: Colors.white,
         ),
       ),
     );
@@ -171,8 +185,23 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
     final offers = context.watch<JobOfferNotifier>().nearbyOffers.where((o) => !o.isExpired).toList();
     
     return Scaffold(
-      appBar: AppBar(title: const Text('Ofertas Cercanas')),
-      body: RefreshIndicator(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
+            ),
+            child: const Text(
+              'Ofertas de Familias Cercanas',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
         onRefresh: () async {
           final auth = context.read<AuthNotifier>();
           final location = context.read<LocationNotifier>();
@@ -240,6 +269,9 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
                   );
                 },
               ),
+            ),
+          ),
+        ],
       ),
     );
   }

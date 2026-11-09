@@ -22,7 +22,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (_isProcessing) return;
     setState(() => _isProcessing = true);
 
-    if (rawValue == 'client_qr_${widget.booking.clientId}') {
+    final normalized = rawValue.trim();
+    final isValidBookingQr = normalized == widget.booking.id ||
+        normalized == 'client_qr_${widget.booking.clientId}' ||
+        normalized == 'booking_qr_${widget.booking.id}';
+
+    if (isValidBookingQr) {
       try {
         final position = await Geolocator.getCurrentPosition();
         

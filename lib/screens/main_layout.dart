@@ -51,12 +51,12 @@ class _MainLayoutState extends State<MainLayout> {
     bool showBookingsBadge = bookings.any((b) => b.isActive);
 
     // Mensajes Badge setup
-    String userId = auth.currentUserId ?? '';
-    if (!isClient && auth.currentCaregiver == null) {
-      userId = 'c1';
-    }
+    final String userId = auth.currentUserId ?? '';
 
     Widget buildMessagesIcon({bool active = false}) {
+      if (userId.isEmpty) {
+        return Icon(active ? Icons.chat_bubble : Icons.chat_bubble_outline);
+      }
       return StreamBuilder<List<ChatConversation>>(
         stream: DependencyInjection.chats.streamActiveChats(userId, auth.currentRole),
         builder: (context, snapshot) {

@@ -21,19 +21,7 @@ class ChatNotifier extends ChangeNotifier {
   void _subscribeToChats() {
     _chatsSubscription?.cancel();
     chatMessages.clear();
-
-    if (_currentUserId == null || _currentRole == null || _currentRole == 'admin') {
-      notifyListeners();
-      return;
-    }
-
-    String effectiveUserId = _currentUserId!;
-
-    // MVP: Suscribirse a un chat por defecto
-    _chatsSubscription = DependencyInjection.chats.streamMessages(effectiveUserId, 'c1').listen((data) {
-      chatMessages = data;
-      notifyListeners();
-    });
+    notifyListeners();
   }
 
   @override

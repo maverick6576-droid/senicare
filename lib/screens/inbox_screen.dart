@@ -34,12 +34,9 @@ class _InboxScreenState extends State<InboxScreen> {
     final auth = context.watch<AuthNotifier>();
     final isClient = auth.currentRole == 'client';
     
-    String userId = auth.currentUserId ?? '';
-    // Modo Pruebas: Si el usuario usa el toggle para ver el "Modo Cuidador (Elena)"
-    // pero su cuenta real es de cliente (no tiene perfil de cuidador asociado), 
-    // forzamos el ID a 'c1' para que pueda ver los chats enviados a Elena.
-    if (!isClient && auth.currentCaregiver == null) {
-      userId = 'c1';
+    final String userId = auth.currentUserId ?? '';
+    if (userId.isEmpty) {
+      return const Center(child: Text('No tienes conversaciones activas.'));
     }
 
     return StreamBuilder<List<ChatConversation>>(

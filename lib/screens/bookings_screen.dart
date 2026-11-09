@@ -155,19 +155,30 @@ class _BookingsScreenState extends State<BookingsScreen> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Reservas'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Activas'),
-              Tab(text: 'Historial'),
-            ],
-          ),
-        ),
-        body: TabBarView(
+        body: Column(
           children: [
-            _buildBookingsList(context, activeBookings, isClient, auth, bookingState, isActiveTab: true, controller: _scrollActive),
-            _buildBookingsList(context, historyBookings, isClient, auth, bookingState, isActiveTab: false, controller: _scrollHistory),
+            Container(
+              color: Colors.white,
+              child: const TabBar(
+                labelColor: AppTheme.primary,
+                unselectedLabelColor: AppTheme.slateMuted,
+                indicatorColor: AppTheme.primary,
+                indicatorWeight: 3,
+                labelStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                tabs: [
+                  Tab(text: 'Reservas Activas'),
+                  Tab(text: 'Historial'),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildBookingsList(context, activeBookings, isClient, auth, bookingState, isActiveTab: true, controller: _scrollActive),
+                  _buildBookingsList(context, historyBookings, isClient, auth, bookingState, isActiveTab: false, controller: _scrollHistory),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -341,6 +352,27 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             ),
                           ),
                           if (isClient && b.status == BookingStatus.confirmed) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primarySurface,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.verified_user_outlined, size: 18, color: AppTheme.primary),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Cuando el cuidador llegue a tu domicilio, enséñale el Código PIN de 4 números o el QR para registrar su entrada.',
+                                      style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                             const SizedBox(height: 8),
                             Row(
                               children: [
@@ -348,16 +380,27 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                   child: FilledButton.icon(
                                     onPressed: () {
                                       showDialog(context: context, builder: (_) => AlertDialog(
-                                        title: const Text('Código QR'),
+                                        title: const Text('Código QR de Entrada'),
                                           content: SizedBox(
-                                            width: 200,
-                                            height: 200,
-                                            child: Center(
-                                              child: QrImageView(
-                                                data: b.id,
-                                                version: QrVersions.auto,
-                                                size: 200.0,
-                                              ),
+                                            width: 220,
+                                            height: 240,
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Text(
+                                                  'El cuidador debe escanear este cuadro desde su móvil al llegar:',
+                                                  style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                const SizedBox(height: 12),
+                                                Center(
+                                                  child: QrImageView(
+                                                    data: b.id,
+                                                    version: QrVersions.auto,
+                                                    size: 180.0,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         actions: [
@@ -374,15 +417,25 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                   child: FilledButton.icon(
                                     onPressed: () {
                                       showDialog(context: context, builder: (_) => AlertDialog(
-                                        title: const Text('Código PIN'),
+                                        title: const Text('Código PIN de Entrada'),
                                           content: SizedBox(
-                                            width: 200,
-                                            height: 100,
-                                            child: Center(
-                                              child: Text(
-                                                b.bookingPin ?? "Sin PIN", 
-                                                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 4)
-                                              ),
+                                            width: 220,
+                                            height: 130,
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                const Text(
+                                                  'Dile estos 4 números al cuidador cuando llegue a casa:',
+                                                  style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                const SizedBox(height: 12),
+                                                Text(
+                                                  b.bookingPin ?? "Sin PIN", 
+                                                  style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold, letterSpacing: 6, color: AppTheme.primary),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         actions: [
@@ -551,7 +604,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                                 await state.acceptDisputeProposal(b.id);
                                                 if (context.mounted) CustomSnackBar.show(context, message: 'Propuesta aceptada, pago en proceso.', type: SnackBarType.success);
                                               } catch (e) {
-                                                if (context.mounted) CustomSnackBar.show(context, message: 'Error: ', type: SnackBarType.error);
+                                                if (context.mounted) CustomSnackBar.show(context, message: 'Error al procesar acuerdo: $e', type: SnackBarType.error);
                                               }
                                             }
                                           },

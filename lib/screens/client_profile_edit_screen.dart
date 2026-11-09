@@ -100,15 +100,19 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canPop = ModalRoute.of(context)?.canPop ?? false;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mi Perfil (Cliente)'),
-        backgroundColor: Colors.white,
-        foregroundColor: AppTheme.darkSlate,
-        elevation: 0,
-      ),
-      floatingActionButton: FloatingActionButton(
+      appBar: canPop
+          ? AppBar(
+              title: const Text('Mi Perfil (Cliente)'),
+              backgroundColor: Colors.white,
+              foregroundColor: AppTheme.darkSlate,
+              elevation: 0,
+            )
+          : null,
+      floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
         tooltip: _isEditing ? 'Guardar Cambios' : 'Editar Perfil',
         onPressed: () {
           if (_isEditing) {
@@ -117,7 +121,8 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
             setState(() => _isEditing = true);
           }
         },
-        child: Icon(_isEditing ? Icons.save : Icons.edit, color: Colors.white),
+        icon: Icon(_isEditing ? Icons.save : Icons.edit, color: Colors.white),
+        label: Text(_isEditing ? 'Guardar' : 'Editar Perfil'),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

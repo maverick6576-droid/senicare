@@ -26,7 +26,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
 
   Future<void> _loadStats() async {
     final auth = context.read<AuthNotifier>();
-    final caregiverId = (auth.currentRole == 'caregiver' && auth.currentCaregiver == null) ? 'c1' : auth.currentUserId ?? '';
+    final caregiverId = auth.currentCaregiver?.id ?? auth.currentUserId ?? '';
     
     if (caregiverId.isNotEmpty) {
       final stats = await DependencyInjection.stats.getCaregiverClientStats(caregiverId);
@@ -122,14 +122,14 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         Builder(
           builder: (context) {
             final now = DateTime.now();
-            final effectiveCaregiverId = user?.id ?? auth.currentUserId ?? 'c1';
+            final effectiveCaregiverId = user?.id ?? auth.currentUserId ?? '';
 
             // Seleccionar reservas pertenecientes a este cuidador
             final caregiverBookings = bookingState.bookings.where((b) {
+              if (effectiveCaregiverId.isEmpty) return false;
               return b.caregiverId == effectiveCaregiverId ||
                      b.caregiverId == auth.currentUserId ||
-                     b.caregiverId == user?.id ||
-                     b.caregiverId == 'c1';
+                     b.caregiverId == user?.id;
             }).toList();
 
             // Un servicio se cuenta como "Realizado" (y por tanto computa en "Cobrado") si:

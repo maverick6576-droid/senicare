@@ -72,7 +72,10 @@ exports.getStripeAccountLink = functions.region("europe-west1").runWith({ secret
       }
     }
     const accountLink = await stripe.accountLinks.create({
-      account: data.accountId, refresh_url: "https://senicare.app/reauth", return_url: "https://senicare.app/return", type: "account_onboarding",
+      account: data.accountId,
+      refresh_url: "https://senicare-3342d.web.app/reauth",
+      return_url: "https://senicare-3342d.web.app/return",
+      type: "account_onboarding",
     });
     return { url: accountLink.url, type: "account_onboarding" };
   } catch (error) { throw new functions.https.HttpsError("internal", error.message); }
@@ -462,6 +465,53 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
     console.warn("Error cleaning stale pendingPayment holds:", holdErr.message);
   }
   
+  // 0.5. Expiración automática de reservas en estado "pending" (no aceptadas por el cuidador a tiempo)
+  try {
+    const pendingSnap = await admin.firestore().collection("bookings")
+      .where("escrowStatus", "==", "held")
+      .where("status", "==", "pending")
+      .get();
+    for (const pDoc of pendingSnap.docs) {
+      const pb = pDoc.data();
+      let pDateParts;
+      if (pb.day && pb.day.includes("/")) {
+        const parts = pb.day.split("/");
+        pDateParts = [parts[2], parts[1], parts[0]];
+      } else if (pb.day) {
+        pDateParts = pb.day.split("-");
+      }
+      if (pDateParts && pDateParts.length === 3 && pb.slot) {
+        const startStr = pb.slot.includes("-") ? pb.slot.split("-")[0] : pb.slot;
+        const startParts = startStr.split(":");
+        const scheduledStart = new Date(
+          parseInt(pDateParts[0], 10),
+          parseInt(pDateParts[1], 10) - 1,
+          parseInt(pDateParts[2], 10),
+          parseInt(startParts[0], 10),
+          parseInt(startParts[1] || "0", 10)
+        );
+        if (now > scheduledStart) {
+          const fullRefund = pb.totalPaid || pb.cost || 0;
+          if (pb.paymentIntentId && fullRefund > 0) {
+            await createIdempotentRefund(stripe, {
+              paymentIntentId: pb.paymentIntentId,
+              amountInCents: Math.round(fullRefund * 100),
+              idempotencyKey: `expired_pending_refund_${pDoc.id}`,
+            });
+          }
+          await reopenBookingSlots(pb.caregiverId, pb.day, pb.slot);
+          await pDoc.ref.update({
+            status: "cancelled",
+            escrowStatus: "refunded",
+            cancellationReason: "Expirada sin respuesta del cuidador",
+          });
+        }
+      }
+    }
+  } catch (pendingErr) {
+    console.warn("Error expiring unaccepted pending bookings:", pendingErr.message);
+  }
+
   // 1. Manejo de reservas normales y No-Shows (24h tras fin teórico)
   const snapshot = await admin.firestore().collection("bookings").where("escrowStatus", "==", "held").where("status", "==", "confirmed").get();
   
@@ -713,10 +763,14 @@ exports.processResolutionAgreement = functions.region("europe-west1").runWith({ 
 
     const caregiverDoc = await admin.firestore().collection("caregivers").doc(booking.caregiverId).get();
     if (booking.paymentIntentId && booking.disputeAmount > 0) {
-      await stripe.refunds.create({ payment_intent: booking.paymentIntentId, amount: Math.round(booking.disputeAmount * 100) });
+      await createIdempotentRefund(stripe, {
+        paymentIntentId: booking.paymentIntentId,
+        amountInCents: Math.round(booking.disputeAmount * 100),
+        idempotencyKey: `dispute_agree_refund_${data.bookingId}`,
+      });
     }
     
-    const dineroParaElCuidador = booking.cost - booking.disputeAmount;
+    const dineroParaElCuidador = Math.max(0, booking.cost - (booking.disputeAmount || 0));
     const comisionCuidador = dineroParaElCuidador * booking.caregiverCommissionRate;
     const payoutCuidador = dineroParaElCuidador - comisionCuidador;
     
@@ -724,31 +778,15 @@ exports.processResolutionAgreement = functions.region("europe-west1").runWith({ 
       if (!caregiverDoc.data()?.stripeAccountId) {
         throw new functions.https.HttpsError("failed-precondition", "El cuidador no tiene cuenta bancaria (Stripe) configurada para recibir el pago.");
       }
-      
-      let sourceTransaction;
-      if (booking.paymentIntentId) {
-        try {
-          const pi = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
-          if (pi.latest_charge) sourceTransaction = pi.latest_charge;
-        } catch(e) {
-          console.error("No se pudo obtener el PI para el transfer:", e);
-        }
-      }
 
-      const transferParams = {
-        amount: Math.round(payoutCuidador * 100),
-        currency: "eur",
-        destination: caregiverDoc.data().stripeAccountId
-      };
-
-      if (sourceTransaction) {
-        transferParams.source_transaction = sourceTransaction;
-      } else if (booking.transferGroup) {
-        transferParams.transfer_group = booking.transferGroup;
-      }
-
-      if (sourceTransaction || booking.transferGroup) {
-        await stripe.transfers.create(transferParams);
+      if (booking.paymentIntentId || booking.transferGroup) {
+        await createLinkedStripeTransfer(stripe, {
+          amountInCents: Math.round(payoutCuidador * 100),
+          destination: caregiverDoc.data().stripeAccountId,
+          paymentIntentId: booking.paymentIntentId,
+          transferGroup: booking.transferGroup,
+          idempotencyKey: `dispute_agree_transfer_${data.bookingId}`,
+        });
       }
     }
     
