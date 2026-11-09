@@ -11,7 +11,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import 'package:geolocator/geolocator.dart';
 import 'live_dni_scanner_screen.dart';
 import 'package:senicare/widgets/widgets.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -215,11 +214,20 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       final file = File(path);
       if (!await file.exists()) return null;
 
-      final ext = p.extension(path).isNotEmpty ? p.extension(path) : '.jpg';
+      final ext = p.extension(path).isNotEmpty ? p.extension(path).toLowerCase() : '.jpg';
       final fileName = '${userId}_${DateTime.now().millisecondsSinceEpoch}$ext';
 
+      SettableMetadata? metadata;
+      if (ext == '.pdf') {
+        metadata = SettableMetadata(contentType: 'application/pdf');
+      } else if (ext == '.png') {
+        metadata = SettableMetadata(contentType: 'image/png');
+      } else if (ext == '.jpg' || ext == '.jpeg') {
+        metadata = SettableMetadata(contentType: 'image/jpeg');
+      }
+
       final ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
-      await ref.putFile(file);
+      await ref.putFile(file, metadata);
       return await ref.getDownloadURL();
     } catch (e) {
       debugPrint('Upload error: $e');

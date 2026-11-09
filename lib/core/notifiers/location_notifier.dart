@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:senicare/core/core.dart';
 
 class LocationNotifier extends ChangeNotifier {
   double? latitude;

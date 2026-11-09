@@ -4,12 +4,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
-import 'package:senicare/core/core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class FirebaseAuthRepository implements AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -85,10 +83,9 @@ class FirebaseAuthRepository implements AuthRepository {
     try {
       final GoogleSignIn googleSignIn = GoogleSignIn.instance;
       // In 7.x we must use authenticate()
-      final GoogleSignInAccount? googleUser = await googleSignIn.authenticate();
-      if (googleUser == null) return;
+      final GoogleSignInAccount googleUser = await googleSignIn.authenticate();
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
       
       // In v7.x, accessToken is separate and requires authorizeScopes. For Firebase Auth, idToken is enough.
       final OAuthCredential credential = GoogleAuthProvider.credential(

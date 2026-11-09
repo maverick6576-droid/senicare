@@ -27,7 +27,7 @@ class FirestoreBookingRepository implements BookingRepository {
       }
     } catch (e) {
       debugPrint('==================================================');
-      debugPrint('âš ï¸ Error in streamBookings: $e');
+      debugPrint('⚠️ Error in streamBookings: $e');
       debugPrint('==================================================');
       yield* const Stream.empty();
     }
@@ -39,7 +39,7 @@ class FirestoreBookingRepository implements BookingRepository {
       final docRef = await _collection.add(booking.toFirestore());
       return docRef.id;
     } catch (e) {
-      debugPrint('âš ï¸ Error in createBooking: $e.');
+      debugPrint('⚠️ Error in createBooking: $e');
       rethrow;
     }
   }
@@ -49,7 +49,7 @@ class FirestoreBookingRepository implements BookingRepository {
     try {
       await _collection.doc(bookingId).update({'status': status});
     } catch (e) {
-      debugPrint('âš ï¸ Error in updateBookingStatus: $e.');
+      debugPrint('⚠️ Error in updateBookingStatus: $e');
       rethrow;
     }
   }
@@ -59,10 +59,9 @@ class FirestoreBookingRepository implements BookingRepository {
     try {
       await _collection.doc(bookingId).update({
         'status': BookingStatus.completed.toString().split('.').last,
-        'escrowStatus': 'released',
       });
     } catch (e) {
-      debugPrint('âš ï¸ Error in releaseEscrow: $e.');
+      debugPrint('⚠️ Error in releaseEscrow: $e');
       rethrow;
     }
   }
@@ -72,7 +71,6 @@ class FirestoreBookingRepository implements BookingRepository {
     try {
       await _collection.doc(bookingId).update({
         'status': isLate ? BookingStatus.cancelledLate.toString().split('.').last : BookingStatus.cancelled.toString().split('.').last,
-        'escrowStatus': isLate ? 'held' : 'refunded',
         'cancellationReason': reason,
       });
     } catch (e) {
@@ -86,9 +84,8 @@ class FirestoreBookingRepository implements BookingRepository {
     try {
       await _collection.doc(bookingId).delete();
     } catch (e) {
-      debugPrint('âš ï¸ Error in deleteBooking: $e.');
-      // Do not rethrow â€” rollback best-effort, don't block the user
+      debugPrint('⚠️ Error in deleteBooking: $e');
+      // Do not rethrow - rollback best-effort, don't block the user
     }
   }
 }
-

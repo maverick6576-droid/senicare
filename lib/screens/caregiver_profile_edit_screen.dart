@@ -3,12 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
-import 'dart:math';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/widgets/address_form_widget.dart';
 import 'package:senicare/screens/screens.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
@@ -50,12 +48,6 @@ class _CaregiverProfileEditScreenState extends State<CaregiverProfileEditScreen>
   List<String> _selectedSpecialties = [];
   String? _newImageUrl;
   
-  final List<String> _avatarPool = [
-    'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
-    'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=200',
-    'https://images.unsplash.com/photo-1594824432258-2f162461427c?auto=format&fit=crop&q=80&w=200',
-    'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&q=80&w=200'
-  ];  
   final List<String> _allSpecialties = [
     'Movilidad', 'Cocina Médica', 'Compañía', 'Soporte Digital', 'Demencia', 'Post-operatorio'
   ];
@@ -423,8 +415,19 @@ class _CaregiverProfileEditScreenState extends State<CaregiverProfileEditScreen>
     }
     
     final userId = _profile!.id;
-    final ref = FirebaseStorage.instance.ref().child(folder).child('${userId}_${DateTime.now().millisecondsSinceEpoch}.jpg');
-    await ref.putFile(file);
+    final ext = p.extension(path).isNotEmpty ? p.extension(path).toLowerCase() : '.jpg';
+    final ref = FirebaseStorage.instance.ref().child(folder).child('${userId}_${DateTime.now().millisecondsSinceEpoch}$ext');
+    
+    SettableMetadata? metadata;
+    if (ext == '.pdf') {
+      metadata = SettableMetadata(contentType: 'application/pdf');
+    } else if (ext == '.png') {
+      metadata = SettableMetadata(contentType: 'image/png');
+    } else if (ext == '.jpg' || ext == '.jpeg') {
+      metadata = SettableMetadata(contentType: 'image/jpeg');
+    }
+
+    await ref.putFile(file, metadata);
     return await ref.getDownloadURL();
   }
 
@@ -482,15 +485,19 @@ class _CaregiverProfileEditScreenState extends State<CaregiverProfileEditScreen>
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
-        onPressed: () {
-          if (_isEditing) {
-            _saveProfile();
-          } else {
-            setState(() => _isEditing = true);
-          }
-        },
-        icon: Icon(_isEditing ? Icons.save : Icons.edit, color: Colors.white),
-        label: Text(_isEditing ? 'Guardar' : 'Editar Perfil'),
+        onPressed: _isSaving
+            ? null
+            : () {
+                if (_isEditing) {
+                  _saveProfile();
+                } else {
+                  setState(() => _isEditing = true);
+                }
+              },
+        icon: _isSaving
+            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+            : Icon(_isEditing ? Icons.save : Icons.edit, color: Colors.white),
+        label: Text(_isSaving ? 'Guardando...' : (_isEditing ? 'Guardar' : 'Editar Perfil')),
       ),
       body: SingleChildScrollView(
         child: Column(

@@ -29,7 +29,41 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
     if (isValidBookingQr) {
       try {
-        final position = await Geolocator.getCurrentPosition();
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          _showError('Activa el GPS de tu dispositivo o introduce el PIN de la familia.');
+          Future.delayed(const Duration(seconds: 3), () {
+            if (mounted) setState(() => _isProcessing = false);
+          });
+          return;
+        }
+
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+          if (permission == LocationPermission.denied) {
+            _showError('Permiso de ubicación denegado. Puedes usar la pestaña de PIN.');
+            Future.delayed(const Duration(seconds: 3), () {
+              if (mounted) setState(() => _isProcessing = false);
+            });
+            return;
+          }
+        }
+
+        if (permission == LocationPermission.deniedForever) {
+          _showError('Permisos de GPS denegados permanentemente. Usa el código PIN.');
+          Future.delayed(const Duration(seconds: 3), () {
+            if (mounted) setState(() => _isProcessing = false);
+          });
+          return;
+        }
+
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
         
         if (widget.booking.clientLatitude != null && widget.booking.clientLongitude != null) {
           final distance = Geolocator.distanceBetween(
@@ -39,9 +73,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
             widget.booking.clientLongitude!,
           );
           
-          if (distance > 100) {
-            _showError('Estás a ${distance.toInt()}m de la casa. Debes estar a menos de 100m.');
-            Future.delayed(const Duration(seconds: 2), () {
+          final effectiveDistance = (distance - position.accuracy).clamp(0.0, double.infinity);
+          if (distance > 250 && effectiveDistance > 150) {
+            _showError('Estás a ${distance.toInt()}m del domicilio. Si el GPS falla en interiores, usa el "Código PIN".');
+            Future.delayed(const Duration(seconds: 3), () {
               if (mounted) setState(() => _isProcessing = false);
             });
             return;
@@ -50,8 +85,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
         
         await _completeCheckIn();
       } catch (e) {
-        _showError('No se pudo obtener la ubicación GPS.');
-        Future.delayed(const Duration(seconds: 2), () {
+        _showError('No se pudo verificar el GPS. Puedes usar el PIN para fichar.');
+        Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _isProcessing = false);
         });
       }

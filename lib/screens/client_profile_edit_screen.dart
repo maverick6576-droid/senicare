@@ -83,7 +83,7 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       
       // Actualizamos el estado local
       auth.currentClient = await DependencyInjection.clients.getClient(userId);
-      auth.notifyListeners(); // Refrescar dependientes
+      auth.forceRefresh(); // Refrescar dependientes
 
       if (mounted) {
         setState(() => _isEditing = false);

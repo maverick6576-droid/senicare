@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:senicare/repositories/repositories.dart';
-import 'package:senicare/core/core.dart';
 
 class DependencyInjection {
   static late AuthRepository auth;

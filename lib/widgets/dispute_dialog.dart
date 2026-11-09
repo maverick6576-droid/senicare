@@ -57,7 +57,7 @@ class _DisputeDialogState extends State<DisputeDialog> {
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               isExpanded: true,
-              value: _selectedReason,
+              initialValue: _selectedReason,
               hint: const Text('Selecciona una opción'),
               decoration: const InputDecoration(border: OutlineInputBorder()),
               items: _reasons.map((reason) => DropdownMenuItem(value: reason, child: Text(reason, style: const TextStyle(fontSize: 14)))).toList(),

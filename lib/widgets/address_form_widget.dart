@@ -77,7 +77,7 @@ class _AddressFormWidgetState extends State<AddressFormWidget> {
       return;
     }
     
-    String addr = '${_streetCtrl.text.trim()}';
+    String addr = _streetCtrl.text.trim();
     if (_numberCtrl.text.trim().isNotEmpty) {
       addr += ' ${_numberCtrl.text.trim()}';
     }
@@ -174,7 +174,7 @@ class _AddressFormWidgetState extends State<AddressFormWidget> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         DropdownButtonFormField<String>(
-          value: _country,
+          initialValue: _country,
           decoration: const InputDecoration(labelText: 'País', border: OutlineInputBorder()),
           items: ['España'].map((String value) {
             return DropdownMenuItem<String>(
@@ -191,7 +191,7 @@ class _AddressFormWidgetState extends State<AddressFormWidget> {
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
-          value: _province,
+          initialValue: _province,
           decoration: const InputDecoration(labelText: 'Provincia', border: OutlineInputBorder()),
           hint: const Text('Selecciona una provincia'),
           items: _provinces.map((String value) {

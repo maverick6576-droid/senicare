@@ -208,7 +208,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 
                 final dateFormat = DateFormat('yyyy-MM-dd');
                 DateTime? slotDateTime;
-                bool hasPassed = false;
                 try {
                   final dayDate = dateFormat.parse(b.day);
                   if (b.slot.contains('-')) {
@@ -219,7 +218,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     final timeParts = b.slot.split(':');
                     slotDateTime = DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
                   }
-                  hasPassed = slotDateTime.isBefore(DateTime.now());
                 } catch (e) {
                   // Ignore
                 }
@@ -561,7 +559,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                 children: [
                                   Container(
                                     padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                    decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                                     child: Text(
                                       'El cliente ha abierto una disputa proponiendo un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nTu pago restante será de ${(b.cost - (b.disputeAmount ?? 0)).toStringAsFixed(2)} € (menos comisiones).',
                                       style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600),
@@ -624,7 +622,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(12),
                                 width: double.infinity,
-                                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                                 child: Text(
                                   'Has propuesto un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nEsperando la respuesta del cuidador (máx 24h).',
                                   style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600),
@@ -639,7 +637,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(12),
                                 width: double.infinity,
-                                decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                                 child: const Text(
                                   'Disputa escalada al equipo de Administración. Te contactaremos pronto.',
                                   style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
@@ -732,7 +730,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
       case BookingStatus.cancelled: return 'Cancelada';
       case BookingStatus.cancelledLate: return 'Cancelada (Tarde)';
       case BookingStatus.completed: return 'Completada';
-      default: return 'Desconocido';
     }
   }
 
@@ -744,7 +741,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
       case BookingStatus.cancelled: return Colors.red;
       case BookingStatus.cancelledLate: return Colors.red;
       case BookingStatus.completed: return Colors.blue;
-      default: return Colors.grey;
     }
   }
 }

@@ -15,8 +15,6 @@ class MockStatsRepository implements FirestoreStatsRepository {
 
 class MockClientRepository implements ClientRepository {
   @override
-  Future<void> createClient(ClientProfile client) async {}
-  @override
   Future<ClientProfile?> getClient(String userId) async { return null; }
   @override
   Future<void> updateClient(String userId, Map<String, dynamic> data) async {}
@@ -45,8 +43,6 @@ void main() {
     await DependencyInjection.auth.signUpWithEmail('elena@test.com', 'pass', 'caregiver');
     await DependencyInjection.auth.signInWithEmail('elena@test.com', 'pass');
     
-    final caregiverUid = 'c1'; // Elena from mock
-    
     // 2. Registro Cliente
     debugPrint('2. Registrando cliente...');
     await DependencyInjection.auth.signOut();
@@ -62,12 +58,12 @@ void main() {
     
     debugPrint('Total cuidadores en notifier: \${caregiverNotifier.caregivers.length}');
     for(var c in caregiverNotifier.caregivers) {
-      debugPrint(' - \${c.name} (Verified: \${c.verificationStatus})');
+      debugPrint(' - ${c.name} (Verified: ${c.verificationStatus})');
     }
     
     expect(caregiverNotifier.filteredCaregivers.isNotEmpty, true);
     final targetCaregiver = caregiverNotifier.filteredCaregivers.first;
-    debugPrint('   -> Cuidador encontrado: \${targetCaregiver.name}');
+    debugPrint('   -> Cuidador encontrado: ${targetCaregiver.name}');
 
     // 4. Cliente reserva hora
     debugPrint('4. Cliente reserva hora...');

@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:otp/otp.dart';
 import 'package:senicare/core/core.dart';
-import 'package:senicare/screens/screens.dart';
 import 'package:senicare/widgets/widgets.dart';
 
 class Admin2FAScreen extends StatefulWidget {
@@ -122,7 +121,7 @@ class _Admin2FAScreenState extends State<Admin2FAScreen> {
   void _markVerified() {
     final state = context.read<AuthNotifier>();
     state.isAdminVerified2FA = true;
-    state.notifyListeners();
+    state.forceRefresh();
     // La UI cambiará automáticamente en app.dart / main_layout.dart
   }
 

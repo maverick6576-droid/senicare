@@ -59,8 +59,11 @@ class AdminValidationsTab extends StatelessWidget {
   const AdminValidationsTab({super.key});
 
   Future<void> _updateStatus(String id, String status) async {
+    final isApproved = status == 'approved';
     await FirebaseFirestore.instance.collection('caregivers').doc(id).update({
       'verificationStatus': status,
+      'isVerified': isApproved,
+      'verified': isApproved,
     });
   }
 
@@ -187,6 +190,13 @@ class _AdminDisputesTabState extends State<AdminDisputesTab> {
       debugPrint('Error: $e');
       if (context.mounted) {
         CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.error);
+      }
+    } finally {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }

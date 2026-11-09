@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
-import 'package:senicare/core/globals.dart';
 
 // Este handler TIENE que ser de nivel superior (top-level) para funcionar en background
 @pragma('vm:entry-point')

@@ -41,48 +41,53 @@ class AuthNotifier extends ChangeNotifier {
   }
 
   Future<void> reloadRole() async {
-    if (currentUserId != null) {
-      // 1. Verificar primero si existe un perfil de cuidador en la base de datos
-      final hasCaregiverProfile = await DependencyInjection.caregivers.getCaregiver(currentUserId!) != null;
-      
-      if (hasCaregiverProfile) {
-        currentRole = 'caregiver';
-      } else {
-        // Retry loop to handle DB write latency (race condition during signup)
-        String? role;
-        int retries = 0;
-        while (role == null && retries < 12) {
-          role = await DependencyInjection.auth.getUserRole(currentUserId!);
-          if (role == null) {
-            await Future.delayed(const Duration(milliseconds: 500));
-            retries++;
-          }
-        }
+    final uid = currentUserId;
+    if (uid == null) return;
 
-        if (role != null) {
-          currentRole = role;
+    // 1. Verificar primero si existe un perfil de cuidador en la base de datos
+    final caregiver = await DependencyInjection.caregivers.getCaregiver(uid);
+    final hasCaregiverProfile = caregiver != null;
+    
+    if (hasCaregiverProfile) {
+      currentRole = 'caregiver';
+      currentCaregiver = caregiver;
+      onboardingComplete = caregiver.onboardingComplete;
+    } else {
+      // Retry loop to handle DB write latency (race condition during signup)
+      String? role;
+      int retries = 0;
+      while (role == null && retries < 12) {
+        if (currentUserId != uid) return; // Auth state changed during reload
+        role = await DependencyInjection.auth.getUserRole(uid);
+        if (role == null) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          retries++;
         }
+      }
+
+      if (role != null) {
+        currentRole = role;
       }
 
       // Check onboarding status
       if (currentRole == 'client') {
-        currentClient = await DependencyInjection.clients.getClient(currentUserId!);
+        currentClient = await DependencyInjection.clients.getClient(uid);
         onboardingComplete = currentClient?.onboardingComplete ?? false;
       } else if (currentRole == 'caregiver') {
         try {
-          currentCaregiver = await DependencyInjection.caregivers.getCaregiver(currentUserId!);
+          currentCaregiver = await DependencyInjection.caregivers.getCaregiver(uid);
           onboardingComplete = currentCaregiver?.onboardingComplete ?? false;
         } catch (e) {
           onboardingComplete = false;
           currentCaregiver = null;
         }
       } else if (currentRole == 'admin') {
-         // Admin might not have a profile, skip
-         isAdminVerified2FA = false; // Requiere verificación por defecto
+        // Admin might not have a profile, skip
+        isAdminVerified2FA = false; // Requiere verificación por defecto
       }
-
-      notifyListeners();
     }
+
+    notifyListeners();
   }
 
   void setRole(String role) {

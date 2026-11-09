@@ -16,7 +16,7 @@ class CaregiverDetailScreen extends StatefulWidget {
 class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   DateTime _selectedDate = DateTime.now();
   List<TimeSlot> _slots = [];
-  List<TimeSlot> _selectedSlots = [];
+  final List<TimeSlot> _selectedSlots = [];
   List<Review> _reviews = [];
   bool _isLoading = false;
   bool _isLoadingReviews = false;
@@ -85,9 +85,38 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
       body: ListView(
         children: [
           Container(
-            height: 200, width: double.infinity,
-            decoration: BoxDecoration(color: Colors.black87, image: DecorationImage(image: CachedNetworkImageProvider(c.imageUrl), fit: BoxFit.cover, colorFilter: const ColorFilter.mode(Colors.black54, BlendMode.darken))),
-            child: Center(child: CircleAvatar(radius: 30, backgroundColor: Colors.white.withOpacity(0.8), child: const Icon(Icons.play_arrow, color: AppTheme.primary, size: 40))),
+            height: 220,
+            width: double.infinity,
+            decoration: BoxDecoration(color: Colors.grey.shade200),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (c.imageUrl.isNotEmpty)
+                  CachedNetworkImage(
+                    imageUrl: c.imageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator())),
+                    errorWidget: (context, url, error) => const Center(child: Icon(Icons.person, size: 80, color: Colors.grey)),
+                  )
+                else
+                  const Center(child: Icon(Icons.person, size: 80, color: Colors.grey)),
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: 50,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [Colors.black.withValues(alpha: 0.4), Colors.transparent],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(24.0),

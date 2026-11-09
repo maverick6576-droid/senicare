@@ -153,12 +153,10 @@ void main() {
 }
 
 class MockStatsRepository implements FirestoreStatsRepository {
-  @override
   Future<Map<String, dynamic>> getCaregiverStats(String caregiverId) async {
     return {'totalBookings': 5, 'totalEarnings': 100.0, 'completedBookings': 5};
   }
 
-  @override
   Future<void> updateBookingStats(String caregiverId, double amount, String status) async {}
 
   @override

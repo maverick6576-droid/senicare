@@ -17,8 +17,6 @@ class MockStatsRepository implements FirestoreStatsRepository {
 
 class MockClientRepository implements ClientRepository {
   @override
-  Future<void> createClient(ClientProfile client) async {}
-  @override
   Future<ClientProfile?> getClient(String userId) async { return null; }
   @override
   Future<void> updateClient(String userId, Map<String, dynamic> data) async {}

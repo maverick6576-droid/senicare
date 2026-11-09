@@ -22,15 +22,15 @@ class ClientProfile {
   });
 
   factory ClientProfile.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>? ?? {};
     return ClientProfile(
       id: doc.id,
-      name: data['name'] ?? '',
-      phone: data['phone'] ?? '',
-      homeAddress: data['homeAddress'] ?? '',
-      latitude: data['latitude'],
-      longitude: data['longitude'],
-      patientDetails: data['patientDetails'] ?? '',
+      name: data['name']?.toString() ?? '',
+      phone: data['phone']?.toString() ?? '',
+      homeAddress: data['homeAddress']?.toString() ?? '',
+      latitude: (data['latitude'] as num?)?.toDouble(),
+      longitude: (data['longitude'] as num?)?.toDouble(),
+      patientDetails: data['patientDetails']?.toString() ?? '',
       onboardingComplete: data['onboardingComplete'] ?? false,
     );
   }

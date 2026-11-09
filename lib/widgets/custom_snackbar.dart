@@ -30,7 +30,6 @@ class CustomSnackBar {
         iconColor = const Color(0xFFF57F17);
         break;
       case SnackBarType.info:
-      default:
         backgroundColor = const Color(0xFFE3F2FD); // Light blue
         icon = Icons.info_rounded;
         iconColor = const Color(0xFF1565C0);

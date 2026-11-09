@@ -90,7 +90,7 @@ class MockJobOfferRepository implements JobOfferRepository {
     }
     
     final newApp = JobApplication(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: application.id.isNotEmpty ? application.id : '${DateTime.now().microsecondsSinceEpoch}_${application.caregiverId}',
       offerId: application.offerId,
       caregiverId: application.caregiverId,
       caregiverName: application.caregiverName,

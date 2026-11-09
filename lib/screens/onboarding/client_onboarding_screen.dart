@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/widgets/address_form_widget.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:senicare/widgets/widgets.dart';
 
 class ClientOnboardingScreen extends StatefulWidget {
@@ -56,9 +55,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
       // Update local state directly so UI can rebuild and switch to MainLayout
       auth.currentClient = await DependencyInjection.clients.getClient(userId);
       auth.onboardingComplete = true;
-      // Note: In strict architecture, we'd use a setter. 
-      // Using notifyListeners since it's available.
-      auth.notifyListeners();
+      auth.forceRefresh();
     } catch (e) {
       if (context.mounted) {
         CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.info);

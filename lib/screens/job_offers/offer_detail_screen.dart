@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/models/models.dart';
-import 'package:senicare/screens/job_offers/job_offer_payment_screen.dart';
 import 'package:senicare/widgets/widgets.dart';
 import 'package:senicare/screens/screens.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -246,7 +245,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                   ),
                 ),
               ),
-              )).toList(),
+              )),
           ]
         ],
       );

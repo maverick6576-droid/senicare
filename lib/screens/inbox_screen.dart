@@ -114,7 +114,7 @@ class _InboxScreenState extends State<InboxScreen> {
                         children: [
                           CircleAvatar(
                             radius: 26,
-                            backgroundColor: AppTheme.primary.withOpacity(0.12),
+                            backgroundColor: AppTheme.primary.withValues(alpha: 0.12),
                             child: Text(
                               initials,
                               style: TextStyle(

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
-import 'package:senicare/screens/screens.dart';
 import 'package:senicare/widgets/widgets.dart';
 
 class AuthScreen extends StatefulWidget {

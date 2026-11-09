@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:senicare/models/models.dart';
-import 'package:senicare/core/core.dart';
 
 class ChatNotifier extends ChangeNotifier {
   List<ChatMessage> chatMessages = [];

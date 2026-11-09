@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
-import 'package:senicare/core/core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class FirestoreChatRepository implements ChatRepository {
