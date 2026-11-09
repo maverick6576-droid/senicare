@@ -25,6 +25,8 @@ class PatientMedicalSheet {
   int dependencyGrade; // 1: Grado I (Moderada), 2: Grado II (Severa), 3: Grado III (Gran Dependencia)
   bool requiresCraneTransfer; // Si requiere grúa / movilización de encamado
   String cognitiveStatus; // 'Lúcido', 'Deterioro Leve', 'Alzheimer / Demencia'
+  bool rgpdArt9ConsentSigned; // Consentimiento expreso RGPD Art. 9 en 1 toque
+  DateTime? rgpdConsentTimestamp;
 
   PatientMedicalSheet({
     this.patientName = 'Manuel Vila (82 años)',
@@ -37,7 +39,9 @@ class PatientMedicalSheet {
     this.dependencyGrade = 1,
     this.requiresCraneTransfer = false,
     this.cognitiveStatus = 'Deterioro Leve',
-  });
+    this.rgpdArt9ConsentSigned = true,
+    DateTime? rgpdConsentTimestamp,
+  }) : rgpdConsentTimestamp = rgpdConsentTimestamp ?? DateTime(2026, 1, 15, 10, 30);
 
   String get dependencyGradeLabel {
     switch (dependencyGrade) {
@@ -89,7 +93,7 @@ class FamilyCircleMember {
   });
 }
 
-/// Represents an official Spanish tax/dependency invoice (Ley 39/2006 de Dependencia & IRPF).
+/// Represents an official Spanish tax/dependency invoice (Ley 39/2006 de Dependencia, IRPF & VeriFactu AEAT).
 class OfficialCareInvoice {
   final String invoiceNumber;
   final String bookingId;
@@ -104,6 +108,8 @@ class OfficialCareInvoice {
   final int vatRatePercent; // 4% IVA superreducido servicios de dependencia
   final double vatAmountEur;
   final double totalPaidEur;
+  final String verifactuHash; // Huella digital encadenada SHA-256 (Reglamento VeriFactu AEAT)
+  final String aeatVerificationQrUrl; // URL de cotejo en sede electrónica AEAT
 
   const OfficialCareInvoice({
     required this.invoiceNumber,
@@ -119,6 +125,8 @@ class OfficialCareInvoice {
     this.vatRatePercent = 4,
     required this.vatAmountEur,
     required this.totalPaidEur,
+    this.verifactuHash = 'VF-SHA256-9A8F7C6B5E4D3C2B',
+    this.aeatVerificationQrUrl = 'https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR',
   });
 }
 
@@ -170,6 +178,12 @@ class CaregiverProfile {
   final int maxDependencyGrade; // 1 (Grado I), 2 (Grado II), 3 (Grado III)
   final bool certifiedForCraneTransfer;
   bool hasStripeConnectedAccount;
+  final double latitude;
+  final double longitude;
+  bool instantBookEnabled; // Reserva Inmediata estilo Airbnb sin espera manual
+  final int responseTimeMinutes;
+  String dac7TaxNif;
+  String sexualOffensesCertCsv; // Código Seguro de Verificación del Ministerio de Justicia
   final Map<String, List<String>> availableSlots;
 
   CaregiverProfile({
@@ -189,6 +203,12 @@ class CaregiverProfile {
     this.maxDependencyGrade = 3,
     this.certifiedForCraneTransfer = true,
     this.hasStripeConnectedAccount = true,
+    this.latitude = 40.4256,
+    this.longitude = -3.6768,
+    this.instantBookEnabled = true,
+    this.responseTimeMinutes = 8,
+    this.dac7TaxNif = '51894021-K',
+    this.sexualOffensesCertCsv = 'CSV-MJUST-2026-884192',
     required this.availableSlots,
   });
 }

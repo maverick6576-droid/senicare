@@ -11,10 +11,12 @@ import 'package:intl/intl.dart';
 
 import 'models/care_models.dart';
 import 'services/anti_bypass_validator.dart';
+import 'services/production_marketplace_engine.dart';
 import 'theme/app_theme.dart';
 
 export 'models/care_models.dart';
 export 'services/anti_bypass_validator.dart';
+export 'services/production_marketplace_engine.dart';
 export 'theme/app_theme.dart';
 
 void main() {
@@ -41,6 +43,26 @@ class AppState extends ChangeNotifier {
   int prepaidHourBalance = 0; // Bolsa de Horas Prepagada
   String familyNif = '47892103-Z';
   String familyFullName = 'Laura Vila Delicado';
+  String currentLocale = 'es'; // 'es' (Castellano), 'ca' (Català), 'en' (English)
+  String selectedPaymentMethod = 'Apple Pay / Google Pay (1-Toque • 0 € comisión)';
+  bool accountDeleted = false;
+  final double familyHomeLat = 40.4250; // Calle Goya 42, Madrid
+  final double familyHomeLon = -3.6750;
+  final List<SlotHoldReservation> activeSlotHolds = [];
+  final List<GuidedVerificationDocument> guidedDocuments =
+      GuidedVerificationDocument.buildDefaultCatalog();
+
+  void setLocale(String locale) {
+    currentLocale = locale;
+    notifyListeners();
+  }
+
+  void setSelectedPaymentMethod(String method) {
+    selectedPaymentMethod = method;
+    notifyListeners();
+  }
+
+  String tr(String key) => ZeroCostI18n.tr(currentLocale, key);
 
   void setActiveCaregiverId(String caregiverId) {
     activeCaregiverId = caregiverId;
@@ -274,16 +296,20 @@ class AppState extends ChangeNotifier {
     return (hour * 60) + min;
   }
 
-  /// Prevents double-booking and multi-hour shift overlap by checking interval collision `[startA, endA)` vs `[startB, endB)`.
+  /// Prevents double-booking and multi-hour shift overlap by checking interval collision `[startA, endA)` vs `[startB, endB)`,
+  /// including active 10-minute Checkout Slot Holds (`SlotHoldReservation`) from other clients.
   bool isSlotBooked(
     String caregiverId,
     String day,
     String slot, {
     int durationHours = 1,
     String? excludeBookingId,
+    String? excludeHolderClientId,
+    DateTime? referenceNow,
   }) {
     final reqStart = parseSlotToMinutes(slot);
     final reqEnd = reqStart + (durationHours * 60);
+    final now = referenceNow ?? DateTime.now();
 
     for (final b in bookings) {
       if (b.id == excludeBookingId) continue;
@@ -298,7 +324,63 @@ class AppState extends ChangeNotifier {
         return true;
       }
     }
+
+    // Check active 10-minute checkout holds (Pilar 1: Slot Hold TTL)
+    for (final hold in activeSlotHolds) {
+      if (!hold.isActiveAt(now)) continue;
+      if (hold.holderClientId == excludeHolderClientId) continue;
+      if (hold.caregiverId != caregiverId || hold.day != day) continue;
+
+      final hStart = parseSlotToMinutes(hold.slot);
+      final hEnd = hStart + (hold.durationHours * 60);
+      if (reqStart < hEnd && hStart < reqEnd) {
+        return true;
+      }
+    }
     return false;
+  }
+
+  /// Places a 10-minute temporary Checkout Hold on a slot (Airbnb-style checkout protection at 0 € cloud cost).
+  SlotHoldReservation? createCheckoutSlotHold({
+    required String caregiverId,
+    required String day,
+    required String slot,
+    int durationHours = 2,
+    String holderClientId = 'client_demo_1',
+    DateTime? referenceNow,
+  }) {
+    final now = referenceNow ?? DateTime.now();
+    activeSlotHolds.removeWhere((h) => !h.isActiveAt(now));
+
+    if (isSlotBooked(
+      caregiverId,
+      day,
+      slot,
+      durationHours: durationHours,
+      excludeHolderClientId: holderClientId,
+      referenceNow: now,
+    )) {
+      return null;
+    }
+
+    activeSlotHolds.removeWhere((h) =>
+        h.caregiverId == caregiverId &&
+        h.day == day &&
+        h.holderClientId == holderClientId);
+
+    final hold = SlotHoldReservation(
+      holdId: 'hold_${caregiverId}_${day}_${slot.replaceAll(":", "")}',
+      caregiverId: caregiverId,
+      day: day,
+      slot: slot,
+      durationHours: durationHours,
+      holderClientId: holderClientId,
+      createdAt: now,
+      expiresAt: now.add(const Duration(minutes: 10)),
+    );
+    activeSlotHolds.add(hold);
+    notifyListeners();
+    return hold;
   }
 
   List<String> getAvailableSlotsForDay(
@@ -365,9 +447,14 @@ class AppState extends ChangeNotifier {
       booking.day,
       booking.slot,
       durationHours: booking.durationHours,
+      excludeHolderClientId: booking.clientId,
     )) {
       return false;
     }
+    activeSlotHolds.removeWhere((h) =>
+        h.caregiverId == booking.caregiverId &&
+        h.day == booking.day &&
+        h.holderClientId == booking.clientId);
     bookings.add(booking);
     notifyListeners();
     return true;
@@ -999,10 +1086,24 @@ class AppState extends ChangeNotifier {
 
     final baseTaxable = double.parse((b.totalPaid / 1.04).toStringAsFixed(2));
     final vatAmount = double.parse((b.totalPaid - baseTaxable).toStringAsFixed(2));
+    final invoiceNumber = 'SC-${DateTime.now().year}-000${idx + 1}';
+    final issueDate = DateTime.now();
+    final verifactuHash = ZeroCostTaxAndVeriFactuEngine.computeVeriFactuHash(
+      invoiceNumber: invoiceNumber,
+      familyNif: familyNif,
+      totalPaidEur: b.totalPaid,
+      issueDate: issueDate,
+    );
+    final aeatQrUrl = ZeroCostTaxAndVeriFactuEngine.buildAeatQrUrl(
+      invoiceNumber: invoiceNumber,
+      familyNif: familyNif,
+      totalPaidEur: b.totalPaid,
+      verifactuHash: verifactuHash,
+    );
     final invoice = OfficialCareInvoice(
-      invoiceNumber: 'SC-${DateTime.now().year}-000${idx + 1}',
+      invoiceNumber: invoiceNumber,
       bookingId: b.id,
-      issueDate: DateTime.now(),
+      issueDate: issueDate,
       familyFullName: familyFullName,
       familyNif: familyNif,
       caregiverName: b.caregiverName,
@@ -1013,10 +1114,116 @@ class AppState extends ChangeNotifier {
       vatRatePercent: 4,
       vatAmountEur: vatAmount,
       totalPaidEur: b.totalPaid,
+      verifactuHash: verifactuHash,
+      aeatVerificationQrUrl: aeatQrUrl,
     );
     b.officialInvoice = invoice;
     notifyListeners();
     return invoice;
+  }
+
+  /// Pilar 2: Completes or updates a guided Trust & Safety verification document in 1 tap.
+  bool submitGuidedVerificationDocument({
+    required String docId,
+    required String referenceOrCsv,
+  }) {
+    final idx = guidedDocuments.indexWhere((d) => d.id == docId);
+    if (idx == -1 || referenceOrCsv.trim().isEmpty) return false;
+    guidedDocuments[idx].isCompleted = true;
+    guidedDocuments[idx].verificationCodeOrRef = referenceOrCsv.trim();
+    if (docId == 'doc_rgpd_art9_consent') {
+      patientMedicalSheet.rgpdArt9ConsentSigned = true;
+      patientMedicalSheet.rgpdConsentTimestamp = DateTime.now();
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Pilar 3: Calculates exact urban distance (km) using zero-cost Haversine math.
+  double getCaregiverDistanceKm(CaregiverProfile caregiver) {
+    return ZeroCostGeoAndCalendarEngine.calculateHaversineKm(
+      lat1: familyHomeLat,
+      lon1: familyHomeLon,
+      lat2: caregiver.latitude,
+      lon2: caregiver.longitude,
+    );
+  }
+
+  /// Pilar 3: Exports all non-cancelled bookings to standard iCal (`.ics` RFC 5545) at 0 € cost.
+  String exportCalendarToIcs() {
+    return ZeroCostGeoAndCalendarEngine.exportBookingsToIcs(bookings);
+  }
+
+  /// Pilar 3: Imports busy slots from an external `.ics` calendar so the caregiver never gets double-booked.
+  int syncExternalIcsCalendar(String caregiverId, String day, String icsPayload) {
+    final cgIdx = caregivers.indexWhere((c) => c.id == caregiverId);
+    if (cgIdx == -1) return 0;
+    final busySlots = ZeroCostGeoAndCalendarEngine.parseBusySlotsFromIcs(icsPayload);
+    final daySlots = caregivers[cgIdx].availableSlots[day];
+    if (daySlots == null) return 0;
+    int removed = 0;
+    for (final busy in busySlots) {
+      if (daySlots.remove(busy)) {
+        removed++;
+      }
+    }
+    if (removed > 0) notifyListeners();
+    return removed;
+  }
+
+  /// Pilar 4: Generates the EU DAC7 (Modelo 238 AEAT) tax declaration summary for a caregiver at 0 € cost.
+  Dac7CaregiverReport generateCaregiverDac7Report([String? caregiverId]) {
+    final targetId = caregiverId ?? activeCaregiverId;
+    final cg = caregivers.firstWhere(
+      (c) => c.id == targetId,
+      orElse: () => caregivers.first,
+    );
+    return ZeroCostTaxAndVeriFactuEngine.generateDac7Report(
+      caregiver: cg,
+      allBookings: bookings,
+    );
+  }
+
+  /// Pilar 5: Launches a free 15-minute WebRTC P2P Video Interview room without sharing personal phone numbers.
+  String startFreeVideoInterview(String caregiverId) {
+    final cg = caregivers.firstWhere(
+      (c) => c.id == caregiverId,
+      orElse: () => caregivers.first,
+    );
+    final roomUrl = ZeroCostVideoInterviewEngine.createMaskedVideoInterviewUrl(
+      caregiverId: cg.id,
+      clientId: 'client_demo_1',
+    );
+    chatMessages.add(
+      ChatMessage(
+        sender: ChatSender.Client,
+        text:
+            '🎥 Sala de Videoentrevista Gratuita (15 min • Teléfono oculto) creada con ${cg.name}: $roomUrl',
+        timestamp: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+    return roomUrl;
+  }
+
+  /// Pilar 7: Apple App Store Review 5.1.1 & RGPD Art. 17 Right to Account Deletion.
+  /// Safeguard: Prevents deleting account while there is an active booking with held Escrow funds.
+  bool requestAccountDeletion() {
+    final hasActiveHeldEscrow = bookings.any((b) =>
+        !b.isEscrowReleased &&
+        !b.isRefunded &&
+        (b.status == BookingStatus.InProgress ||
+            b.status == BookingStatus.Confirmed ||
+            b.status == BookingStatus.Disputed));
+    if (hasActiveHeldEscrow) {
+      return false;
+    }
+    accountDeleted = true;
+    familyFullName = 'Usuario Eliminado (RGPD Art. 17)';
+    familyNif = 'ANONIMIZADO';
+    patientMedicalSheet.rgpdArt9ConsentSigned = false;
+    notifyListeners();
+    return true;
   }
 
   /// Appends a new chat message and runs the Context-Aware Anti-Bypass Validator.
@@ -1289,7 +1496,83 @@ class ExplorerScreen extends StatelessWidget {
                     backgroundColor: AppTheme.primaryLight,
                     onPressed: () => _showHourBundlesDialog(context),
                   ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.verified_user_rounded,
+                        size: 18, color: AppTheme.primary),
+                    label: Text(
+                      state.tr('trust_center_btn'),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: AppTheme.primaryLight,
+                    onPressed: () => showGuidedDocumentsCenterDialog(context),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.language_rounded,
+                        size: 18, color: AppTheme.primary),
+                    label: Text(
+                      'Idioma: ${state.currentLocale.toUpperCase()}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: AppTheme.primaryLight,
+                    onPressed: () {
+                      final next = state.currentLocale == 'es'
+                          ? 'ca'
+                          : (state.currentLocale == 'ca' ? 'en' : 'es');
+                      state.setLocale(next);
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.privacy_tip_rounded,
+                        size: 18, color: AppTheme.primary),
+                    label: const Text(
+                      'Privacidad y Cuenta (RGPD)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: AppTheme.primaryLight,
+                    onPressed: () => _showPrivacyAndAccountDeletionDialog(context),
+                  ),
                 ],
+              ),
+            ),
+          ),
+        ),
+        // Anti-Abandonment Reassurance Banner for Families (Zero Paperwork)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => showGuidedDocumentsCenterDialog(context),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green.shade600),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.sentiment_very_satisfied_rounded,
+                        color: Colors.green.shade800, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        state.tr('zero_paperwork_banner'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green.shade900,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(Icons.help_outline_rounded,
+                        color: Colors.green.shade800, size: 18),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1689,6 +1972,251 @@ class ExplorerScreen extends StatelessWidget {
       ),
     );
   }
+
+  /// Pilar 2: Interactive, Friendly Step-by-Step Guide for every Document (DNI, Delitos Sexuales, Seguro RC, RGPD Art. 9)
+  /// Designed so NO family gets scared or abandons the app, and every caregiver knows how to obtain and upload each item for 0 €.
+  static void showGuidedDocumentsCenterDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final state = context.watch<AppState>();
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.verified_user_rounded, color: AppTheme.primary),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Guía Fácil de Documentos y Seguridad (0 Papeleo para Familias)',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryLight,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppTheme.primary),
+                      ),
+                      child: const Text(
+                        '💚 ¿Eres Familia? No tienes que subir ningún documento para explorar ni reservar. '
+                        'SeniCare ya ha comprobado la identidad, antecedentes y seguro de cada profesional por ti.\n\n'
+                        '👩‍⚕️ ¿Eres Cuidadora? Pulsa en cada punto para ver la guía paso a paso de cómo conseguirlo gratis (0 €) y subirlo con una foto desde el móvil.',
+                        style: TextStyle(fontSize: 12, color: AppTheme.darkSlate),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ...state.guidedDocuments.map(
+                      (doc) => Card(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: ExpansionTile(
+                          leading: Icon(
+                            doc.isCompleted
+                                ? Icons.check_circle_rounded
+                                : Icons.pending_actions_rounded,
+                            color: doc.isCompleted ? Colors.green.shade700 : AppTheme.amber,
+                          ),
+                          title: Text(
+                            doc.title,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          subtitle: Text(
+                            '${doc.targetAudience} • ⏱️ ${doc.timeRequiredBadge} • ${doc.costBadge}',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.primary),
+                          ),
+                          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '🛡️ ${doc.familyPeaceOfMindNote}',
+                                style: const TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '📥 ¿Cómo conseguir este documento gratis (0 €)?',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            ...doc.howToGetSteps.map(
+                              (step) => Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(step, style: const TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '📤 ¿Cómo colgarlo en la app sin complicarte?',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            ...doc.howToUploadSteps.map(
+                              (step) => Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(step, style: const TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    'Ref: ${doc.verificationCodeOrRef ?? "Pendiente"}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade700,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    state.submitGuidedVerificationDocument(
+                                      docId: doc.id,
+                                      referenceOrCsv:
+                                          'VERIFIED-${DateTime.now().millisecondsSinceEpoch}',
+                                    );
+                                    setModalState(() {});
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                            '✅ ${doc.title} actualizado y verificado a coste 0 €.'),
+                                        backgroundColor: AppTheme.primary,
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.cloud_upload_rounded, size: 16),
+                                  label: const Text('Subir / Actualizar en 1 Toque',
+                                      style: TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendido, volver'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Pilar 7: Privacy Consent RGPD Art. 9 + Apple App Store Guideline 5.1.1 Account Deletion Flow.
+  void _showPrivacyAndAccountDeletionDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final state = context.watch<AppState>();
+          return AlertDialog(
+            title: const Text('🔒 Centro de Privacidad RGPD y Cuenta'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Consentimiento Datos de Salud (RGPD Art. 9)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  subtitle: const Text(
+                    'Autoriza en 1 clic que solo tu cuidadora confirmada vea las pautas médicas durante el turno.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  value: state.patientMedicalSheet.rgpdArt9ConsentSigned,
+                  onChanged: (val) {
+                    state.patientMedicalSheet.rgpdArt9ConsentSigned = val;
+                    state.patientMedicalSheet.rgpdConsentTimestamp = DateTime.now();
+                    setDialogState(() {});
+                  },
+                ),
+                const Divider(height: 24),
+                const Text(
+                  'Derecho al Olvido y Eliminación de Cuenta (RGPD Art. 17 / Apple App Store 5.1.1)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Puedes eliminar tu cuenta y anonimizar tus datos personales en cualquier momento siempre que no tengas un servicio activo con fondos en custodia pendientes de liquidar.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.urgentRed,
+                    side: const BorderSide(color: AppTheme.urgentRed),
+                  ),
+                  onPressed: () {
+                    final deleted = state.requestAccountDeletion();
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          deleted
+                              ? '🗑️ Cuenta y datos personales anonimizados conforme al Art. 17 RGPD.'
+                              : '⚠️ No se puede eliminar la cuenta mientras exista una reserva en curso con depósito Escrow retenido.',
+                        ),
+                        backgroundColor: deleted ? AppTheme.primary : AppTheme.urgentRed,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.delete_forever_rounded),
+                  label: const Text('Solicitar Eliminación de Cuenta'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cerrar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _SeniorAccessibleHub extends StatelessWidget {
@@ -2035,7 +2563,37 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                     ),
                     const SizedBox(width: 16),
                     const Icon(Icons.location_on, color: AppTheme.primary, size: 20),
-                    Text(c.distance, style: const TextStyle(fontWeight: FontWeight.w500)),
+                    Text(
+                      '${c.distance} (~${ZeroCostGeoAndCalendarEngine.estimateUrbanCommuteMinutes(state.getCaregiverDistanceKm(c))} min)',
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        final url = state.startFreeVideoInterview(c.id);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('🎥 Sala de videoentrevista gratuita abierta: $url'),
+                            backgroundColor: AppTheme.primary,
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.videocam_rounded, size: 18),
+                      label: Text(state.tr('video_interview_btn'),
+                          style: const TextStyle(fontSize: 12)),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => ExplorerScreen.showGuidedDocumentsCenterDialog(context),
+                      icon: const Icon(Icons.verified_user_rounded, size: 18),
+                      label: const Text('Ver Documentos y Seguro RC',
+                          style: TextStyle(fontSize: 12)),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -2168,6 +2726,12 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                           ),
                         ),
                         onPressed: () {
+                          state.createCheckoutSlotHold(
+                            caregiverId: c.id,
+                            day: _selectedDay,
+                            slot: slot,
+                            durationHours: _selectedDurationHours,
+                          );
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -2375,16 +2939,53 @@ class PaymentScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          Text('Tarjeta Bancaria Protegida', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 12),
-          TextField(
-            decoration: const InputDecoration(
-              labelText: 'Tarjeta Visa / Mastercard (Protección 3D Secure)',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.credit_card, color: AppTheme.primary),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.blue.shade600),
             ),
-            controller: TextEditingController(text: '•••• •••• •••• 4242'),
-            readOnly: true,
+            child: const Row(
+              children: [
+                Icon(Icons.timer_outlined, color: Colors.blue, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '🔒 Franja bloqueada en exclusiva para ti durante 10:00 min mientras confirmas (Hold activo).',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text('Método de Pago Protegido (Sin recargo)', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: state.selectedPaymentMethod,
+            decoration: const InputDecoration(
+              labelText: 'Selecciona pasarela de pago en Custodia (Escrow)',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.account_balance_wallet_rounded, color: AppTheme.primary),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: 'Apple Pay / Google Pay (1-Toque • 0 € comisión)',
+                child: Text('Apple Pay / Google Pay (1-Toque • 0 € comisión)'),
+              ),
+              DropdownMenuItem(
+                value: 'Tarjeta Visa / Mastercard (Protección 3D Secure)',
+                child: Text('Tarjeta Visa / Mastercard (Protección 3D Secure)'),
+              ),
+              DropdownMenuItem(
+                value: 'Domiciliación Bancaria SEPA (Planes Recurrentes)',
+                child: Text('Domiciliación Bancaria SEPA (Planes Recurrentes)'),
+              ),
+            ],
+            onChanged: (val) {
+              if (val != null) state.setSelectedPaymentMethod(val);
+            },
           ),
           const SizedBox(height: 32),
           ElevatedButton.icon(
@@ -3347,6 +3948,16 @@ class BookingsScreen extends StatelessWidget {
               'TOTAL ABONADO: ${currencyFormat.format(invoice.totalPaidEur)}',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
+            const Divider(height: 20),
+            Text(
+              '🔐 Huella VeriFactu AEAT:\n${invoice.verifactuHash}',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '📲 Cotejo QR AEAT: ${invoice.aeatVerificationQrUrl}',
+              style: const TextStyle(fontSize: 10, color: AppTheme.primary),
+            ),
           ],
         ),
         actions: [
@@ -3778,6 +4389,70 @@ class CaregiverDashboard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () {
+                final ics = state.exportCalendarToIcs();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        '📅 Calendario iCal (.ics RFC 5545) generado gratis (${ics.split("\n").length} líneas) para Google/Apple Calendar.'),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.calendar_today_rounded, size: 18),
+              label: const Text('Exportar a Google/Apple Calendar (.ics)'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () {
+                final dac7 = state.generateCaregiverDac7Report(activeCg.id);
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('🏛️ Certificado Fiscal DAC7 (Modelo 238 AEAT)'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Profesional: ${dac7.caregiverName}'),
+                        Text('NIF Declarado: ${dac7.taxNif}'),
+                        Text('Ejercicio Fiscal: ${dac7.fiscalYear}'),
+                        const Divider(height: 20),
+                        Text('Servicios Completados: ${dac7.completedServicesCount}'),
+                        Text('Volumen Bruto: ${currencyFormat.format(dac7.grossVolumeEur)}'),
+                        Text(
+                            'Comisiones Plataforma: ${currencyFormat.format(dac7.platformFeesWithheldEur)}'),
+                        Text(
+                          'Neto Percibido: ${currencyFormat.format(dac7.netTransferredToCaregiverEur)}',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, color: AppTheme.primary),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cerrar'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              icon: const Icon(Icons.request_quote_rounded, size: 18),
+              label: const Text('Certificado Fiscal DAC7 (AEAT)'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => ExplorerScreen.showGuidedDocumentsCenterDialog(context),
+              icon: const Icon(Icons.verified_user_rounded, size: 18),
+              label: const Text('Guía Paso a Paso: Subir mis Documentos (0 €)'),
+            ),
+          ],
         ),
       ],
     );

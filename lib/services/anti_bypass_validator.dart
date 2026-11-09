@@ -16,9 +16,9 @@ class AntiBypassResult {
 /// - Post-booking (`hasConfirmedBooking == true`): Unlocks phone numbers, intercom codes,
 ///   and home addresses so the family and caregiver can coordinate arrival smoothly.
 class AntiBypassValidator {
-  // 1. Numeric phones (Spanish mobile 6/7 and landline 8/9, even with spaces, dots, or hyphens)
+  // 1. Numeric phones (Spanish mobile 6/7 and landline 8/9, even with spaces, dots, underscores, or hyphens)
   static final RegExp _phoneRegex = RegExp(
-    r'(\+?\d{1,3}[\s\.\-]?)?([6789]\d[\s\.\-]?(\d[\s\.\-]?){7})',
+    r'(\+?\d{1,3}[\s\.\-_]?)?([6789]\d[\s\.\-_]?(\d[\s\.\-_]?){7})',
     caseSensitive: false,
   );
 
@@ -28,9 +28,9 @@ class AntiBypassValidator {
     caseSensitive: false,
   );
 
-  // 3. External messaging / social networks
+  // 3. External messaging / social networks (including spaced/dotted obfuscation e.g. w.h.a.t.s.a.p.p)
   static final RegExp _externalSocialRegex = RegExp(
-    r'\b(whatsapp|wasap|telegram|t\.me|instagram|insta|facebook)\b|@[a-zA-Z0-9_]{3,}',
+    r'\b(whatsapp|wasap|w[\s\.\-_]*h[\s\.\-_]*a[\s\.\-_]*t[\s\.\-_]*s|telegram|t\.me|instagram|insta|facebook)\b|@[a-zA-Z0-9_]{3,}',
     caseSensitive: false,
   );
 
@@ -40,9 +40,9 @@ class AntiBypassValidator {
     caseSensitive: false,
   );
 
-  // 5. Off-platform cash / Bizum / IBAN evasion patterns
+  // 5. Off-platform cash / Bizum / IBAN evasion patterns (including obfuscated b.i.z.u.m / b i z u m)
   static final RegExp _offPlatformPaymentRegex = RegExp(
-    r'\b(bizum|en\s+mano|en\s+efectivo|pago\s+directo|fuera\s+de\s+la\s+app)\b|\bES\d{2}[\s\-]?(\d{4}[\s\-]?){5}\b',
+    r'\b(bizum|b[\s\.\-_]+i[\s\.\-_]+z[\s\.\-_]+u[\s\.\-_]+m|en\s+mano|en\s+efectivo|pago\s+directo|fuera\s+de\s+la\s+app|sin\s+declarar)\b|\bES\d{2}[\s\-]?(\d{4}[\s\-]?){5}\b',
     caseSensitive: false,
   );
 

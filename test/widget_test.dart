@@ -485,4 +485,110 @@ void main() {
     expect(AntiBypassValidator.evaluate('Mi cuenta es ES91 2100 0418 4502 0005 1332').wasBlocked, true);
     expect(AntiBypassValidator.evaluate('Perfecto, nos vemos mañana a las 10:00 en casa').wasBlocked, false);
   });
+
+  test('7 Zero-Cost Production Pillars: Checkout Slot Hold, Guided Documents, Haversine & iCal, DAC7/VeriFactu, Video Interview, i18n & Account Deletion', () {
+    final appState = AppState();
+    final now = DateTime.now();
+
+    // Pilar 1: 10-Minute Checkout Slot Hold TTL prevents concurrent checkout collision
+    final hold = appState.createCheckoutSlotHold(
+      caregiverId: 'c1',
+      day: 'Jueves',
+      slot: '09:00',
+      durationHours: 2,
+      holderClientId: 'client_other_2',
+      referenceNow: now,
+    );
+    expect(hold, isNotNull);
+    // Blocked for client_demo_1 while hold is active
+    expect(
+      appState.isSlotBooked(
+        'c1',
+        'Jueves',
+        '09:00',
+        durationHours: 2,
+        excludeHolderClientId: 'client_demo_1',
+        referenceNow: now.add(const Duration(minutes: 5)),
+      ),
+      true,
+    );
+    // Automatically freed after 10 minutes (TTL expired at 0 € cloud cost)
+    expect(
+      appState.isSlotBooked(
+        'c1',
+        'Jueves',
+        '09:00',
+        durationHours: 2,
+        excludeHolderClientId: 'client_demo_1',
+        referenceNow: now.add(const Duration(minutes: 11)),
+      ),
+      false,
+    );
+
+    // Pilar 2: Guided Verification Documents with step-by-step howToGet & howToUpload guides
+    expect(appState.guidedDocuments.length, 4);
+    for (final doc in appState.guidedDocuments) {
+      expect(doc.howToGetSteps.isNotEmpty, true);
+      expect(doc.howToUploadSteps.isNotEmpty, true);
+      expect(doc.familyPeaceOfMindNote.isNotEmpty, true);
+    }
+    expect(
+      appState.submitGuidedVerificationDocument(
+        docId: 'doc_sexual_offenses_cert',
+        referenceOrCsv: 'CSV-MJUST-2026-999111',
+      ),
+      true,
+    );
+
+    // Pilar 3: Zero-Cost Haversine Distance & iCal (.ics RFC 5545) Bidirectional Sync
+    final distKm = appState.getCaregiverDistanceKm(appState.caregivers.first);
+    expect(distKm >= 0, true);
+    final removedCount = appState.syncExternalIcsCalendar(
+      'c1',
+      'Jueves',
+      'BEGIN:VCALENDAR\nBEGIN:VEVENT\nDTSTART:20261112T170000Z\nEND:VEVENT\nEND:VCALENDAR',
+    );
+    expect(removedCount, 1);
+
+    // Pilar 4: DAC7 (Modelo 238 AEAT) & VeriFactu Chained Hash Invoice
+    appState.addBooking(Booking(
+      id: 'b_verifactu_1',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Lunes',
+      slot: '09:00',
+      durationHours: 2,
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      status: BookingStatus.InProgress,
+    ));
+    expect(appState.releaseEscrow('b_verifactu_1'), true);
+    final invoice = appState.generateOfficialInvoice('b_verifactu_1');
+    expect(invoice, isNotNull);
+    expect(invoice!.verifactuHash.startsWith('VF-AEAT-2026-'), true);
+    expect(invoice.aeatVerificationQrUrl.contains('ValidarQR'), true);
+
+    final dac7 = appState.generateCaregiverDac7Report('c1');
+    expect(dac7.completedServicesCount, 1);
+    expect(dac7.grossVolumeEur, 36.0);
+
+    // Pilar 5: Free 15-min WebRTC P2P Video Interview + Heuristic Obfuscation Anti-Bypass
+    final roomUrl = appState.startFreeVideoInterview('c1');
+    expect(roomUrl.contains('meet.jit.si/SeniCare-Entrevista-Segura-c1'), true);
+    expect(AntiBypassValidator.evaluate('Mi pago por b.i.z.u.m mejor').wasBlocked, true);
+
+    // Pilar 6: Zero-Cost Multi-Language (ES / CA / EN) & Universal Deep Links
+    appState.setLocale('en');
+    expect(appState.tr('guarantee_badge'), '100% SeniCare Guarantee');
+    appState.setLocale('ca');
+    expect(appState.tr('guarantee_badge'), 'Garantia 100% SeniCare');
+    appState.setLocale('es');
+
+    // Pilar 7: Apple Guideline 5.1.1 / RGPD Art. 17 Account Deletion with Escrow Safeguard
+    // Since 'b_verifactu_1' is already released, deletion is permitted:
+    expect(appState.requestAccountDeletion(), true);
+    expect(appState.accountDeleted, true);
+    expect(appState.familyNif, 'ANONIMIZADO');
+  });
 }

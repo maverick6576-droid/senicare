@@ -1577,11 +1577,21 @@ exports.generateOfficialDependencyInvoice = functions.region("europe-west1").htt
     const vatAmountEur = Math.round((totalPaidEur - baseTaxableEur) * 100) / 100;
     const year = new Date().getFullYear();
     const invoiceNumber = `SC-${year}-${bookingId.slice(-5).toUpperCase()}`;
+    const issueDateIso = new Date().toISOString();
+    const crypto = require("crypto");
+    const verifactuHash = "VF-AEAT-" + crypto
+      .createHash("sha256")
+      .update(`${invoiceNumber}|${familyNif}|${totalPaidEur.toFixed(2)}|${issueDateIso}|GENESIS_SENICARE_AEAT`)
+      .digest("hex")
+      .slice(0, 16)
+      .toUpperCase();
+    const aeatVerificationQrUrl =
+      `https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR?nif=B88990011&numserie=${invoiceNumber}&importe=${totalPaidEur.toFixed(2)}&huella=${verifactuHash}`;
 
     const officialInvoice = {
       invoiceNumber,
       bookingId,
-      issueDate: new Date().toISOString(),
+      issueDate: issueDateIso,
       familyFullName,
       familyNif,
       caregiverName: booking.caregiverName || "Profesional SeniCare",
@@ -1590,6 +1600,8 @@ exports.generateOfficialDependencyInvoice = functions.region("europe-west1").htt
       vatRatePercent: 4,
       vatAmountEur,
       totalPaidEur,
+      verifactuHash,
+      aeatVerificationQrUrl,
       leyDependenciaCompliant: true,
     };
 
@@ -1601,6 +1613,99 @@ exports.generateOfficialDependencyInvoice = functions.region("europe-west1").htt
     return { success: true, officialInvoice };
   } catch (error) {
     console.error("Error en generateOfficialDependencyInvoice:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 25. generateDac7FiscalReport
+ * Genera el resumen fiscal anual para la Directiva Europea DAC7 (Modelo 238 AEAT) a coste 0 €.
+ */
+exports.generateDac7FiscalReport = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  try {
+    const caregiverId = data.caregiverId || context.auth.uid;
+    if (caregiverId !== context.auth.uid && !context.auth.token.admin) {
+      throw new functions.https.HttpsError("permission-denied", "Solo puedes consultar tu propio certificado DAC7.");
+    }
+    const fiscalYear = data.fiscalYear || new Date().getFullYear();
+    const snap = await db.collection("bookings")
+      .where("caregiverId", "==", caregiverId)
+      .where("escrowStatus", "==", "released")
+      .get();
+
+    let grossCents = 0;
+    let feesCents = 0;
+    let netCents = 0;
+    let servicesCount = 0;
+
+    for (const doc of snap.docs) {
+      const b = doc.data();
+      const base = b.baseAmountInCents || Math.round((b.cost || b.totalPaid || 0) * 100);
+      const fee = b.platformFeeInCents || Math.round(base * 0.10);
+      const released = b.releasedAmountInCents || (base - fee);
+      grossCents += base;
+      feesCents += fee;
+      netCents += released;
+      servicesCount++;
+    }
+
+    return {
+      success: true,
+      dac7Report: {
+        caregiverId,
+        fiscalYear,
+        completedServicesCount: servicesCount,
+        grossVolumeEur: Math.round(grossCents) / 100,
+        platformFeesWithheldEur: Math.round(feesCents) / 100,
+        netTransferredToCaregiverEur: Math.round(netCents) / 100,
+      },
+    };
+  } catch (error) {
+    console.error("Error en generateDac7FiscalReport:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 26. deleteUserAccountRgpd
+ * Cumplimiento Apple App Store Review 5.1.1 y RGPD Art. 17 (Derecho al Olvido / Eliminación de Cuenta).
+ * Verifica que no existan fondos en Escrow retenidos antes de anonimizar los datos personales.
+ */
+exports.deleteUserAccountRgpd = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  try {
+    const uid = context.auth.uid;
+    const activeEscrowSnap = await db.collection("bookings")
+      .where("clientId", "==", uid)
+      .where("escrowStatus", "in", ["held", "bank_chargeback"])
+      .get();
+
+    if (!activeEscrowSnap.empty) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "No se puede eliminar la cuenta mientras exista una reserva activa con fondos en custodia pendientes de liquidar."
+      );
+    }
+
+    await db.collection("users").doc(uid).set({
+      deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+      rgpdStatus: "ANONYMIZED_ART_17",
+      fullName: "Usuario Eliminado RGPD",
+      email: null,
+      phone: null,
+      fcmToken: null,
+    }, { merge: true });
+
+    return { success: true, status: "ANONYMIZED_ART_17" };
+  } catch (error) {
+    console.error("Error en deleteUserAccountRgpd:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError("internal", error.message);
   }
