@@ -43,3 +43,20 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Security and local test files
+firebase-admin.json
+firebase-key.json
+.env
+functions/.env
+STRIPE_KEYS.md
+e2e_live_test.py
+test/stripe_test.dart
+platform-tools/
+platform-tools.zip
+screenshot*.png
+check_chats.py
+create_user.py
+playwright_test.py
+functions/stress_test.js
+functions/verify_finances.js

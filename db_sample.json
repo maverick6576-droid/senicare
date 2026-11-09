@@ -1,0 +1,213 @@
+{
+  "users": [
+    {
+      "role": "client",
+      "fcmToken": "csvks969SOO33PRQ5b8Aby:APA91bGVaUHPCX6LVKkMaZO1U7L1y4GjW7aWjsRRpbh0Jcqgo_paOugdF0YsT5zZsM_0G2GnUR3WBUDynCJSODnjEzkdTpLSunQuW5_FNTJWM_UY3QOAOB4",
+      "email": "2222@gmail.com"
+    },
+    {
+      "role": "caregiver",
+      "fcmToken": "csvks969SOO33PRQ5b8Aby:APA91bGVaUHPCX6LVKkMaZO1U7L1y4GjW7aWjsRRpbh0Jcqgo_paOugdF0YsT5zZsM_0G2GnUR3WBUDynCJSODnjEzkdTpLSunQuW5_FNTJWM_UY3QOAOB4",
+      "email": "1111@gmail.com"
+    }
+  ],
+  "caregivers": [
+    {
+      "dniUrl": "https://mockstorage.com/dni1.pdf",
+      "criminalRecordUrl": "https://mockstorage.com/cr1.pdf",
+      "reviewsCount": 24,
+      "isVerified": true,
+      "rating": 4.8,
+      "imageUrl": "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&q=80&w=200",
+      "specialties": [
+        "Movilidad",
+        "Compañía",
+        "Post-operatorio"
+      ],
+      "distance": "A calcular",
+      "onboardingComplete": true,
+      "verificationStatus": "approved",
+      "title": "Enfermera Especializada en Mayores",
+      "maxDistanceRadius": 15.0,
+      "pricePerHour": 15.0,
+      "availableSlots": {
+        "2026-07-10": [
+          "10:00",
+          "11:00",
+          "16:00"
+        ],
+        "2026-07-11": [
+          "09:00",
+          "10:00"
+        ]
+      },
+      "longitude": 2.1699,
+      "homeAddress": "Carrer d'Aragó, Barcelona",
+      "latitude": 41.3879,
+      "bio": "Tengo 10 años de experiencia cuidando a personas mayores con movilidad reducida y demencia.",
+      "stripeAccountId": "acct_1MockStripeId1",
+      "name": "Laura Martínez"
+    },
+    {
+      "dniUrl": "https://mockstorage.com/dni2.pdf",
+      "criminalRecordUrl": "https://mockstorage.com/cr2.pdf",
+      "reviewsCount": 12,
+      "isVerified": true,
+      "rating": 4.5,
+      "imageUrl": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200",
+      "specialties": [
+        "Soporte Digital",
+        "Compañía"
+      ],
+      "distance": "A calcular",
+      "onboardingComplete": true,
+      "verificationStatus": "approved",
+      "title": "Acompañante y Gestor Digital",
+      "maxDistanceRadius": 20.0,
+      "pricePerHour": 12.0,
+      "availableSlots": {
+        "2026-07-10": [
+          "12:00",
+          "13:00",
+          "17:00"
+        ],
+        "2026-07-12": [
+          "10:00",
+          "11:00",
+          "12:00"
+        ]
+      },
+      "longitude": 2.1744,
+      "homeAddress": "Carrer de Mallorca, Barcelona",
+      "latitude": 41.4036,
+      "bio": "Ayudo a tus mayores a lidiar con la tecnología, bancos online y les hago compañía activa por la ciudad.",
+      "stripeAccountId": "acct_1MockStripeId2",
+      "name": "Carlos Ruiz"
+    },
+    {
+      "dniUrl": "https://mockstorage.com/dni3.pdf",
+      "criminalRecordUrl": "https://mockstorage.com/cr3.pdf",
+      "reviewsCount": 45,
+      "isVerified": true,
+      "rating": 5.0,
+      "imageUrl": "https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&q=80&w=200",
+      "specialties": [
+        "Cocina Médica",
+        "Movilidad"
+      ],
+      "distance": "A calcular",
+      "onboardingComplete": true,
+      "verificationStatus": "approved",
+      "title": "Auxiliar de Geriatría y Cocinera",
+      "maxDistanceRadius": 10.0,
+      "pricePerHour": 14.5,
+      "availableSlots": {
+        "2026-07-10": [
+          "08:00",
+          "09:00",
+          "14:00"
+        ],
+        "2026-07-13": [
+          "13:00",
+          "14:00"
+        ]
+      },
+      "longitude": 2.1925,
+      "homeAddress": "Passeig Marítim, Barcelona",
+      "latitude": 41.3784,
+      "bio": "Preparo dietas médicas estrictas y ayudo con el aseo y rutinas diarias en el domicilio.",
+      "stripeAccountId": "acct_1MockStripeId3",
+      "name": "María Fernández"
+    }
+  ],
+  "bookings": [
+    {
+      "status": "pendingPayment",
+      "caregiverName": "Laura Martínez",
+      "clientId": "ABEbha8NPoOXSQe0XTaqTNzNOKY2",
+      "totalPaid": 15.450000000000001,
+      "slot": "17:00",
+      "cost": 15.0,
+      "clientLongitude": 2.0298417,
+      "transferGroup": "booking_1783509235161",
+      "caregiverId": "mock_cg_1",
+      "caregiverCommissionRate": 0.18,
+      "isReviewed": false,
+      "cancellationReason": "",
+      "disputeRequested": false,
+      "paymentIntentId": "pi_3TqtQNFur4CnDyhi0m2uJhKo",
+      "clientLatitude": 41.3141293,
+      "caregiverPayout": 12.3,
+      "day": "2026-07-08",
+      "bookingPin": "4207",
+      "caregiverCommissionAmount": 2.6999999999999997,
+      "clientFee": 0.44999999999999996,
+      "escrowStatus": "held",
+      "createdAt": "2026-07-08T11:13:55.263097+00:00"
+    },
+    {
+      "status": "pendingPayment",
+      "caregiverName": "Laura Martínez",
+      "clientId": "oQ3K6WMaWSagjurBc0qIWOUQBEx2",
+      "totalPaid": 15.450000000000001,
+      "slot": "16:00",
+      "cost": 15.0,
+      "clientLongitude": 2.0302485,
+      "transferGroup": "booking_1783511293818",
+      "caregiverId": "mock_cg_1",
+      "caregiverCommissionRate": 0.18,
+      "isReviewed": false,
+      "cancellationReason": "",
+      "disputeRequested": false,
+      "paymentIntentId": "pi_3TqtxaFur4CnDyhi1fFbqMTD",
+      "clientLatitude": 41.3144451,
+      "caregiverPayout": 12.3,
+      "day": "2026-07-08",
+      "bookingPin": "1376",
+      "caregiverCommissionAmount": 2.6999999999999997,
+      "clientFee": 0.44999999999999996,
+      "escrowStatus": "held",
+      "createdAt": "2026-07-08T11:48:13.381921+00:00"
+    },
+    {
+      "status": "pendingPayment",
+      "caregiverName": "Laura Martínez",
+      "clientId": "ABEbha8NPoOXSQe0XTaqTNzNOKY2",
+      "totalPaid": 15.450000000000001,
+      "slot": "16:00",
+      "cost": 15.0,
+      "clientLongitude": 2.0298417,
+      "transferGroup": "booking_1783509235161",
+      "caregiverId": "mock_cg_1",
+      "caregiverCommissionRate": 0.18,
+      "isReviewed": false,
+      "cancellationReason": "",
+      "disputeRequested": false,
+      "paymentIntentId": "pi_3TqtQNFur4CnDyhi0m2uJhKo",
+      "clientLatitude": 41.3141293,
+      "caregiverPayout": 12.3,
+      "day": "2026-07-08",
+      "bookingPin": "4207",
+      "caregiverCommissionAmount": 2.6999999999999997,
+      "clientFee": 0.44999999999999996,
+      "escrowStatus": "held",
+      "createdAt": "2026-07-08T11:13:54.768410+00:00"
+    }
+  ],
+  "chats": [
+    {
+      "lastMessageTimestamp": "2026-07-08T11:16:14.675387+00:00",
+      "clientId": "ABEbha8NPoOXSQe0XTaqTNzNOKY2",
+      "caregiverId": "mock_cg_4",
+      "lastMessage": "hola",
+      "caregiverName": "Jordi Vila"
+    }
+  ],
+  "admins": [
+    {
+      "2faEnabled": true,
+      "secret": "CAC56QXT2YFURONN",
+      "email": "maverick6576@gmail.com"
+    }
+  ]
+}

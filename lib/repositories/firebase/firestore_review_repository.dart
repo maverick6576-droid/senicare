@@ -1,0 +1,83 @@
+import 'package:senicare/models/models.dart';
+import 'package:senicare/repositories/repositories.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class FirestoreReviewRepository implements ReviewRepository {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  
+  // Para soportar paginación
+  DocumentSnapshot? _lastDocument;
+  bool _hasMore = true;
+
+  @override
+  Future<List<Review>> fetchReviewsForCaregiver(String caregiverId, {int limit = 10, bool refresh = false}) async {
+    if (refresh) {
+      _lastDocument = null;
+      _hasMore = true;
+    }
+
+    if (!_hasMore) return [];
+
+    Query firestoreQuery = _firestore
+        .collection('reviews')
+        .where('caregiverId', isEqualTo: caregiverId)
+        .limit(limit);
+
+    if (_lastDocument != null) {
+      firestoreQuery = firestoreQuery.startAfterDocument(_lastDocument!);
+    }
+
+    final querySnapshot = await firestoreQuery.get();
+    
+    if (querySnapshot.docs.length < limit) {
+      _hasMore = false;
+    }
+
+    if (querySnapshot.docs.isNotEmpty) {
+      _lastDocument = querySnapshot.docs.last;
+    }
+
+    return querySnapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return Review(
+        id: doc.id,
+        caregiverId: data['caregiverId'] ?? '',
+        clientId: data['clientId'] ?? '',
+        clientName: data['clientName'] ?? 'Anónimo',
+        rating: (data['rating'] ?? 0).toDouble(),
+        comment: data['comment'] ?? '',
+      );
+    }).toList();
+  }
+
+  @override
+  Future<void> addReview(String caregiverId, Review review) async {
+    await _firestore.collection('reviews').doc(review.id).set({
+      'caregiverId': caregiverId,
+      'clientId': review.clientId,
+      'clientName': review.clientName,
+      'rating': review.rating,
+      'comment': review.comment,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    final profileRef = _firestore.collection('caregivers').doc(caregiverId);
+    
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(profileRef);
+      if (!snapshot.exists) return;
+      
+      final data = snapshot.data()!;
+      final currentRating = (data['rating'] as num?)?.toDouble() ?? 0.0;
+      final currentReviewsCount = (data['reviewsCount'] as num?)?.toInt() ?? 0;
+      
+      final newReviewsCount = currentReviewsCount + 1;
+      final newRating = ((currentRating * currentReviewsCount) + review.rating) / newReviewsCount;
+      
+      transaction.update(profileRef, {
+        'rating': newRating,
+        'reviewsCount': newReviewsCount,
+      });
+    });
+  }
+}

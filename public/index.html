@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeniCare - Legal, Privacidad y Términos</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f8fafc;
+            --surface-color: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+        }
+
+        /* Hero Section */
+        header {
+            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+            color: white;
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+
+        header p {
+            margin-top: 1rem;
+            font-size: 1.1rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Navigation Tabs */
+        .nav-container {
+            display: flex;
+            justify-content: center;
+            background-color: var(--surface-color);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        .nav-tab {
+            padding: 1rem 2rem;
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .nav-tab:hover {
+            color: var(--primary-color);
+        }
+
+        .nav-tab.active {
+            color: var(--primary-color);
+            border-bottom: 3px solid var(--primary-color);
+        }
+
+        /* Content Container */
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: var(--surface-color);
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        }
+
+        .content-section {
+            display: none;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        h2 {
+            color: var(--text-main);
+            border-bottom: 2px solid var(--bg-color);
+            padding-bottom: 0.5rem;
+            margin-top: 2rem;
+        }
+
+        h3 {
+            color: var(--text-main);
+            margin-top: 1.5rem;
+        }
+
+        p, li {
+            color: var(--text-muted);
+        }
+
+        ul {
+            padding-left: 1.5rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        .highlight-box {
+            background-color: #eff6ff;
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1.5rem 0;
+            color: #1e3a8a;
+        }
+        
+        .alert-box {
+            background-color: #fff1f2;
+            border-left: 4px solid #e11d48;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1.5rem 0;
+            color: #9f1239;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .nav-container {
+                justify-content: flex-start;
+            }
+            header {
+                padding: 3rem 1rem;
+            }
+            .container {
+                margin: 1rem;
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SeniCare</h1>
+        <p>Transparencia, seguridad y confianza para nuestras familias y cuidadores.</p>
+    </header>
+
+    <div class="nav-container">
+        <div class="nav-tab active" onclick="switchTab('terms')" id="tab-terms">Términos de Servicio</div>
+        <div class="nav-tab" onclick="switchTab('privacy')" id="tab-privacy">Política de Privacidad</div>
+        <div class="nav-tab" onclick="switchTab('refunds')" id="tab-refunds">Reembolsos y Cancelaciones</div>
+    </div>
+
+    <div class="container">
+        
+        <!-- SECCIÓN DE TÉRMINOS -->
+        <div id="content-terms" class="content-section active">
+            <h2>Términos de Servicio</h2>
+            <p><strong>Última actualización:</strong> 14 de Julio de 2026</p>
+
+            <div class="alert-box">
+                <strong>Cláusula de Intermediación (No Laboralidad):</strong> SeniCare es exclusivamente una plataforma tecnológica que actúa como mercado (marketplace) para conectar a familias con cuidadores independientes. SeniCare no es una agencia de empleo, no es empleador de los cuidadores, ni ejerce control laboral, disciplinario u organizativo sobre ellos.
+            </div>
+
+            <h3>1. Naturaleza de la Relación</h3>
+            <p>Los cuidadores registrados en SeniCare son profesionales independientes. Ellos mismos deciden sus tarifas, su horario de disponibilidad y qué ofertas de trabajo aceptar. SeniCare no proporciona uniformes, ni herramientas de trabajo, ni establece directrices sobre cómo debe ejecutarse el cuidado. El acuerdo de prestación de servicios se realiza de forma directa y exclusiva entre el cliente (familia) y el cuidador.</p>
+
+            <h3>2. Responsabilidad Fiscal y Legal</h3>
+            <p>Cada usuario es el único y exclusivo responsable de su situación fiscal y legal. Los cuidadores asumen la total responsabilidad de declarar sus ingresos, emitir facturas si procede, liquidar el IVA/IRPF correspondientes, y mantener su alta en la Seguridad Social o en el Régimen Especial de Trabajadores Autónomos (RETA) según dicte la legislación vigente. SeniCare actúa únicamente como procesador de pagos y recaudador de las tarifas de la plataforma, y no retiene impuestos en nombre de los usuarios.</p>
+
+            <h3>3. Descargo de Responsabilidad Médica</h3>
+            <p><strong>SeniCare NO provee servicios médicos.</strong> Los servicios contratados a través de la plataforma se limitan al acompañamiento, asistencia doméstica y cuidados básicos. Los cuidadores no están autorizados a realizar diagnósticos, administrar medicación intravenosa, ni ofrecer tratamientos médicos, salvo que dispongan de la titulación requerida y lo acuerden bajo su propia responsabilidad con la familia. SeniCare declina toda responsabilidad por negligencias médicas, daños a la salud o accidentes derivados de la prestación del servicio.</p>
+
+            <h3>4. Limitación de Responsabilidad</h3>
+            <p>SeniCare no asume ninguna responsabilidad por robos, pérdidas, daños materiales, lesiones corporales o fallecimientos que puedan ocurrir durante el transcurso de un servicio en el domicilio del cliente. La verificación de documentos (DNI y Certificado de Penales) es un filtro de seguridad inicial, pero no constituye una garantía absoluta de la conducta del individuo.</p>
+
+            <h3>5. Obligaciones de los Usuarios</h3>
+            <ul>
+                <li><strong>Cuidadores:</strong> Proporcionar información veraz en el registro (DNI/NIE y Certificado de Penales) y realizar el <em>Check-In</em> al inicio del servicio.</li>
+                <li><strong>Clientes:</strong> Mantener un entorno seguro para el cuidador y proporcionar información honesta sobre el estado del familiar a cuidar.</li>
+            </ul>
+        </div>
+
+        <!-- SECCIÓN DE PRIVACIDAD -->
+        <div id="content-privacy" class="content-section">
+            <h2>Política de Privacidad y RGPD</h2>
+            <p><strong>Última actualización:</strong> 14 de Julio de 2026</p>
+            
+            <div class="highlight-box">
+                Tratamos tus datos con el máximo rigor de acuerdo con el Reglamento General de Protección de Datos (RGPD) de la Unión Europea. Tu información no se vende a terceros.
+            </div>
+
+            <h3>1. Base Legal para el Procesamiento</h3>
+            <p>Procesamos tus datos bajo las siguientes bases legales:</p>
+            <ul>
+                <li><strong>Ejecución de un contrato:</strong> Necesitamos tus datos para poder conectar tu perfil con otras familias/cuidadores y procesar los pagos.</li>
+                <li><strong>Consentimiento explícito:</strong> Para el uso de la ubicación en tiempo real.</li>
+                <li><strong>Obligación Legal (KYC/AML):</strong> Para cumplir con la normativa de Prevención de Blanqueo de Capitales.</li>
+            </ul>
+
+            <h3>2. Información que Recopilamos</h3>
+            <ul>
+                <li><strong>Información de Perfil:</strong> Nombre, apellidos, biografía, foto y dirección.</li>
+                <li><strong>Datos de Ubicación:</strong> Solo con tu permiso, recopilamos coordenadas para emparejar clientes y cuidadores por proximidad.</li>
+                <li><strong>Documentación y KYC (Stripe Connect):</strong> Para habilitar el cobro a los cuidadores, nuestra pasarela de pagos (Stripe) requiere el escaneo del DNI/NIE. SeniCare no almacena permanentemente imágenes de documentos oficiales en servidores propios para este fin, sino que depende de la infraestructura ultra-segura de Stripe Identity, recibiendo únicamente un "token de verificación" (Aprobado/Denegado).</li>
+            </ul>
+
+            <h3>3. Terceros y Subencargados</h3>
+            <p>Compartimos datos estrictamente necesarios con:</p>
+            <ul>
+                <li><strong>Google/Firebase:</strong> Para alojamiento en la nube, bases de datos y autenticación segura.</li>
+                <li><strong>Stripe:</strong> Para el procesamiento de pagos, tarjetas de crédito y validación de identidad KYC. Al pagar o cobrar, estás sujeto a la política de privacidad de Stripe.</li>
+            </ul>
+
+            <h3>4. Derechos ARCO</h3>
+            <p>Tienes derecho a Acceder, Rectificar, Cancelar u Oponerte al tratamiento de tus datos. Puedes eliminar tu cuenta permanentemente desde la sección <strong>Ajustes > Eliminar Cuenta</strong> dentro de la App. La eliminación purgará tu perfil, historial de chat y documentos de forma inmediata (a excepción de los registros financieros que la ley nos obligue a conservar durante 5 años).</p>
+        </div>
+
+        <!-- SECCIÓN DE REEMBOLSOS Y ESCROW -->
+        <div id="content-refunds" class="content-section">
+            <h2>Política de Reembolsos y Cancelaciones</h2>
+            <p><strong>Última actualización:</strong> 14 de Julio de 2026</p>
+
+            <div class="highlight-box">
+                Para proteger a ambas partes, SeniCare utiliza un sistema de retención de fondos (Escrow).
+            </div>
+
+            <h3>1. ¿Cómo funciona el pago (Escrow)?</h3>
+            <p>Cuando un cliente confirma un cuidador para una oferta, SeniCare cobra inmediatamente el importe total del servicio en la tarjeta de crédito del cliente. Sin embargo, ese dinero <strong>no se entrega al cuidador todavía</strong>, sino que queda bloqueado de forma segura en la cuenta de custodia (Escrow) de SeniCare. El dinero se transfiere automáticamente a la cuenta bancaria del cuidador exactamente <strong>24 horas después</strong> de que finalice el trabajo.</p>
+
+            <h3>2. Disputas y Reembolsos</h3>
+            <p>Si el cliente no está satisfecho con el servicio (ej: el cuidador no se presentó, o se fue mucho antes de tiempo), el cliente dispone de una <strong>ventana estricta de 24 horas</strong> tras la finalización teórica del servicio para presionar el botón de "Abrir Disputa" en la aplicación.</p>
+            <ul>
+                <li><strong>Si se abre una disputa a tiempo:</strong> El pago se paraliza y nuestro equipo de soporte revisará el caso analizando los mensajes del chat y las horas de Check-in/Check-out. El cliente podrá recibir un reembolso total o parcial.</li>
+                <li><strong>Si NO se abre disputa en 24h:</strong> El dinero se libera irrevocablemente al cuidador. <strong>No se aceptarán solicitudes de reembolso pasadas las 24 horas</strong> de finalización del servicio.</li>
+            </ul>
+
+            <h3>3. Política de Cancelación Previas al Servicio</h3>
+            <ul>
+                <li><strong>Cancelación con más de 24 horas de antelación:</strong> El cliente recibirá un reembolso del 100% de la reserva.</li>
+                <li><strong>Cancelación con menos de 24 horas de antelación:</strong> Se retendrá un 50% del coste del servicio para compensar al cuidador por el lucro cesante, reembolsándose el 50% restante al cliente.</li>
+                <li><strong>Si el Cuidador cancela:</strong> El cliente recibe un reembolso automático del 100%, independientemente del aviso, y el cuidador recibirá una penalización en su reputación dentro de la app.</li>
+            </ul>
+        </div>
+
+    </div>
+
+    <footer>
+        &copy; 2026 SeniCare Marketplace, SL (o figura legal equivalente).<br>
+        Contacto para temas legales: soporte@senicare.app
+    </footer>
+
+    <script>
+        function switchTab(tabId) {
+            document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById('tab-' + tabId).classList.add('active');
+            document.getElementById('content-' + tabId).classList.add('active');
+        }
+    </script>
+</body>
+</html>

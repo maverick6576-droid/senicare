@@ -1,0 +1,892 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:io';
+import 'package:senicare/core/core.dart';
+import 'package:senicare/widgets/address_form_widget.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:geolocator/geolocator.dart';
+import 'live_dni_scanner_screen.dart';
+import 'package:senicare/widgets/widgets.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
+class CaregiverOnboardingScreen extends StatefulWidget {
+  const CaregiverOnboardingScreen({super.key});
+
+  @override
+  State<CaregiverOnboardingScreen> createState() => _CaregiverOnboardingScreenState();
+}
+
+class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
+  int _currentStep = 0;
+  bool _isLoading = false;
+  bool _isSaving = false; // Auto-save indicator
+
+  // Step 1: Personal
+  final _nameCtrl = TextEditingController();
+  final _bioCtrl = TextEditingController();
+  String? _profileImagePath;
+  String? _profileImageUrl; // URL after upload
+
+  // Step 2: Ops
+  final _priceCtrl = TextEditingController();
+  final _addressCtrl = TextEditingController();
+  double _radius = 10;
+  double? _homeLat;
+  double? _homeLon;
+  List<String> _specialties = [];
+
+  // Step 3: Docs
+  String? _dniFrontPath;
+  String? _dniUrl; // URL after upload
+  String? _criminalPath;
+  String? _criminalUrl; // URL after upload
+  String _dniScannedText = '';
+  String _criminalScannedText = '';
+  bool _criminalIsPdf = false;
+
+  // Step 4: Stripe
+  String? _stripeAccountId;
+
+  final _picker = ImagePicker();
+
+  static const List<String> _allSpecialties = [
+    'Movilidad', 'Cocina Médica', 'Compañía', 'Soporte Digital',
+    'Demencia', 'Post-operatorio', 'Alzheimer', 'Fisioterapia',
+    'Administración', 'Emergencias',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingData();
+    // Auto-save on text changes
+    _nameCtrl.addListener(_autoSaveDraft);
+    _bioCtrl.addListener(_autoSaveDraft);
+    _priceCtrl.addListener(_autoSaveDraft);
+    _addressCtrl.addListener(_autoSaveDraft);
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.removeListener(_autoSaveDraft);
+    _bioCtrl.removeListener(_autoSaveDraft);
+    _priceCtrl.removeListener(_autoSaveDraft);
+    _addressCtrl.removeListener(_autoSaveDraft);
+    _nameCtrl.dispose();
+    _bioCtrl.dispose();
+    _priceCtrl.dispose();
+    _addressCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Load any previously saved draft from Firestore
+  Future<void> _loadExistingData() async {
+    try {
+      final auth = context.read<AuthNotifier>();
+      final userId = auth.currentUserId;
+      if (userId == null) return;
+
+      final doc = await FirebaseFirestore.instance.collection('caregivers').doc(userId).get();
+      if (!doc.exists) return;
+
+      final data = doc.data()!;
+      if (mounted) {
+        setState(() {
+          if (data['name'] != null) _nameCtrl.text = data['name'];
+          if (data['bio'] != null) _bioCtrl.text = data['bio'];
+          if (data['pricePerHour'] != null) _priceCtrl.text = data['pricePerHour'].toString();
+          if (data['homeAddress'] != null) _addressCtrl.text = data['homeAddress'];
+          if (data['maxDistanceRadius'] != null) _radius = (data['maxDistanceRadius'] as num).toDouble();
+          if (data['latitude'] != null) _homeLat = (data['latitude'] as num).toDouble();
+          if (data['longitude'] != null) _homeLon = (data['longitude'] as num).toDouble();
+          if (data['imageUrl'] != null && data['imageUrl'] != '') {
+            _profileImageUrl = data['imageUrl'];
+            _profileImagePath = data['imageUrl']; // show from URL
+          }
+          if (data['dniUrl'] != null && data['dniUrl'] != '') {
+            _dniUrl = data['dniUrl'];
+            _dniFrontPath = data['dniUrl'];
+          }
+          if (data['criminalRecordUrl'] != null && data['criminalRecordUrl'] != '') {
+            _criminalUrl = data['criminalRecordUrl'];
+            _criminalPath = data['criminalRecordUrl'];
+          }
+          if (data['dniScannedText'] != null) _dniScannedText = data['dniScannedText'];
+          if (data['criminalScannedText'] != null) _criminalScannedText = data['criminalScannedText'];
+          if (data['stripeAccountId'] != null) _stripeAccountId = data['stripeAccountId'];
+          if (data['specialties'] != null) _specialties = List<String>.from(data['specialties']);
+          // Restore step progress
+          if (data['onboardingStep'] != null) _currentStep = (data['onboardingStep'] as num).toInt().clamp(0, 3);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading draft: $e');
+    }
+  }
+
+  /// Auto-saves current state to Firestore as a draft (debounced via _isSaving flag)
+  Future<void> _autoSaveDraft() async {
+    if (_isSaving) return;
+    _isSaving = true;
+    await Future.delayed(const Duration(milliseconds: 800)); // debounce
+    await _saveDraft();
+    _isSaving = false;
+  }
+
+  /// Saves current step data to Firestore immediately
+  Future<void> _saveDraft({bool showFeedback = false}) async {
+    try {
+      final auth = context.read<AuthNotifier>();
+      final userId = auth.currentUserId;
+      if (userId == null) return;
+
+      final parsedPrice = double.tryParse(_priceCtrl.text) ?? 0.0;
+
+      final data = <String, dynamic>{
+        'onboardingStep': _currentStep,
+        'onboardingComplete': false,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      };
+
+      // Step 1 fields
+      if (_nameCtrl.text.isNotEmpty) data['name'] = _nameCtrl.text.trim();
+      if (_bioCtrl.text.isNotEmpty) data['bio'] = _bioCtrl.text.trim();
+      if (_profileImageUrl != null) data['imageUrl'] = _profileImageUrl;
+
+      // Step 2 fields
+      if (parsedPrice > 0) data['pricePerHour'] = parsedPrice < 6 ? 6.0 : parsedPrice;
+      if (_addressCtrl.text.isNotEmpty) data['homeAddress'] = _addressCtrl.text.trim();
+      data['maxDistanceRadius'] = _radius;
+      if (_homeLat != null) data['latitude'] = _homeLat;
+      if (_homeLon != null) data['longitude'] = _homeLon;
+      if (_specialties.isNotEmpty) data['specialties'] = _specialties;
+
+      // Step 3 fields
+      if (_dniUrl != null) data['dniUrl'] = _dniUrl;
+      if (_criminalUrl != null) data['criminalRecordUrl'] = _criminalUrl;
+      if (_dniScannedText.isNotEmpty) data['dniScannedText'] = _dniScannedText;
+      if (_criminalScannedText.isNotEmpty) data['criminalScannedText'] = _criminalScannedText;
+
+      // Step 4 fields
+      if (_stripeAccountId != null) data['stripeAccountId'] = _stripeAccountId;
+
+      await FirebaseFirestore.instance
+          .collection('caregivers')
+          .doc(userId)
+          .set(data, SetOptions(merge: true));
+
+      if (showFeedback && mounted) {
+        CustomSnackBar.show(context, message: 'Mensaje', type: SnackBarType.success);
+      }
+    } catch (e) {
+      debugPrint('Auto-save error: $e');
+    }
+  }
+
+  Future<String> _persistFile(String originalPath) async {
+    if (originalPath.startsWith('http')) return originalPath;
+    final file = File(originalPath);
+    if (!await file.exists()) return originalPath;
+
+    final dir = await getApplicationDocumentsDirectory();
+    final fileName = p.basename(originalPath);
+    final newPath = p.join(dir.path, 'senicare_tmp_$fileName');
+
+    final newFile = await file.copy(newPath);
+    return newFile.path;
+  }
+
+  /// Uploads a file to Firebase Storage and returns the download URL
+  Future<String?> _uploadFileToStorage(String path, String folder) async {
+    try {
+      if (path.startsWith('http')) return path;
+
+      // Capture auth synchronously before any await
+      final auth = context.read<AuthNotifier>();
+      final userId = auth.currentUserId ?? 'unknown';
+
+      final file = File(path);
+      if (!await file.exists()) return null;
+
+      final ext = p.extension(path).isNotEmpty ? p.extension(path) : '.jpg';
+      final fileName = '${userId}_${DateTime.now().millisecondsSinceEpoch}$ext';
+
+      final ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
+      await ref.putFile(file);
+      return await ref.getDownloadURL();
+    } catch (e) {
+      debugPrint('Upload error: $e');
+      if (mounted) {
+        CustomSnackBar.show(context, message: 'Error al subir archivo: $e', type: SnackBarType.error);
+      }
+      return null;
+    }
+  }
+
+  Future<void> _pickProfileImage() async {
+    try {
+      final image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+      if (image == null) return;
+
+      final savedPath = await _persistFile(image.path);
+      setState(() {
+        _profileImagePath = savedPath;
+        _isLoading = true;
+      });
+
+      // Upload immediately
+      final url = await _uploadFileToStorage(savedPath, 'caregiver_avatars');
+      if (url != null) {
+        setState(() => _profileImageUrl = url);
+        await _saveDraft(showFeedback: true);
+      }
+    } catch (e) {
+      if (mounted) CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.info);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _scanDniLive() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LiveDniScannerScreen()),
+    );
+    if (result != null && result is Map) {
+      setState(() => _isLoading = true);
+      try {
+        final savedPath = await _persistFile(result['path']);
+        setState(() {
+          _dniFrontPath = savedPath;
+          _dniScannedText = result['text'] ?? '';
+        });
+
+        // Upload immediately
+        final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
+        if (url != null) {
+          setState(() => _dniUrl = url);
+          await _saveDraft(showFeedback: true);
+        }
+      } catch (e) {
+        debugPrint('DNI Scan error: $e');
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _pickCriminalRecord() async {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Hacer foto'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  final image = await _picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+                  if (image == null) return;
+                  final savedPath = await _persistFile(image.path);
+                  setState(() {
+                    _criminalPath = savedPath;
+                    _criminalIsPdf = false;
+                    _isLoading = true;
+                  });
+                  await _extractTextFromImage(savedPath);
+                  final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
+                  if (url != null) {
+                    setState(() => _criminalUrl = url);
+                    await _saveDraft(showFeedback: true);
+                  }
+                } catch (e) {
+                  debugPrint('Criminal photo error: $e');
+                } finally {
+                  if (mounted) setState(() => _isLoading = false);
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf),
+              title: const Text('Subir Archivo PDF'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  FilePickerResult? result = await FilePicker.pickFiles(
+                    type: FileType.custom,
+                    allowedExtensions: ['pdf'],
+                  );
+                  if (result != null && result.files.single.path != null) {
+                    final savedPath = await _persistFile(result.files.single.path!);
+                    setState(() {
+                      _criminalPath = savedPath;
+                      _criminalIsPdf = true;
+                      _isLoading = true;
+                    });
+                    await _extractTextFromPdf(savedPath);
+                    final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
+                    if (url != null) {
+                      setState(() => _criminalUrl = url);
+                      await _saveDraft(showFeedback: true);
+                    }
+                  }
+                } catch (e) {
+                  debugPrint('PDF pick error: $e');
+                } finally {
+                  if (mounted) setState(() => _isLoading = false);
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.image),
+              title: const Text('Subir Imagen'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  final image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+                  if (image == null) return;
+                  final savedPath = await _persistFile(image.path);
+                  setState(() {
+                    _criminalPath = savedPath;
+                    _criminalIsPdf = false;
+                    _isLoading = true;
+                  });
+                  await _extractTextFromImage(savedPath);
+                  final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
+                  if (url != null) {
+                    setState(() => _criminalUrl = url);
+                    await _saveDraft(showFeedback: true);
+                  }
+                } catch (e) {
+                  debugPrint('Criminal image error: $e');
+                } finally {
+                  if (mounted) setState(() => _isLoading = false);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _extractTextFromPdf(String path) async {
+    try {
+      final file = File(path);
+      final bytes = await file.readAsBytes();
+      final PdfDocument document = PdfDocument(inputBytes: bytes);
+      String text = PdfTextExtractor(document).extractText();
+      document.dispose();
+      setState(() => _criminalScannedText = text);
+    } catch (e) {
+      debugPrint('PDF extraction error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _extractTextFromImage(String path) async {
+    try {
+      final inputImage = InputImage.fromFilePath(path);
+      final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
+      setState(() => _criminalScannedText = recognizedText.text);
+      textRecognizer.close();
+    } catch (e) {
+      debugPrint('Image extraction error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _validateIdentity() {
+    if (_dniScannedText.isEmpty || _criminalScannedText.isEmpty) return 'pending';
+
+    final nameRaw = _nameCtrl.text.trim().toLowerCase();
+    final normalizedName = nameRaw
+        .replaceAll('á', 'a').replaceAll('é', 'e').replaceAll('í', 'i')
+        .replaceAll('ó', 'o').replaceAll('ú', 'u');
+    final nameParts = normalizedName.split(' ').where((p) => p.length > 2).toList();
+
+    final dniTextNorm = _dniScannedText.toLowerCase();
+    final crimTextNorm = _criminalScannedText.toLowerCase();
+
+    final RegExp dniRegExp = RegExp(r'\b[0-9]{8}[a-z]\b|\b[xyz][0-9]{7}[a-z]\b');
+    final dniMatch = dniRegExp.firstMatch(dniTextNorm);
+
+    if (dniMatch == null) return 'pending';
+    final extractedDni = dniMatch.group(0)!;
+
+    bool dniInCriminal = crimTextNorm.contains(extractedDni);
+    if (!dniInCriminal) return 'pending';
+
+    int matchDniCount = 0;
+    int matchCrimCount = 0;
+
+    for (var part in nameParts) {
+      if (dniTextNorm.contains(part)) matchDniCount++;
+      if (crimTextNorm.contains(part)) matchCrimCount++;
+    }
+
+    if (matchDniCount >= 1 && matchCrimCount >= 1) return 'approved';
+    return 'pending';
+  }
+
+  Future<void> _submit() async {
+    setState(() => _isLoading = true);
+    try {
+      final auth = context.read<AuthNotifier>();
+      final userId = auth.currentUserId!;
+
+      if (_homeLat == null || _homeLon == null) {
+        final coords = await NominatimService.geocodeAddress(_addressCtrl.text.trim());
+        if (coords != null) {
+          _homeLat = coords.latitude;
+          _homeLon = coords.longitude;
+        }
+      }
+
+      final parsedPrice = double.tryParse(_priceCtrl.text) ?? 8.0;
+      final validationStatus = _validateIdentity();
+
+      final data = {
+        'name': _nameCtrl.text.trim(),
+        'bio': _bioCtrl.text.trim(),
+        'pricePerHour': parsedPrice < 6 ? 6.0 : parsedPrice,
+        'homeAddress': _addressCtrl.text.trim(),
+        'maxDistanceRadius': _radius,
+        'imageUrl': _profileImageUrl ?? '',
+        'dniUrl': _dniUrl ?? '',
+        'criminalRecordUrl': _criminalUrl ?? '',
+        'dniScannedText': _dniScannedText,
+        'criminalScannedText': _criminalScannedText,
+        'verificationStatus': validationStatus,
+        'onboardingComplete': true,
+        'onboardingStep': 3,
+        'stripeAccountId': _stripeAccountId,
+        'specialties': _specialties,
+        'latitude': _homeLat ?? 41.3851,
+        'longitude': _homeLon ?? 2.1734,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('caregivers')
+          .doc(userId)
+          .set(data, SetOptions(merge: true));
+
+      if (mounted) {
+        if (validationStatus == 'approved') {
+          CustomSnackBar.show(context, message: '¡Verificación exitosa! Perfil aprobado automáticamente.', type: SnackBarType.success);
+        } else {
+          CustomSnackBar.show(context, message: 'Registro completado. Identidad pendiente de validación manual.', type: SnackBarType.info);
+        }
+        auth.onboardingComplete = true;
+        // Reload auth state to re-route the user to caregiver dashboard
+        await auth.reloadRole();
+      }
+    } catch (e) {
+      if (mounted) CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.info);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _launchStripe() async {
+    setState(() => _isLoading = true);
+    try {
+      final accountId = await StripeService.createConnectAccount();
+      if (accountId != null) {
+        setState(() => _stripeAccountId = accountId);
+        // Save Stripe account ID immediately
+        await _saveDraft(showFeedback: true);
+        await StripeService.launchOnboarding(accountId);
+        if (mounted) {
+          CustomSnackBar.show(context, message: 'Sigue los pasos en el navegador para conectar Stripe.', type: SnackBarType.success);
+        }
+      } else {
+        if (mounted) {
+          CustomSnackBar.show(context, message: 'No se pudo crear la cuenta de Stripe.', type: SnackBarType.error);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(context, message: 'Error Stripe: $e', type: SnackBarType.error);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Widget _buildSaveIndicator() {
+    return _isSaving
+        ? const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5)),
+                SizedBox(width: 6),
+                Text('Guardando...', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              ],
+            ),
+          )
+        : const SizedBox.shrink();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Registro de Cuidador'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => _saveDraft(showFeedback: true),
+            icon: const Icon(Icons.save, size: 18),
+            label: const Text('Guardar'),
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Stepper(
+              type: StepperType.vertical,
+              currentStep: _currentStep,
+              onStepContinue: () async {
+                if (_currentStep < 3) {
+                  // Save progress before advancing
+                  await _saveDraft(showFeedback: true);
+                  setState(() => _currentStep += 1);
+                } else {
+                  _submit();
+                }
+              },
+              onStepCancel: () {
+                if (_currentStep > 0) {
+                  setState(() => _currentStep -= 1);
+                }
+              },
+              steps: [
+                // ── STEP 1: Datos personales ──────────────────────────────────
+                Step(
+                  title: const Text('Datos Personales'),
+                  isActive: _currentStep >= 0,
+                  state: _nameCtrl.text.isNotEmpty ? StepState.complete : StepState.indexed,
+                  content: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSaveIndicator(),
+                      Center(
+                        child: GestureDetector(
+                          onTap: _pickProfileImage,
+                          child: Stack(
+                            children: [
+                              CircleAvatar(
+                                radius: 50,
+                                backgroundImage: _profileImagePath != null
+                                    ? (_profileImagePath!.startsWith('http')
+                                        ? CachedNetworkImageProvider(_profileImagePath!) as ImageProvider
+                                        : FileImage(File(_profileImagePath!)))
+                                    : null,
+                                child: _profileImagePath == null
+                                    ? const Icon(Icons.camera_alt, size: 40)
+                                    : null,
+                              ),
+                              if (_profileImagePath != null)
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: _profileImageUrl != null ? Colors.green : Colors.orange,
+                                    child: Icon(
+                                      _profileImageUrl != null ? Icons.cloud_done : Icons.cloud_upload,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Center(
+                        child: Text(
+                          _profileImageUrl != null ? 'Foto guardada ✓' : 'Toca para añadir foto de perfil',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _profileImageUrl != null ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _nameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Nombre Completo *',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _bioCtrl,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Biografía Corta',
+                          hintText: 'Cuéntanos sobre tu experiencia como cuidador...',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── STEP 2: Operaciones ───────────────────────────────────────
+                Step(
+                  title: const Text('Operaciones'),
+                  isActive: _currentStep >= 1,
+                  state: _priceCtrl.text.isNotEmpty && _addressCtrl.text.isNotEmpty
+                      ? StepState.complete
+                      : StepState.indexed,
+                  content: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSaveIndicator(),
+                      TextFormField(
+                        controller: _priceCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Tarifa Hora (€) *',
+                          helperText: 'Mínimo 6€/h',
+                          prefixText: '€ ',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 16),
+                      AddressFormWidget(
+                        initialAddress: _addressCtrl.text,
+                        onAddressChanged: (addr) {
+                          _addressCtrl.text = addr;
+                          _homeLat = null;
+                          _homeLon = null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Radio máximo de desplazamiento:'),
+                          Text('${_radius.round()} km', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      Slider(
+                        value: _radius,
+                        min: 5,
+                        max: 50,
+                        divisions: 9,
+                        label: '${_radius.round()} km',
+                        onChanged: (val) => setState(() => _radius = val),
+                        onChangeEnd: (_) => _saveDraft(),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Especialidades:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: _allSpecialties.map((spec) {
+                          final selected = _specialties.contains(spec);
+                          return FilterChip(
+                            label: Text(spec),
+                            selected: selected,
+                            onSelected: (val) {
+                              setState(() {
+                                if (val) {
+                                  _specialties.add(spec);
+                                } else {
+                                  _specialties.remove(spec);
+                                }
+                              });
+                              _saveDraft();
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── STEP 3: Documentación ─────────────────────────────────────
+                Step(
+                  title: const Text('Documentación de Identidad'),
+                  isActive: _currentStep >= 2,
+                  state: (_dniUrl != null && _criminalUrl != null) ? StepState.complete : StepState.indexed,
+                  content: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Por tu seguridad y la de los clientes, necesitamos verificar tu identidad. Los archivos se guardan de forma segura en cuanto los subes.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // DNI Section
+                      const Text('DNI/NIE', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade100,
+                          foregroundColor: Colors.blue.shade900,
+                        ),
+                        onPressed: _scanDniLive,
+                        icon: const Icon(Icons.document_scanner),
+                        label: const Text('Escanear DNI/NIE (Cámara)'),
+                      ),
+                      if (_dniFrontPath != null) ...[
+                        const SizedBox(height: 8),
+                        if (!_dniFrontPath!.startsWith('http'))
+                          Image.file(File(_dniFrontPath!), height: 100)
+                        else
+                          CachedNetworkImage(imageUrl: _dniFrontPath!, height: 100),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              _dniUrl != null ? Icons.cloud_done : Icons.cloud_upload,
+                              size: 14,
+                              color: _dniUrl != null ? Colors.green : Colors.orange,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _dniUrl != null ? 'DNI guardado en la nube ✓' : 'Subiendo...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _dniUrl != null ? Colors.green : Colors.orange,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_dniScannedText.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text(
+                              _dniScannedText.length > 60
+                                  ? '${_dniScannedText.substring(0, 60)}...'
+                                  : _dniScannedText,
+                              style: const TextStyle(fontSize: 11, color: Colors.green),
+                            ),
+                          ),
+                      ],
+
+                      const Divider(height: 32),
+
+                      // Criminal Record Section
+                      const Text('Certificado de Antecedentes Penales', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        onPressed: _pickCriminalRecord,
+                        icon: const Icon(Icons.upload_file),
+                        label: const Text('Subir Certificado de Penales'),
+                      ),
+                      if (_criminalPath != null) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              _criminalUrl != null ? Icons.cloud_done : Icons.cloud_upload,
+                              size: 14,
+                              color: _criminalUrl != null ? Colors.green : Colors.orange,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                _criminalUrl != null
+                                    ? 'Certificado guardado en la nube ✓ (${_criminalIsPdf ? "PDF" : "Imagen"})'
+                                    : 'Subiendo...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _criminalUrl != null ? Colors.green : Colors.orange,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (_dniUrl != null && _criminalUrl != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green.shade200),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.verified_user, color: Colors.green, size: 18),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Todos los documentos subidos. La verificación de identidad se procesará automáticamente.',
+                                  style: TextStyle(fontSize: 12, color: Colors.green),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                // ── STEP 4: Stripe ────────────────────────────────────────────
+                Step(
+                  title: const Text('Cuenta Bancaria (Stripe)'),
+                  isActive: _currentStep >= 3,
+                  state: _stripeAccountId != null ? StepState.complete : StepState.indexed,
+                  content: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Para poder recibir los pagos de tus servicios, debes registrar tu cuenta bancaria a través de nuestro proveedor seguro Stripe Connect.',
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _stripeAccountId != null ? Colors.green : Colors.deepPurple,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: _stripeAccountId != null ? null : _launchStripe,
+                          child: Text(_stripeAccountId != null
+                              ? '✓ Stripe Conectado'
+                              : 'Conectar con Stripe Connect'),
+                        ),
+                      ),
+                      if (_stripeAccountId != null) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Tu cuenta bancaria está conectada correctamente. Pulsa "Continuar" para finalizar el registro.',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+

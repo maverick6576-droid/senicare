@@ -1,126 +1,112 @@
-rules_version = '2';
+rules_version = "2";
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
+    // 1. Funciones de ayuda
+    function isAuthenticated() {
       return request.auth != null;
     }
     function isAdmin() {
-      return isSignedIn() && request.auth.token.admin == true;
-    }
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+      return request.auth.token.email == "maverick6576@gmail.com";
     }
 
-    // Perfiles de usuarios (Clientes y Familiares) — Bloqueo de escalada de privilegios
+    // 2. Colecciones publicas/semi-publicas
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) &&
-        !request.resource.data.keys().hasAny(['admin', 'isAdmin', 'role']) || isAdmin();
-      allow update: if isAdmin() || (
-        isOwner(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['admin', 'isAdmin', 'role'])
-      );
+      allow read, write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
     }
-
-    // Perfiles públicos de cuidadores en el Marketplace — Bloqueo de auto-verificación y reputación falsa
+    match /admins/{adminId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.token.email == adminId);
+    }
     match /caregivers/{caregiverId} {
+      allow read: if true; 
+      allow write: if isAuthenticated() && (
+        request.auth.uid == caregiverId || 
+        isAdmin() ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["rating", "reviewsCount"]))
+      );
+      
+      match /availability/{date} {
+        allow read: if true;
+        allow write: if isAuthenticated() && (request.auth.uid == caregiverId || isAdmin());
+        
+        match /slots/{slotId} {
+          allow read: if true;
+          allow write: if isAuthenticated(); // Allow clients to book/rollback slots
+        }
+      }
+    }
+    match /clients/{clientId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
+    }
+    match /job_offers/{offerId} {
       allow read: if true;
-      allow create: if isAdmin() || (
-        isOwner(caregiverId) &&
-        (!('verified' in request.resource.data) || request.resource.data.verified == false) &&
-        (!('isKycVerified' in request.resource.data) || request.resource.data.isKycVerified == false) &&
-        (!('isBlocked' in request.resource.data) || request.resource.data.isBlocked == false) &&
-        (!('reviewsCount' in request.resource.data) || request.resource.data.reviewsCount == 0)
-      );
-      allow update: if isAdmin() || (
-        isOwner(caregiverId) &&
-        !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny([
-            'verified',
-            'isKycVerified',
-            'stripeConnectedAccountId',
-            'stripeKycStatus',
-            'isBlocked',
-            'rating',
-            'reviewsCount',
-            'maxDependencyGrade',
-            'certifiedForCraneTransfer'
-          ])
-      );
+      allow create: if isAuthenticated() && (request.auth.uid == request.resource.data.clientId || isAdmin());
+      allow update, delete: if isAuthenticated() && (request.auth.uid == resource.data.clientId || isAdmin());
+      
+      match /applications/{applicationId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated(); // Caregivers write, Clients read/update status
+      }
     }
 
-    // Reservas y Custodia en Garantía (Escrow) — Blindaje total de campos financieros
+    // 3. Coleccion BOOKINGS: Privadas y Seguras
     match /bookings/{bookingId} {
-      allow read: if isSignedIn() && (
-        resource.data.clientId == request.auth.uid ||
-        resource.data.caregiverId == request.auth.uid ||
-        isAdmin()
-      );
-      allow create: if isSignedIn() &&
-        request.resource.data.clientId == request.auth.uid &&
-        (!('isEscrowReleased' in request.resource.data) || request.resource.data.isEscrowReleased == false) &&
-        (!('isRefunded' in request.resource.data) || request.resource.data.isRefunded == false);
-      allow update: if isAdmin() || (
-        isSignedIn() &&
-        (resource.data.clientId == request.auth.uid || resource.data.caregiverId == request.auth.uid) &&
-        !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny([
-            'escrowStatus',
-            'isEscrowReleased',
-            'isRefunded',
-            'refundedAmount',
-            'caregiverCompensation',
-            'cost',
-            'totalPaid',
-            'totalAmountInCents',
-            'baseAmountInCents',
-            'releasedAmountInCents',
-            'platformFeeInCents',
-            'paymentIntentId',
-            'transferId',
-            'extensionPaymentIntentIds',
-            'officialInvoice'
-          ])
-      );
+      allow read: if isAuthenticated();
+      
+      // Permitimos al cliente CREAR
+      allow create: if isAuthenticated() && 
+                    request.resource.data.clientId == request.auth.uid &&
+                    (request.resource.data.status == "pendingPayment" || request.resource.data.status == "pending" || request.resource.data.status == "confirmed");
+      
+      // Permitimos al cliente actualizar solo si no modifica los campos financieros y no pasa a pending
+      allow update: if isAuthenticated() && 
+                    (request.auth.uid == resource.data.clientId || request.auth.uid == resource.data.caregiverId) &&
+                    (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["cost", "totalPaid", "caregiverPayout", "clientFee", "caregiverCommissionAmount", "escrowStatus", "paymentIntentId", "transferGroup"])) &&
+                    (request.resource.data.status == resource.data.status || 
+                     request.resource.data.status == "cancelled" || 
+                     request.resource.data.status == "cancelledLate" ||
+                     request.resource.data.status == "pending" ||
+                     request.resource.data.status == "confirmed" ||
+                     request.resource.data.status == "completed");
+      
+      allow delete: if isAdmin();
     }
 
-    // Ofertas de Empleo publicadas por Familias
-    match /jobOffers/{offerId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.clientId == request.auth.uid;
-      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.clientId == request.auth.uid);
-    }
-
-    // Candidaturas de Cuidadores a Ofertas de Empleo
-    match /applications/{appId} {
-      allow read: if isSignedIn() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.clientId == request.auth.uid ||
-        isAdmin()
-      );
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || (
-        isSignedIn() &&
-        (resource.data.userId == request.auth.uid || resource.data.clientId == request.auth.uid)
-      );
-    }
-
-    // Chats privados entre Familia y Cuidador
+    // 4. Coleccion CHATS
     match /chats/{chatId} {
-      allow read, write: if isSignedIn() && (
-        resource.data.clientId == request.auth.uid ||
-        resource.data.caregiverId == request.auth.uid ||
+      allow read, update: if isAuthenticated() && (
+        request.auth.uid == resource.data.clientId || 
+        request.auth.uid == resource.data.caregiverId || 
         isAdmin()
       );
-
+      allow create: if isAuthenticated();
+      
       match /messages/{messageId} {
-        allow read, create: if isSignedIn() && (
-          get(/databases/$(database)/documents/chats/$(chatId)).data.clientId == request.auth.uid ||
-          get(/databases/$(database)/documents/chats/$(chatId)).data.caregiverId == request.auth.uid ||
+        allow read, write: if isAuthenticated() && (
+          request.auth.uid == chatId.split("_")[0] || 
+          request.auth.uid == chatId.split("_")[1] || 
           isAdmin()
         );
       }
+    }
+    
+    // 5. Colecciones de Sistema
+    match /stats/{docId} {
+      allow read: if true;
+      allow write: if false; // Solo se escribe via Cloud Functions
+    }
+    match /client_caregiver_stats/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow write: if isAuthenticated();
+    }
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow write: if isAuthenticated(); // Se debe limitar a clientes que hayan tenido una reserva completada (mejor en Cloud Functions)
     }
   }
 }

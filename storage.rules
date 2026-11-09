@@ -1,0 +1,51 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Función auxiliar: usuario autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Función auxiliar: solo el administrador maestro
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email == 'maverick6576@gmail.com';
+    }
+
+    // --- Fotos de perfil de cuidadores ---
+    // Cualquier cuidador autenticado puede subir su propia foto de perfil.
+    match /caregiver_avatars/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // --- Documentos de verificación (DNI, Penales) ---
+    // Solo el propio cuidador autenticado puede subir sus documentos.
+    // El nombre de archivo contiene el UID: {uid}_timestamp.ext
+    match /caregiver_docs/{fileName} {
+      allow read: if isAuthenticated() && (
+        // El cuidador puede leer sus propios documentos (nombre empieza con su uid)
+        fileName.matches(request.auth.uid + '_.*') ||
+        // El admin puede leer todos
+        isAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        // Solo puede subir archivos que empiecen con su propio uid
+        fileName.matches(request.auth.uid + '_.*') ||
+        isAdmin()
+      );
+    }
+
+    // --- Fotos de perfil de clientes ---
+    match /client_avatars/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // --- Archivos generales de la app ---
+    match /app_assets/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
