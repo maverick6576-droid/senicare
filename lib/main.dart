@@ -1457,143 +1457,107 @@ class ExplorerScreen extends StatelessWidget {
           SliverToBoxAdapter(
             child: _SeniorAccessibleHub(),
           ),
+        // Antigravity Modern Hero Card: Calm, Zero-Overload Reassurance + 3 Simple Pill Actions
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: AppTheme.antigravitySurfaceGradient,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.16)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ActionChip(
-                    avatar: const Icon(Icons.medical_information, size: 18, color: AppTheme.primary),
-                    label: Text(
-                      'Triaje: Grado ${state.patientMedicalSheet.dependencyGrade}${state.filterByDependencyTriage ? " (Filtro Activo)" : ""}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    backgroundColor: state.filterByDependencyTriage
-                        ? AppTheme.primary.withValues(alpha: 0.18)
-                        : AppTheme.primaryLight,
-                    onPressed: () => _showDependencyTriageDialog(context),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(Icons.verified_user_rounded,
+                            color: AppTheme.primary, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          state.tr('zero_paperwork_banner'),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.darkSlate,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  ActionChip(
-                    avatar: const Icon(Icons.groups_rounded, size: 18, color: AppTheme.primary),
-                    label: Text(
-                      'Círculo Familiar (${state.familyCircle.length})',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    backgroundColor: AppTheme.primaryLight,
-                    onPressed: () => _showFamilyCircleDialog(context),
-                  ),
-                  const SizedBox(width: 8),
-                  ActionChip(
-                    avatar: const Icon(Icons.confirmation_number_rounded,
-                        size: 18, color: AppTheme.primary),
-                    label: Text(
-                      'Bolsa Horas: ${state.prepaidHourBalance}h',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    backgroundColor: AppTheme.primaryLight,
-                    onPressed: () => _showHourBundlesDialog(context),
-                  ),
-                  const SizedBox(width: 8),
-                  ActionChip(
-                    avatar: const Icon(Icons.verified_user_rounded,
-                        size: 18, color: AppTheme.primary),
-                    label: Text(
-                      state.tr('trust_center_btn'),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    backgroundColor: AppTheme.primaryLight,
-                    onPressed: () => showGuidedDocumentsCenterDialog(context),
-                  ),
-                  const SizedBox(width: 8),
-                  ActionChip(
-                    avatar: const Icon(Icons.language_rounded,
-                        size: 18, color: AppTheme.primary),
-                    label: Text(
-                      'Idioma: ${state.currentLocale.toUpperCase()}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    backgroundColor: AppTheme.primaryLight,
-                    onPressed: () {
-                      final next = state.currentLocale == 'es'
-                          ? 'ca'
-                          : (state.currentLocale == 'ca' ? 'en' : 'es');
-                      state.setLocale(next);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ActionChip(
-                    avatar: const Icon(Icons.privacy_tip_rounded,
-                        size: 18, color: AppTheme.primary),
-                    label: const Text(
-                      'Privacidad y Cuenta (RGPD)',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    backgroundColor: AppTheme.primaryLight,
-                    onPressed: () => _showPrivacyAndAccountDeletionDialog(context),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.favorite_border_rounded,
+                            size: 17, color: AppTheme.primary),
+                        label: Text(
+                          state.filterByDependencyTriage
+                              ? 'Nivel de ayuda: Activo'
+                              : '¿Qué ayuda necesita tu familiar?',
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                        ),
+                        backgroundColor: Colors.white,
+                        onPressed: () => _showDependencyTriageDialog(context),
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.shield_outlined,
+                            size: 17, color: AppTheme.primary),
+                        label: const Text(
+                          'Seguridad y 0 Papeleo',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                        ),
+                        backgroundColor: Colors.white,
+                        onPressed: () => showGuidedDocumentsCenterDialog(context),
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.tune_rounded,
+                            size: 17, color: AppTheme.primary),
+                        label: const Text(
+                          'Mi Familia y Más',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                        ),
+                        backgroundColor: Colors.white,
+                        onPressed: () => _showFamilyQuickHubDialog(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
         ),
-        // Anti-Abandonment Reassurance Banner for Families (Zero Paperwork)
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => showGuidedDocumentsCenterDialog(context),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green.shade600),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.sentiment_very_satisfied_rounded,
-                        color: Colors.green.shade800, size: 22),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        state.tr('zero_paperwork_banner'),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.green.shade900,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Icon(Icons.help_outline_rounded,
-                        color: Colors.green.shade800, size: 18),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: TextField(
               onChanged: state.setSearchQuery,
               decoration: InputDecoration(
-                hintText: 'Buscar cuidadora por nombre o especialidad...',
-                prefixIcon: const Icon(Icons.search, color: AppTheme.primary),
+                hintText: 'Busca por nombre o tipo de ayuda (ej. paseo, medicación)...',
+                prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.primary),
                 filled: true,
                 fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: BorderSide(color: AppTheme.primary.withValues(alpha: 0.15)),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: BorderSide(color: AppTheme.primary.withValues(alpha: 0.15)),
                 ),
               ),
             ),
@@ -1612,12 +1576,12 @@ class ExplorerScreen extends StatelessWidget {
                     label: Text(spec),
                     selected: isSelected,
                     onSelected: (_) => state.setSpecialty(spec),
-                    selectedColor: AppTheme.primary.withValues(alpha: 0.18),
+                    selectedColor: AppTheme.primaryLight,
                     checkmarkColor: AppTheme.primary,
                     labelStyle: TextStyle(
                       fontSize: state.seniorMode ? 17 : 13,
                       color: isSelected ? AppTheme.primary : AppTheme.darkSlate,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
                     ),
                   ),
                 );
@@ -1631,133 +1595,210 @@ class ExplorerScreen extends StatelessWidget {
             delegate: SliverChildBuilderDelegate(
               (context, index) {
                 final c = state.filteredCaregivers[index];
+                final commuteMin = ZeroCostGeoAndCalendarEngine.estimateUrbanCommuteMinutes(
+                  state.getCaregiverDistanceKm(c),
+                );
                 return Card(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ClipRRect(
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                        child: Image.network(
-                          c.imageUrl,
-                          height: 150,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(
-                            height: 150,
-                            color: Colors.grey.shade200,
-                            child: Icon(Icons.person, size: 64, color: Colors.grey.shade500),
-                          ),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CaregiverDetailScreen(caregiver: c),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      );
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Stack(
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(c.name, style: theme.textTheme.titleMedium),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      if (c.verified)
-                                        const Tooltip(
-                                          message: 'Identidad, antecedentes penales y título verificados',
-                                          child: Icon(Icons.verified, color: Colors.blue, size: 18),
-                                        ),
-                                    ],
-                                  ),
+                            ClipRRect(
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                              child: Image.network(
+                                c.imageUrl,
+                                height: 165,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => Container(
+                                  height: 165,
+                                  color: AppTheme.primaryLight,
+                                  child: const Icon(Icons.person_rounded,
+                                      size: 64, color: AppTheme.primary),
                                 ),
-                                Row(
+                              ),
+                            ),
+                            Positioned(
+                              top: 12,
+                              left: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.94),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.star, color: AppTheme.amber, size: 20),
-                                    const SizedBox(width: 2),
+                                    Icon(Icons.verified_rounded,
+                                        color: AppTheme.primary, size: 16),
+                                    SizedBox(width: 5),
                                     Text(
-                                      '${c.rating} (${c.reviewsCount})',
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                      'Identidad y Seguro Verificados',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppTheme.primary,
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              c.title,
-                              style: TextStyle(
-                                color: AppTheme.darkSlate.withValues(alpha: 0.75),
-                                fontWeight: FontWeight.w500,
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '🩺 Hasta Grado ${c.maxDependencyGrade} Dependencia${c.certifiedForCraneTransfer ? " • Certificada Grúa/Encamados" : ""}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.primary,
-                                fontWeight: FontWeight.w600,
+                            Positioned(
+                              bottom: 12,
+                              right: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.darkSlate.withValues(alpha: 0.88),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  '📍 A $commuteMin min (${c.distance})',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: c.specialties
-                                  .map(
-                                    (s) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: AppTheme.primaryLight,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        s,
-                                        style: TextStyle(
-                                          fontSize: state.seniorMode ? 14 : 12,
-                                          color: AppTheme.primary,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '€${c.pricePerHour.toStringAsFixed(0)}/hora',
-                                  style: TextStyle(
-                                    fontSize: state.seniorMode ? 22 : 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.primary,
-                                  ),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => CaregiverDetailScreen(caregiver: c),
-                                      ),
-                                    );
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    minimumSize: Size(140, state.seniorMode ? 58 : 42),
-                                  ),
-                                  child: const Text('Ver Perfil'),
-                                ),
-                              ],
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                        Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(c.name, style: theme.textTheme.titleLarge),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.withValues(alpha: 0.14),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.star_rounded,
+                                            color: AppTheme.amber, size: 18),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          '${c.rating} (${c.reviewsCount})',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w800, fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                c.title,
+                                style: const TextStyle(
+                                  color: AppTheme.softSlate,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                c.certifiedForCraneTransfer
+                                    ? '💚 Preparada para todo tipo de ayuda física y movilidad'
+                                    : '💚 Ideal para compañía, paseos y recados diarios',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: c.specialties
+                                    .map(
+                                      (s) => Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primaryLight,
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          s,
+                                          style: TextStyle(
+                                            fontSize: state.seniorMode ? 14 : 12,
+                                            color: AppTheme.primary,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '€${c.pricePerHour.toStringAsFixed(0)} / hora',
+                                        style: TextStyle(
+                                          fontSize: state.seniorMode ? 22 : 19,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppTheme.primary,
+                                        ),
+                                      ),
+                                      const Text(
+                                        'Seguro y garantía incluidos',
+                                        style: TextStyle(
+                                            fontSize: 11, color: AppTheme.softSlate),
+                                      ),
+                                    ],
+                                  ),
+                                  ElevatedButton.icon(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => CaregiverDetailScreen(caregiver: c),
+                                        ),
+                                      );
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: Size(155, state.seniorMode ? 58 : 46),
+                                    ),
+                                    icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                                    label: const Text('Ver Perfil'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -1766,6 +1807,91 @@ class ExplorerScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  /// Unified, friendly Family Options Hub replacing the cluttered row of 6 technical chips.
+  void _showFamilyQuickHubDialog(BuildContext context) {
+    final state = context.read<AppState>();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('✨ Opciones para tu Familia'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: AppTheme.primaryLight,
+                child: Icon(Icons.groups_rounded, color: AppTheme.primary),
+              ),
+              title: Text(
+                'Familiares conectados (${state.familyCircle.length})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text('Añade a tus hijos o hermanos para recibir avisos'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showFamilyCircleDialog(context);
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: AppTheme.primaryLight,
+                child: Icon(Icons.confirmation_number_rounded, color: AppTheme.primary),
+              ),
+              title: Text(
+                'Bono de horas con descuento (${state.prepaidHourBalance}h)',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text('Ahorra hasta un 15% si necesitas ayuda frecuente'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showHourBundlesDialog(context);
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: AppTheme.primaryLight,
+                child: Icon(Icons.language_rounded, color: AppTheme.primary),
+              ),
+              title: Text(
+                'Cambiar idioma (${state.currentLocale.toUpperCase()})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text('Castellano (ES) • Català (CA) • English (EN)'),
+              onTap: () {
+                final next = state.currentLocale == 'es'
+                    ? 'ca'
+                    : (state.currentLocale == 'ca' ? 'en' : 'es');
+                state.setLocale(next);
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: AppTheme.primaryLight,
+                child: Icon(Icons.privacy_tip_rounded, color: AppTheme.primary),
+              ),
+              title: const Text(
+                'Privacidad médica y mi cuenta',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text('Controla tus datos con 1 toque'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showPrivacyAndAccountDeletionDialog(context);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2602,155 +2728,187 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                 Text(c.bio, style: theme.textTheme.bodyMedium),
                 const SizedBox(height: 24),
 
-                // Step 1: Select Duration
-                Text('1. ¿Cuántas horas de cuidado necesitas?', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _durationOptions.map((hours) {
-                    final isSelected = _selectedDurationHours == hours;
-                    final label = hours == 8
-                        ? '8h (Jornada)'
-                        : (hours == 10 ? '10h (Noche)' : '$hours ${hours == 1 ? "hora" : "horas"}');
-                    return ChoiceChip(
-                      label: Text(label),
-                      selected: isSelected,
-                      onSelected: (_) => setState(() => _selectedDurationHours = hours),
-                      selectedColor: AppTheme.primary,
-                      labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : AppTheme.darkSlate,
-                        fontWeight: FontWeight.bold,
+                // Step 1 & 2 Unified in a Clean Antigravity Card (Progressive Disclosure)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: AppTheme.primary.withValues(alpha: 0.14)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('1. ¿Cuánto tiempo necesitas?', style: theme.textTheme.titleMedium),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _durationOptions.map((hours) {
+                          final isSelected = _selectedDurationHours == hours;
+                          final label = hours == 8
+                              ? '8h (Día)'
+                              : (hours == 10
+                                  ? '10h (Noche)'
+                                  : '$hours ${hours == 1 ? "hora" : "horas"}');
+                          return ChoiceChip(
+                            label: Text(label),
+                            selected: isSelected,
+                            onSelected: (_) => setState(() => _selectedDurationHours = hours),
+                            selectedColor: AppTheme.primary,
+                            labelStyle: TextStyle(
+                              color: isSelected ? Colors.white : AppTheme.darkSlate,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          );
+                        }).toList(),
                       ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 16),
+                      const SizedBox(height: 22),
 
-                // Weekly Recurring Plan Option
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    '🔁 Cuidado Semanal Recurrente',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: const Text(
-                    'Repite este turno cada semana y reduce la comisión (18% ➔ 10% ➔ 6%).',
-                  ),
-                  value: _isRecurringWeekly,
-                  activeThumbColor: AppTheme.primary,
-                  onChanged: (val) => setState(() => _isRecurringWeekly = val),
-                ),
-                const SizedBox(height: 12),
+                      // Step 2: Select Day
+                      Text('2. Elige el día', style: theme.textTheme.titleMedium),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: state.seniorMode ? 68 : 50,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: c.availableSlots.keys.map((day) {
+                            final isSelected = _selectedDay == day;
+                            return GestureDetector(
+                              onTap: () => setState(() => _selectedDay = day),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                margin: const EdgeInsets.only(right: 10),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? AppTheme.primary : AppTheme.primaryLight,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    day,
+                                    style: TextStyle(
+                                      color: isSelected ? Colors.white : AppTheme.primary,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
 
-                // Key Custody Method Selector
-                Text('Protocolo de Acceso / Llaves', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedKeyCustody,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    prefixIcon: const Icon(Icons.vpn_key_rounded, color: AppTheme.primary),
-                  ),
-                  items: _keyCustodyOptions
-                      .map((k) => DropdownMenuItem(value: k, child: Text(k)))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) setState(() => _selectedKeyCustody = v);
-                  },
-                ),
-                const SizedBox(height: 24),
-
-                // Step 2: Select Day
-                Text('2. Selecciona el día', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: state.seniorMode ? 68 : 54,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: c.availableSlots.keys.map((day) {
-                      final isSelected = _selectedDay == day;
-                      return GestureDetector(
-                        onTap: () => setState(() => _selectedDay = day),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                          margin: const EdgeInsets.only(right: 10),
+                      // Step 3: Select Available Slot
+                      Text('3. Toca la hora de inicio para continuar',
+                          style: theme.textTheme.titleMedium),
+                      const SizedBox(height: 12),
+                      if (availableSlots.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: isSelected ? AppTheme.primary : Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppTheme.primary, width: 1.5),
+                            color: Colors.orange.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                          child: Center(
-                            child: Text(
-                              day,
-                              style: TextStyle(
-                                color: isSelected ? Colors.white : AppTheme.primary,
-                                fontWeight: FontWeight.bold,
+                          child: const Text(
+                            'Todos los horarios de este día ya están ocupados. Por favor elige otro día.',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        )
+                      else
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: availableSlots.map((slot) {
+                            return ActionChip(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              label: Text(
+                                '🕒 $slot h',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.primary,
+                                ),
                               ),
-                            ),
+                              onPressed: () {
+                                state.createCheckoutSlotHold(
+                                  caregiverId: c.id,
+                                  day: _selectedDay,
+                                  slot: slot,
+                                  durationHours: _selectedDurationHours,
+                                );
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PaymentScreen(
+                                      caregiver: c,
+                                      day: _selectedDay,
+                                      slot: slot,
+                                      durationHours: _selectedDurationHours,
+                                      isRecurringWeekly: _isRecurringWeekly,
+                                      keyCustodyMethod: _selectedKeyCustody,
+                                    ),
+                                  ),
+                                );
+                              },
+                              backgroundColor: AppTheme.primaryLight,
+                              side: const BorderSide(color: AppTheme.primary),
+                            );
+                          }).toList(),
+                        ),
+                      const SizedBox(height: 14),
+                      const Divider(),
+                      // Progressive Disclosure: Advanced options tucked neatly so non-tech users aren't overwhelmed
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: const Text(
+                          '⚙️ Opciones adicionales (Repetir cada semana o llaves)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.softSlate,
                           ),
                         ),
-                      );
-                    }).toList(),
+                        subtitle: Text(
+                          '${_isRecurringWeekly ? "Semanal activo" : "Solo este día"} • $_selectedKeyCustody',
+                          style: const TextStyle(fontSize: 12, color: AppTheme.primary),
+                        ),
+                        children: [
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              '🔁 Repetir este mismo día cada semana',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            subtitle: const Text(
+                              'Te ahorra volver a reservar y premia la fidelidad de tu cuidadora.',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            value: _isRecurringWeekly,
+                            activeThumbColor: AppTheme.primary,
+                            onChanged: (val) => setState(() => _isRecurringWeekly = val),
+                          ),
+                          const SizedBox(height: 8),
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedKeyCustody,
+                            decoration: InputDecoration(
+                              labelText: '¿Cómo abrirá la puerta la cuidadora?',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                              prefixIcon:
+                                  const Icon(Icons.vpn_key_rounded, color: AppTheme.primary),
+                            ),
+                            items: _keyCustodyOptions
+                                .map((k) => DropdownMenuItem(value: k, child: Text(k)))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) setState(() => _selectedKeyCustody = v);
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 20),
-
-                // Step 3: Select Available Slot
-                Text('3. Elige la hora de inicio', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                if (availableSlots.isEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Text(
-                      'Todos los horarios de este día ya están reservados. Por favor selecciona otro día.',
-                      style: TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  )
-                else
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: availableSlots.map((slot) {
-                      return ActionChip(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        label: Text(
-                          '🕒 $slot h',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primary,
-                          ),
-                        ),
-                        onPressed: () {
-                          state.createCheckoutSlotHold(
-                            caregiverId: c.id,
-                            day: _selectedDay,
-                            slot: slot,
-                            durationHours: _selectedDurationHours,
-                          );
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PaymentScreen(
-                                caregiver: c,
-                                day: _selectedDay,
-                                slot: slot,
-                                durationHours: _selectedDurationHours,
-                                isRecurringWeekly: _isRecurringWeekly,
-                                keyCustodyMethod: _selectedKeyCustody,
-                              ),
-                            ),
-                          );
-                        },
-                        backgroundColor: AppTheme.primaryLight,
-                        side: const BorderSide(color: AppTheme.primary),
-                      );
-                    }).toList(),
-                  ),
               ],
             ),
           ),
@@ -2815,13 +2973,13 @@ class PaymentScreen extends StatelessWidget {
           const SizedBox(height: 16),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Profesional:'),
+                      const Text('Cuidadora:'),
                       Text(caregiver.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                     ],
                   ),
@@ -2829,69 +2987,64 @@ class PaymentScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Día y Hora:'),
-                      Text('$day a las $slot h',
+                      const Text('Cuándo viene:'),
+                      Text('$day a las $slot h ($durationHours h)',
                           style: const TextStyle(fontWeight: FontWeight.bold)),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Duración contratada:'),
-                      Text(
-                        '$durationHours ${durationHours == 1 ? "hora" : "horas"}${isRecurringWeekly ? " (Semanal)" : ""}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Acceso / Llaves:'),
-                      Flexible(
-                        child: Text(
-                          keyCustodyMethod,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                          textAlign: TextAlign.end,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 32),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Neto íntegro para ${caregiver.name}:'),
-                      Text(currencyFormat.format(quote.caregiverNetPayout)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text('Seguro RC y Gestión (${quote.commissionTier}):'),
-                      ),
-                      Text(currencyFormat.format(quote.platformFee)),
-                    ],
-                  ),
-                  const Divider(height: 32),
+                  const Divider(height: 28),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Total Todo Incluido:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                        'Precio Final Todo Incluido:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
                       ),
                       Text(
                         currencyFormat.format(quote.totalClientPayable),
                         style: const TextStyle(
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w800,
                           color: AppTheme.primary,
-                          fontSize: 22,
+                          fontSize: 24,
                         ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Ver desglose transparente y llaves',
+                      style: TextStyle(fontSize: 12, color: AppTheme.softSlate),
+                    ),
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Para ${caregiver.name}:'),
+                          Text(currencyFormat.format(quote.caregiverNetPayout)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Seguro y garantía SeniCare:'),
+                          Text(currencyFormat.format(quote.platformFee)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Entrega de llaves:'),
+                          Flexible(
+                            child: Text(
+                              keyCustodyMethod,
+                              textAlign: TextAlign.end,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -2899,60 +3052,59 @@ class PaymentScreen extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
-          // Insurance & Guarantee Box
+          // Reassuring, Jargon-Free Guarantee Box
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppTheme.primaryLight,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppTheme.primary),
+              gradient: AppTheme.antigravitySurfaceGradient,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
             ),
-            child: Column(
+            child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.shield_rounded, color: AppTheme.primary, size: 26),
+                    Icon(Icons.shield_rounded, color: AppTheme.primary, size: 24),
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Garantía 100% SeniCare + Seguro RC Incluido',
+                        'Tu dinero está 100% protegido',
                         style: TextStyle(
                           color: AppTheme.primary,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w800,
                           fontSize: 15,
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Text(
-                  '• ${state.patientMedicalSheet.insurancePolicyNumber}\n'
-                  '• El pago se libera tras finalizar el cuidado (o automáticamente a las 24h si todo fue bien).\n'
-                  '• Si la cuidadora no responde en plazo o rechaza, recibes el 100% de reembolso automático.',
-                  style: const TextStyle(color: AppTheme.darkSlate, fontSize: 13),
+                  '• No se entrega el dinero a la cuidadora hasta que el servicio haya terminado bien.\n'
+                  '• Incluye Seguro de Hogar y Responsabilidad Civil hasta 300.000 €.\n'
+                  '• Si surge cualquier imprevisto, te devolvemos el 100% o te enviamos una cuidadora de sustitución.',
+                  style: TextStyle(color: AppTheme.darkSlate, fontSize: 13, height: 1.4),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: Colors.blue.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.blue.shade600),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: const Row(
               children: [
-                Icon(Icons.timer_outlined, color: Colors.blue, size: 20),
+                Icon(Icons.timer_outlined, color: Colors.blue, size: 18),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '🔒 Franja bloqueada en exclusiva para ti durante 10:00 min mientras confirmas (Hold activo).',
+                    'Hora guardada para ti durante 10 minutos mientras confirmas.',
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -2960,27 +3112,26 @@ class PaymentScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          Text('Método de Pago Protegido (Sin recargo)', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 12),
+          Text('¿Cómo prefieres pagar?', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 10),
           DropdownButtonFormField<String>(
             initialValue: state.selectedPaymentMethod,
             decoration: const InputDecoration(
-              labelText: 'Selecciona pasarela de pago en Custodia (Escrow)',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.account_balance_wallet_rounded, color: AppTheme.primary),
             ),
             items: const [
               DropdownMenuItem(
                 value: 'Apple Pay / Google Pay (1-Toque • 0 € comisión)',
-                child: Text('Apple Pay / Google Pay (1-Toque • 0 € comisión)'),
+                child: Text('📱 Pago rápido (Apple Pay / Google Pay)'),
               ),
               DropdownMenuItem(
                 value: 'Tarjeta Visa / Mastercard (Protección 3D Secure)',
-                child: Text('Tarjeta Visa / Mastercard (Protección 3D Secure)'),
+                child: Text('💳 Tarjeta bancaria habitual'),
               ),
               DropdownMenuItem(
                 value: 'Domiciliación Bancaria SEPA (Planes Recurrentes)',
-                child: Text('Domiciliación Bancaria SEPA (Planes Recurrentes)'),
+                child: Text('🏦 Recibo bancario (Domiciliación)'),
               ),
             ],
             onChanged: (val) {
@@ -3092,43 +3243,49 @@ class BookingsScreen extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   (isClient || b.status != BookingStatus.PendingApproval)
-                      ? '🔑 Llaves: ${b.keyCustodyMethod} • PIN Domicilio: ${b.checkInPin}'
-                      : '🔒 Llaves, PIN y Ficha Médica protegidos (RGPD Art. 9) hasta confirmar cita',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                      ? '🔑 Acceso: ${b.keyCustodyMethod} • Código de llegada: ${b.checkInPin}'
+                      : '🔒 Dirección y ficha de salud visibles al confirmar la cita',
+                  style: const TextStyle(fontSize: 13, color: AppTheme.softSlate),
                 ),
 
-                // Patient Medical & Emergency Sheet for Active Bookings
+                // Progressive Disclosure for Medical Sheet & Emergency Info (avoids wall-of-text overload)
                 if (b.status == BookingStatus.Confirmed || b.status == BookingStatus.InProgress) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0F9FF),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.blue.shade200),
+                  const SizedBox(height: 8),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.medical_information_rounded,
+                        color: AppTheme.primary, size: 20),
+                    title: const Text(
+                      'Ver ficha de salud y contacto de emergencia',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: AppTheme.primary,
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surfaceTintMint,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.medical_information_rounded, color: Colors.blue, size: 18),
-                            SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Ficha Médica y Protocolo de Emergencia',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blue),
-                              ),
-                            ),
+                            Text('• Cuidados: ${state.patientMedicalSheet.conditions}',
+                                style: const TextStyle(fontSize: 12)),
+                            Text('• Alergias: ${state.patientMedicalSheet.allergies}',
+                                style:
+                                    const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            Text(
+                                '• Teléfono familiar: ${state.patientMedicalSheet.emergencyContactName} (${state.patientMedicalSheet.emergencyContactPhone})',
+                                style: const TextStyle(fontSize: 12)),
                           ],
                         ),
-                        const SizedBox(height: 6),
-                        Text('• Salud: ${state.patientMedicalSheet.conditions}', style: const TextStyle(fontSize: 12)),
-                        Text('• Alergias: ${state.patientMedicalSheet.allergies}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        Text('• Contacto Urgente: ${state.patientMedicalSheet.emergencyContactName} (${state.patientMedicalSheet.emergencyContactPhone})', style: const TextStyle(fontSize: 12)),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ],
 
@@ -3989,40 +4146,40 @@ class BookingsScreen extends StatelessWidget {
     String text;
     switch (status) {
       case BookingStatus.PendingApproval:
-        color = Colors.orange.shade800;
-        text = 'Pendiente';
+        color = AppTheme.amber;
+        text = '⏳ Esperando respuesta';
         break;
       case BookingStatus.Confirmed:
         color = Colors.blue.shade700;
-        text = 'Confirmada';
+        text = '✓ Cita confirmada';
         break;
       case BookingStatus.InProgress:
         color = AppTheme.primary;
-        text = 'En Curso (GPS/PIN)';
+        text = '🟢 Cuidadora en casa';
         break;
       case BookingStatus.Completed:
         color = Colors.green.shade700;
-        text = 'Completada';
+        text = '✅ Terminada con éxito';
         break;
       case BookingStatus.Cancelled:
-        color = Colors.red.shade700;
-        text = 'Rechazada / Reembolsada';
+        color = AppTheme.urgentRed;
+        text = '↩️ Cancelada (Dinero devuelto)';
         break;
       case BookingStatus.Disputed:
         color = Colors.deepOrange;
-        text = 'En Disputa';
+        text = '🛡️ En revisión por Soporte';
         break;
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
+        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800),
       ),
     );
   }
@@ -4224,45 +4381,50 @@ class CaregiverDashboard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        Card(
-          color: AppTheme.darkSlate,
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Balance Disponible (Neto tras comisión)',
-                  style: TextStyle(color: Colors.grey.shade400, fontSize: 15),
+        Container(
+          decoration: BoxDecoration(
+            gradient: AppTheme.antigravityHeaderGradient,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Tu dinero ganado listo para cobrar',
+                style: TextStyle(color: AppTheme.primaryLight, fontSize: 15),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                currencyFormat.format(earnings),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w800,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  currencyFormat.format(earnings),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '💚 Cuanto más repites con una familia, más ganas tú (hasta el 94% íntegro para ti).',
+                style: TextStyle(color: AppTheme.primaryLight, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Fondos transferidos a tu cuenta bancaria conectada.'),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: AppTheme.primary,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Escala fidelidad SeniCare: 82% (1er servicio) ➔ 90% (recurrente) ➔ 94% (+5 servicios)',
-                  style: TextStyle(color: Colors.green.shade300, fontSize: 12),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Fondos transferidos a tu cuenta IBAN conectada.'),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
-                  child: const Text('Retirar a cuenta bancaria'),
-                ),
-              ],
-            ),
+                icon: const Icon(Icons.account_balance_rounded),
+                label: const Text('Enviar dinero a mi banco'),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 24),
@@ -4401,13 +4563,13 @@ class CaregiverDashboard extends StatelessWidget {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                        '📅 Calendario iCal (.ics RFC 5545) generado gratis (${ics.split("\n").length} líneas) para Google/Apple Calendar.'),
+                        '📅 Turnos guardados para el calendario de tu móvil (${ics.split("\n").length} eventos).'),
                     backgroundColor: AppTheme.primary,
                   ),
                 );
               },
               icon: const Icon(Icons.calendar_today_rounded, size: 18),
-              label: const Text('Exportar a Google/Apple Calendar (.ics)'),
+              label: const Text('Guardar turnos en mi móvil'),
             ),
             OutlinedButton.icon(
               onPressed: () {
@@ -4415,21 +4577,21 @@ class CaregiverDashboard extends StatelessWidget {
                 showDialog(
                   context: context,
                   builder: (ctx) => AlertDialog(
-                    title: const Text('🏛️ Certificado Fiscal DAC7 (Modelo 238 AEAT)'),
+                    title: const Text('📄 Resumen de mis ingresos (Hacienda)'),
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Profesional: ${dac7.caregiverName}'),
-                        Text('NIF Declarado: ${dac7.taxNif}'),
-                        Text('Ejercicio Fiscal: ${dac7.fiscalYear}'),
+                        Text('DNI / NIF: ${dac7.taxNif}'),
+                        Text('Año: ${dac7.fiscalYear}'),
                         const Divider(height: 20),
-                        Text('Servicios Completados: ${dac7.completedServicesCount}'),
-                        Text('Volumen Bruto: ${currencyFormat.format(dac7.grossVolumeEur)}'),
+                        Text('Cuidados realizados: ${dac7.completedServicesCount}'),
+                        Text('Total facturado: ${currencyFormat.format(dac7.grossVolumeEur)}'),
                         Text(
-                            'Comisiones Plataforma: ${currencyFormat.format(dac7.platformFeesWithheldEur)}'),
+                            'Gestión y seguro: ${currencyFormat.format(dac7.platformFeesWithheldEur)}'),
                         Text(
-                          'Neto Percibido: ${currencyFormat.format(dac7.netTransferredToCaregiverEur)}',
+                          'Recibido en tu banco: ${currencyFormat.format(dac7.netTransferredToCaregiverEur)}',
                           style: const TextStyle(
                               fontWeight: FontWeight.bold, color: AppTheme.primary),
                         ),
@@ -4445,12 +4607,12 @@ class CaregiverDashboard extends StatelessWidget {
                 );
               },
               icon: const Icon(Icons.request_quote_rounded, size: 18),
-              label: const Text('Certificado Fiscal DAC7 (AEAT)'),
+              label: const Text('Resumen de ingresos (Hacienda)'),
             ),
             OutlinedButton.icon(
               onPressed: () => ExplorerScreen.showGuidedDocumentsCenterDialog(context),
               icon: const Icon(Icons.verified_user_rounded, size: 18),
-              label: const Text('Guía Paso a Paso: Subir mis Documentos (0 €)'),
+              label: const Text('Mis documentos paso a paso (Gratis)'),
             ),
           ],
         ),
