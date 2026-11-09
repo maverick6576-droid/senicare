@@ -984,7 +984,7 @@ exports.adminBlockCaregiver = functions.region("europe-west1").https.onCall(asyn
 
 const { onDocumentDeleted } = require("firebase-functions/v2/firestore");
 
-exports.syncLastMessageOnDelete = onDocumentDeleted({
+exports.triggerSyncLastMessageOnDelete = onDocumentDeleted({
   document: "chats/{chatRoomId}/messages/{messageId}",
   region: "europe-west1"
 }, async (event) => {
