@@ -178,6 +178,10 @@ class CaregiverProfile {
   final int maxDependencyGrade; // 1 (Grado I), 2 (Grado II), 3 (Grado III)
   final bool certifiedForCraneTransfer;
   bool hasStripeConnectedAccount;
+  String maskedIban;
+  String bankName;
+  String stripePayoutStatus; // 'active', 'pending_verification', 'bank_rejected'
+  DateTime? lastPayoutDate;
   final double latitude;
   final double longitude;
   bool instantBookEnabled; // Reserva Inmediata estilo Airbnb sin espera manual
@@ -203,6 +207,10 @@ class CaregiverProfile {
     this.maxDependencyGrade = 3,
     this.certifiedForCraneTransfer = true,
     this.hasStripeConnectedAccount = true,
+    this.maskedIban = 'ES91 •••• •••• 4821',
+    this.bankName = 'CaixaBank',
+    this.stripePayoutStatus = 'active',
+    this.lastPayoutDate,
     this.latitude = 40.4256,
     this.longitude = -3.6768,
     this.instantBookEnabled = true,
@@ -259,7 +267,7 @@ class Booking {
   final DateTime createdAt;
   final DateTime bookingDate; // Exact scheduled start date/time for accurate 24h cancellation window
   DateTime? serviceEndTime;
-  String escrowStatus; // 'held', 'pending_caregiver_connect', 'pending_settlement_transfer', 'released', 'rejected_refunded', 'cancelled_settled', 'bank_chargeback'
+  String escrowStatus; // 'held', 'pending_caregiver_connect', 'pending_settlement_transfer', 'pending_network_retry', 'cancelled_pending_caregiver_compensation', 'released', 'rejected_refunded', 'cancelled_settled', 'bank_chargeback'
   bool isEscrowReleased;
   bool isRefunded;
   bool isGpsCheckedIn;

@@ -591,4 +591,118 @@ void main() {
     expect(appState.accountDeleted, true);
     expect(appState.familyNif, 'ANONIMIZADO');
   });
+
+  test('Audit: Bank Account (IBAN) Updates, Stripe Failure Fallbacks & Financial Payout Flow', () {
+    final appState = AppState();
+
+    // 1. Bank Account (IBAN) Update & Automatic Escrow Settlement
+    appState.caregivers.first.hasStripeConnectedAccount = false;
+    appState.addBooking(Booking(
+      id: 'b_pending_bank_1',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Lunes',
+      slot: '09:00',
+      durationHours: 2,
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      status: BookingStatus.InProgress,
+    ));
+
+    // Family completes service, but caregiver has no bank account yet:
+    expect(appState.releaseEscrow('b_pending_bank_1'), false);
+    final booking = appState.bookings.firstWhere((b) => b.id == 'b_pending_bank_1');
+    expect(booking.escrowStatus, 'pending_caregiver_connect');
+    expect(booking.isEscrowReleased, false);
+
+    // Caregiver updates their bank account to Revolut:
+    final settledCount = appState.updateCaregiverBankAccount(
+      caregiverId: 'c1',
+      newIban: 'ES12 3456 7890 1234 5678',
+      newBankName: 'Revolut',
+    );
+    expect(settledCount, 1);
+    final c1 = appState.caregivers.firstWhere((c) => c.id == 'c1');
+    expect(c1.bankName, 'Revolut');
+    expect(c1.maskedIban, 'ES12 •••• •••• 5678');
+    expect(c1.hasStripeConnectedAccount, true);
+    expect(c1.stripePayoutStatus, 'active');
+    expect(booking.escrowStatus, 'released');
+    expect(booking.isEscrowReleased, true);
+
+    // 2. Stripe Network Failure Fallback & Cron Retry Recovery
+    appState.addBooking(Booking(
+      id: 'b_net_fail_1',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Martes',
+      slot: '10:00',
+      durationHours: 2,
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      status: BookingStatus.Completed,
+    ));
+    appState.simulateStripeNetworkFailure('b_net_fail_1');
+    final netBooking = appState.bookings.firstWhere((b) => b.id == 'b_net_fail_1');
+    expect(netBooking.escrowStatus, 'pending_network_retry');
+    expect(netBooking.isEscrowReleased, false);
+
+    // Scheduled cron maintenance recovers and settles the transfer:
+    final maintenanceProcessed = appState.runScheduledEscrowMaintenance();
+    expect(maintenanceProcessed >= 1, true);
+    expect(netBooking.escrowStatus, 'released');
+    expect(netBooking.isEscrowReleased, true);
+
+    // 3. Late Cancellation Compensation Preservation when Bank is Missing
+    c1.hasStripeConnectedAccount = false;
+    final now = DateTime.now();
+    appState.addBooking(Booking(
+      id: 'b_late_cancel_1',
+      caregiverId: 'c1',
+      caregiverName: 'Elena Sanz',
+      day: 'Jueves',
+      slot: '09:00',
+      durationHours: 2,
+      cost: 36.0,
+      appCommission: 6.48,
+      totalPaid: 36.0,
+      bookingDate: now.add(const Duration(hours: 12)), // < 24h
+      status: BookingStatus.Confirmed,
+    ));
+    expect(appState.cancelBookingByClient('b_late_cancel_1', referenceNow: now), true);
+    final cancelBooking = appState.bookings.firstWhere((b) => b.id == 'b_late_cancel_1');
+    expect(cancelBooking.caregiverCompensation, 16.20);
+    expect(cancelBooking.escrowStatus, 'cancelled_pending_caregiver_compensation');
+
+    // Caregiver links their bank account -> compensation is automatically settled:
+    appState.updateCaregiverBankAccount(
+      caregiverId: 'c1',
+      newIban: 'ES91 2100 0418 4502 0005 1332',
+      newBankName: 'CaixaBank',
+    );
+    expect(cancelBooking.escrowStatus, 'cancelled_settled');
+
+    // 4. Bank Payout Rejection Flagging & Recovery
+    appState.simulateBankPayoutRejection('c1');
+    expect(c1.stripePayoutStatus, 'bank_rejected');
+    appState.updateCaregiverBankAccount(
+      caregiverId: 'c1',
+      newIban: 'ES14 0049 1500 0512 3456 7890',
+      newBankName: 'Banco Santander',
+    );
+    expect(c1.stripePayoutStatus, 'active');
+
+    // 5. Financial Payout Flow & Zero Double-Dipping Transparency Reconciliation
+    final quoteFirst = appState.calculateCommissionQuote(
+      caregiverId: 'c2',
+      pricePerHour: 15.0,
+      durationHours: 2,
+    );
+    expect(quoteFirst.totalClientPayable, 30.0);
+    expect(quoteFirst.platformFee, 5.40); // 18%
+    expect(quoteFirst.caregiverNetPayout, 24.60); // 82%
+    expect(quoteFirst.platformFee + quoteFirst.caregiverNetPayout, quoteFirst.totalClientPayable);
+  });
 }

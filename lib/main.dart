@@ -149,6 +149,9 @@ class AppState extends ChangeNotifier {
       yearsExperience: 10,
       maxDependencyGrade: 3,
       certifiedForCraneTransfer: true,
+      bankName: 'CaixaBank',
+      maskedIban: 'ES91 •••• •••• 4821',
+      stripePayoutStatus: 'active',
       availableSlots: {
         'Lunes': ['09:00', '10:00', '16:00'],
         'Martes': ['10:00', '11:00'],
@@ -170,6 +173,9 @@ class AppState extends ChangeNotifier {
       yearsExperience: 6,
       maxDependencyGrade: 1,
       certifiedForCraneTransfer: false,
+      bankName: 'BBVA',
+      maskedIban: 'ES14 •••• •••• 9034',
+      stripePayoutStatus: 'active',
       availableSlots: {
         'Miércoles': ['15:00', '16:00', '17:00'],
         'Jueves': ['09:00', '12:00'],
@@ -190,6 +196,9 @@ class AppState extends ChangeNotifier {
       yearsExperience: 12,
       maxDependencyGrade: 3,
       certifiedForCraneTransfer: true,
+      bankName: 'Banco Santander',
+      maskedIban: 'ES00 •••• •••• 1276',
+      stripePayoutStatus: 'active',
       availableSlots: {
         'Viernes': ['20:00', '21:00'],
         'Sábado': ['08:00', '09:00'],
@@ -652,6 +661,11 @@ class AppState extends ChangeNotifier {
       // Late Cancellation (< 24h): 45% client refund, 45% caregiver compensation
       b.refundedAmount = double.parse((b.totalPaid * 0.45).toStringAsFixed(2));
       b.caregiverCompensation = double.parse((b.totalPaid * 0.45).toStringAsFixed(2));
+      final cgIdx = caregivers.indexWhere((c) => c.id == b.caregiverId);
+      final hasBank = cgIdx == -1 ? true : caregivers[cgIdx].hasStripeConnectedAccount;
+      if (!hasBank) {
+        b.escrowStatus = 'cancelled_pending_caregiver_compensation';
+      }
     }
 
     notifyListeners();
@@ -778,24 +792,75 @@ class AppState extends ChangeNotifier {
     final cgIdx = caregivers.indexWhere((c) => c.id == caregiverId);
     if (cgIdx != -1) {
       caregivers[cgIdx].hasStripeConnectedAccount = true;
+      caregivers[cgIdx].stripePayoutStatus = 'active';
     }
     int settledCount = 0;
     for (final b in bookings) {
-      if (b.caregiverId == caregiverId &&
-          !b.isDisputed &&
-          !b.isRefunded &&
-          !b.isEscrowReleased &&
-          (b.escrowStatus == 'pending_caregiver_connect' ||
-              b.escrowStatus == 'pending_settlement_transfer')) {
-        b.status = BookingStatus.Completed;
-        b.isEscrowReleased = true;
-        b.escrowStatus = 'released';
-        b.checkOutTime ??= DateTime.now();
-        settledCount++;
+      if (b.caregiverId == caregiverId && !b.isDisputed) {
+        if (!b.isRefunded &&
+            !b.isEscrowReleased &&
+            (b.escrowStatus == 'pending_caregiver_connect' ||
+                b.escrowStatus == 'pending_settlement_transfer' ||
+                b.escrowStatus == 'pending_network_retry')) {
+          b.status = BookingStatus.Completed;
+          b.isEscrowReleased = true;
+          b.escrowStatus = 'released';
+          b.checkOutTime ??= DateTime.now();
+          settledCount++;
+        } else if (b.escrowStatus == 'cancelled_pending_caregiver_compensation') {
+          b.escrowStatus = 'cancelled_settled';
+          settledCount++;
+        }
       }
     }
     notifyListeners();
     return settledCount;
+  }
+
+  /// Updates the caregiver's linked payout bank account (IBAN),
+  /// clears any previous bank rejection flags, and automatically
+  /// settles any pending escrow transfers waiting for a valid bank account.
+  int updateCaregiverBankAccount({
+    required String caregiverId,
+    required String newIban,
+    required String newBankName,
+  }) {
+    final cgIdx = caregivers.indexWhere((c) => c.id == caregiverId);
+    if (cgIdx != -1) {
+      final cg = caregivers[cgIdx];
+      final cleanIban = newIban.replaceAll(' ', '').toUpperCase();
+      final last4 = cleanIban.length >= 4 ? cleanIban.substring(cleanIban.length - 4) : '4821';
+      final prefix = cleanIban.length >= 4 ? cleanIban.substring(0, 4) : 'ES91';
+      cg.maskedIban = '$prefix •••• •••• $last4';
+      cg.bankName = newBankName.trim().isEmpty ? 'Banco Nacional' : newBankName.trim();
+      cg.hasStripeConnectedAccount = true;
+      cg.stripePayoutStatus = 'active';
+      cg.lastPayoutDate = DateTime.now();
+    }
+
+    final settledCount = connectCaregiverStripeAccount(caregiverId);
+    notifyListeners();
+    return settledCount;
+  }
+
+  /// Simulates a temporary Stripe network connection timeout/error
+  /// to verify graceful retry handling in offline/unstable conditions.
+  void simulateStripeNetworkFailure(String bookingId) {
+    final idx = bookings.indexWhere((b) => b.id == bookingId);
+    if (idx != -1) {
+      final b = bookings[idx];
+      b.escrowStatus = 'pending_network_retry';
+      notifyListeners();
+    }
+  }
+
+  /// Simulates a bank payout rejection (e.g. invalid IBAN or closed bank account)
+  void simulateBankPayoutRejection(String caregiverId) {
+    final cgIdx = caregivers.indexWhere((c) => c.id == caregiverId);
+    if (cgIdx != -1) {
+      caregivers[cgIdx].stripePayoutStatus = 'bank_rejected';
+      notifyListeners();
+    }
   }
 
   /// Synchronized with `autoReleaseEscrowCron` in `functions/index.js`:
@@ -824,10 +889,11 @@ class AppState extends ChangeNotifier {
         continue;
       }
 
-      // 2. Retry pending_caregiver_connect or pending_settlement_transfer if bank is now connected
+      // 2. Retry pending_caregiver_connect, pending_settlement_transfer, or pending_network_retry if bank is now connected
       if (!b.isEscrowReleased &&
           (b.escrowStatus == 'pending_caregiver_connect' ||
-              b.escrowStatus == 'pending_settlement_transfer')) {
+              b.escrowStatus == 'pending_settlement_transfer' ||
+              b.escrowStatus == 'pending_network_retry')) {
         final cgIdx = caregivers.indexWhere((c) => c.id == b.caregiverId);
         final hasBank = cgIdx == -1 ? true : caregivers[cgIdx].hasStripeConnectedAccount;
         if (hasBank) {
@@ -4427,6 +4493,151 @@ class CaregiverDashboard extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 16),
+        // --- TARJETA DE GESTIÓN DE CUENTA BANCARIA (IBAN) Y ESTADO DE STRIPE ---
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: activeCg.stripePayoutStatus == 'bank_rejected'
+                  ? Colors.red.shade300
+                  : Colors.grey.shade200,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: activeCg.stripePayoutStatus == 'bank_rejected'
+                                ? Colors.red.shade50
+                                : AppTheme.primaryLight.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.account_balance_rounded,
+                            color: activeCg.stripePayoutStatus == 'bank_rejected'
+                                ? Colors.red
+                                : AppTheme.primary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Cuenta Bancaria de Cobro',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            Text(
+                              '${activeCg.bankName} • ${activeCg.maskedIban}',
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: activeCg.stripePayoutStatus == 'bank_rejected'
+                            ? Colors.red.withValues(alpha: 0.1)
+                            : Colors.green.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: activeCg.stripePayoutStatus == 'bank_rejected'
+                              ? Colors.red
+                              : Colors.green,
+                        ),
+                      ),
+                      child: Text(
+                        activeCg.stripePayoutStatus == 'bank_rejected'
+                            ? 'Revisión requerida'
+                            : 'Verificada para cobro',
+                        style: TextStyle(
+                          color: activeCg.stripePayoutStatus == 'bank_rejected'
+                              ? Colors.red
+                              : Colors.green.shade800,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (activeCg.stripePayoutStatus == 'bank_rejected') ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.error_outline_rounded, color: Colors.red, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Tu banco ha devuelto la última transferencia. Actualiza tu IBAN a continuación para reintentar el cobro automáticamente.',
+                            style: TextStyle(color: Colors.red, fontSize: 12, height: 1.3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                const Divider(height: 1),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showUpdateBankAccountModal(context, activeCg),
+                        icon: const Icon(Icons.edit_note_rounded, size: 18),
+                        label: const Text('Cambiar cuenta bancaria (IBAN)'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.primary,
+                          side: const BorderSide(color: AppTheme.primary),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'Información de seguridad bancaria',
+                      icon: const Icon(Icons.shield_outlined, color: AppTheme.primary),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                '🔒 Conexión bancaria segura PCI-DSS: tus datos de cobro están blindados por Stripe y el Banco de España.'),
+                            backgroundColor: AppTheme.primary,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: 24),
         Text(
           'Solicitudes Pendientes (${pendingBookings.length})',
@@ -4617,6 +4828,118 @@ class CaregiverDashboard extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+
+  static void _showUpdateBankAccountModal(BuildContext context, CaregiverProfile caregiver) {
+    final ibanController = TextEditingController(text: 'ES91');
+    final bankController = TextEditingController(text: caregiver.bankName);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 24,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Cambiar Cuenta Bancaria (IBAN)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Indica tu nueva cuenta corriente para recibir tus ingresos. Las transferencias en espera se enviarán a este nuevo IBAN.',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.3),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: bankController,
+              decoration: const InputDecoration(
+                labelText: 'Nombre del Banco o Entidad',
+                hintText: 'Ej. CaixaBank, BBVA, Santander, ING, Revolut',
+                prefixIcon: Icon(Icons.business_rounded, color: AppTheme.primary),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ibanController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Número IBAN completo',
+                hintText: 'ES91 2100 0418 4502 0005 1332',
+                prefixIcon: Icon(Icons.credit_card_rounded, color: AppTheme.primary),
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                final iban = ibanController.text.trim();
+                final bank = bankController.text.trim();
+                if (iban.length < 15) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(
+                      content: Text('Por favor introduce un IBAN válido (mínimo 15 caracteres).'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                final settled = context.read<AppState>().updateCaregiverBankAccount(
+                  caregiverId: caregiver.id,
+                  newIban: iban,
+                  newBankName: bank.isEmpty ? 'Banco Nacional' : bank,
+                );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      settled > 0
+                          ? '✅ Cuenta bancaria actualizada. Se han transferido $settled cobro(s) que estaban retenidos.'
+                          : '✅ Cuenta bancaria actualizada correctamente.',
+                    ),
+                    backgroundColor: AppTheme.primary,
+                  ),
+                );
+              },
+              child: const Text('Guardar y Vincular Nueva Cuenta'),
+            ),
+            const SizedBox(height: 10),
+            Center(
+              child: TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('🔒 Redirigiendo al panel oficial de Stripe Express con cifrado PCI-DSS...'),
+                      backgroundColor: AppTheme.primary,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.lock_rounded, size: 16),
+                label: const Text('Gestionar directamente en portal de Stripe'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

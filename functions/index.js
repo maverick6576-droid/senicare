@@ -121,19 +121,69 @@ exports.getStripeAccountLink = functions.region("europe-west1").https.onCall(asy
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para obtener el enlace.");
   }
   try {
-    const { accountId, refreshUrl, returnUrl } = data;
+    const { accountId, refreshUrl, returnUrl, type = "account_onboarding" } = data;
     if (!accountId) {
       throw new functions.https.HttpsError("invalid-argument", "Se requiere accountId.");
     }
+
+    if (type === "dashboard" || type === "login_link" || type === "update_bank") {
+      try {
+        const loginLink = await stripe.accounts.createLoginLink(accountId);
+        return { url: loginLink.url, type: "login_link" };
+      } catch (loginErr) {
+        console.warn("Fallo creando loginLink directo, usando account_update como fallback:", loginErr.message);
+      }
+    }
+
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
       refresh_url: refreshUrl || "https://senicare.app/stripe-refresh",
       return_url: returnUrl || "https://senicare.app/stripe-success",
-      type: "account_onboarding",
+      type: (type === "dashboard" || type === "update_bank") ? "account_update" : "account_onboarding",
     });
-    return { url: accountLink.url };
+    return { url: accountLink.url, type: accountLink.type || type };
   } catch (error) {
     console.error("Error generando Stripe Account Link:", error);
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+/**
+ * 2b. getCaregiverStripeDashboardLink
+ * Genera un enlace seguro (Login Link) al Express Dashboard de Stripe, permitiendo al cuidador
+ * ver sus transferencias y cambiar su cuenta bancaria (IBAN) directamente con cifrado bancario PCI-DSS.
+ */
+exports.getCaregiverStripeDashboardLink = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión para gestionar su cuenta bancaria.");
+  }
+  try {
+    let accountId = data?.accountId;
+    if (!accountId) {
+      const caregiverDoc = await db.collection("caregivers").doc(context.auth.uid).get();
+      if (caregiverDoc.exists) {
+        accountId = caregiverDoc.data().stripeConnectedAccountId;
+      }
+    }
+    if (!accountId) {
+      throw new functions.https.HttpsError("not-found", "No se encontró cuenta Stripe Connect vinculada para este profesional.");
+    }
+
+    try {
+      const loginLink = await stripe.accounts.createLoginLink(accountId);
+      return { success: true, url: loginLink.url, type: "login_link" };
+    } catch (loginErr) {
+      console.warn("Creando account_onboarding fallback link para Stripe Dashboard:", loginErr.message);
+      const accountLink = await stripe.accountLinks.create({
+        account: accountId,
+        refresh_url: data?.refreshUrl || "https://senicare.app/stripe-refresh",
+        return_url: data?.returnUrl || "https://senicare.app/stripe-success",
+        type: "account_onboarding",
+      });
+      return { success: true, url: accountLink.url, type: "account_onboarding" };
+    }
+  } catch (error) {
+    console.error("Error en getCaregiverStripeDashboardLink:", error);
     throw new functions.https.HttpsError("internal", error.message);
   }
 });
@@ -183,6 +233,8 @@ exports.createPaymentIntent = functions.region("europe-west1").https.onCall(asyn
         caregiverId: caregiverId || "N/A",
         caregiverStripeAccountId: resolvedStripeAccountId || "N/A",
       },
+    }, {
+      idempotencyKey: bookingId ? `create_pi_${bookingId}` : undefined,
     });
 
     if (bookingId) {
@@ -297,8 +349,30 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
           idempotencyKey: `release_transfer_${bookingId}`,
         });
       } catch (transferError) {
-        const isSettlementDelay = transferError.code === "balance_insufficient";
-        const pendingStatus = isSettlementDelay ? "pending_settlement_transfer" : "pending_kyc_transfer";
+        let pendingStatus = "pending_kyc_transfer";
+        let userMessage = "Servicio completado, transferencia pendiente de verificación de Stripe.";
+
+        if (transferError.code === "balance_insufficient") {
+          pendingStatus = "pending_settlement_transfer";
+          userMessage = "Servicio completado. Fondos en compensación bancaria (1-2 días hábiles); se transferirán automáticamente.";
+        } else if (
+          transferError.code === "account_invalid" ||
+          transferError.code === "invalid_destination" ||
+          transferError.code === "account_closed" ||
+          (transferError.message && (transferError.message.includes("does not have access to") || transferError.message.includes("not set up")))
+        ) {
+          pendingStatus = "pending_caregiver_connect";
+          userMessage = "La cuenta bancaria o IBAN del profesional requiere actualización en Stripe. Pago retenido de forma segura.";
+        } else if (
+          transferError.type === "StripeConnectionError" ||
+          transferError.type === "StripeAPIError" ||
+          transferError.code === "ETIMEDOUT" ||
+          transferError.code === "ECONNRESET"
+        ) {
+          pendingStatus = "pending_network_retry";
+          userMessage = "Incidencia de red temporal con la pasarela bancaria. El sistema reintentará la transferencia en el próximo ciclo automático.";
+        }
+
         console.warn(`⚠️ Error en stripe.transfers.create (${pendingStatus}): ${transferError.message}`);
         await bookingRef.update({
           escrowStatus: pendingStatus,
@@ -313,9 +387,7 @@ exports.releaseEscrowPayment = functions.region("europe-west1").https.onCall(asy
         return {
           success: true,
           escrowStatus: pendingStatus,
-          message: isSettlementDelay
-            ? "Servicio completado. Fondos en compensación bancaria (1-2 días hábiles); se transferirán automáticamente."
-            : "Servicio completado, transferencia pendiente de verificación KYC de Stripe.",
+          message: userMessage,
           releasedAmountInCents: transferAmountInCents,
           platformFeeInCents: platformFeeInCents,
           commissionRatePercent: commissionRatePercent,
@@ -475,18 +547,32 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
     }
 
     // 2. Transferencia compensatoria (45%) al Cuidador en cancelación tardía
-    if (caregiverCompensationInCents > 0 && destinationAccountId) {
-      await stripe.transfers.create({
-        amount: caregiverCompensationInCents,
-        currency: "eur",
-        destination: destinationAccountId,
-        transfer_group: booking.transferGroup || `booking_${bookingId}`,
-        description: `Compensación 45% cancelación tardía - Reserva #${bookingId}`,
-      }, {
-        idempotencyKey: `cancel_comp_transfer_${bookingId}`,
-      });
-      console.log(`✅ Transferencia compensatoria (45% -> ${caregiverCompensationInCents} céntimos) enviada a ${destinationAccountId}`);
+    let compensationSettled = false;
+    if (caregiverCompensationInCents > 0) {
+      if (destinationAccountId) {
+        try {
+          await stripe.transfers.create({
+            amount: caregiverCompensationInCents,
+            currency: "eur",
+            destination: destinationAccountId,
+            transfer_group: booking.transferGroup || `booking_${bookingId}`,
+            description: `Compensación 45% cancelación tardía - Reserva #${bookingId}`,
+          }, {
+            idempotencyKey: `cancel_comp_transfer_${bookingId}`,
+          });
+          compensationSettled = true;
+          console.log(`✅ Transferencia compensatoria (45% -> ${caregiverCompensationInCents} céntimos) enviada a ${destinationAccountId}`);
+        } catch (compTransferErr) {
+          console.warn(`⚠️ Error transfiriendo compensación tardía a ${destinationAccountId}:`, compTransferErr.message);
+        }
+      } else {
+        console.warn(`⚠️ Cuidador sin cuenta bancaria Stripe Connect vinculada para recibir compensación.`);
+      }
     }
+
+    const finalEscrowStatus = (caregiverCompensationInCents > 0 && !compensationSettled)
+      ? "cancelled_pending_caregiver_compensation"
+      : "cancelled_settled";
 
     await bookingRef.update({
       status: "Cancelled",
@@ -495,7 +581,8 @@ exports.cancelBookingProcess = functions.region("europe-west1").https.onCall(asy
       isRefunded: true,
       refundedAmountInCents: clientRefundAmountInCents,
       caregiverCompensationInCents: caregiverCompensationInCents,
-      escrowStatus: "cancelled_settled",
+      pendingCompensationInCents: compensationSettled ? 0 : caregiverCompensationInCents,
+      escrowStatus: finalEscrowStatus,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -525,7 +612,14 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
   console.log("Ejecutando autoReleaseEscrowCron horario (Auto-Release 24h, Reintentos & Timeout 2h/12h de Solicitudes Pendientes)...");
   const nowMs = Date.now();
   const pendingEscrowSnap = await db.collection("bookings")
-    .where("escrowStatus", "in", ["held", "pending_settlement_transfer", "pending_caregiver_connect", "pending_kyc_transfer"])
+    .where("escrowStatus", "in", [
+      "held",
+      "pending_settlement_transfer",
+      "pending_caregiver_connect",
+      "pending_kyc_transfer",
+      "pending_network_retry",
+      "cancelled_pending_caregiver_compensation",
+    ])
     .get();
 
   let releasedCount = 0;
@@ -536,6 +630,41 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
       const booking = doc.data();
       if (booking.isDisputed || booking.status === "Disputed") {
         console.log(`⏸️ Omitiendo auto-liberación para reserva #${doc.id} por disputa abierta.`);
+        continue;
+      }
+
+      let destinationAccountId = booking.caregiverStripeAccountId;
+      if (!destinationAccountId && booking.caregiverId) {
+        const caregiverDoc = await db.collection("caregivers").doc(booking.caregiverId).get();
+        if (caregiverDoc.exists) {
+          destinationAccountId = caregiverDoc.data().stripeConnectedAccountId;
+        }
+      }
+
+      // 0. Si es una cancelación pendiente de compensar al cuidador y ahora ya tiene cuenta vinculada
+      if (booking.escrowStatus === "cancelled_pending_caregiver_compensation") {
+        const compInCents = booking.pendingCompensationInCents || booking.caregiverCompensationInCents || 0;
+        if (compInCents > 0 && destinationAccountId) {
+          try {
+            await stripe.transfers.create({
+              amount: compInCents,
+              currency: "eur",
+              destination: destinationAccountId,
+              transfer_group: booking.transferGroup || `booking_${doc.id}`,
+              description: `Compensación cancelación reactivada tras vincular IBAN - Reserva #${doc.id}`,
+            }, {
+              idempotencyKey: `cron_cancel_comp_${doc.id}`,
+            });
+            await doc.ref.update({
+              escrowStatus: "cancelled_settled",
+              pendingCompensationInCents: 0,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log(`✅ Compensación de ${compInCents} céntimos liquidada exitosamente para reserva #${doc.id}`);
+          } catch (compErr) {
+            console.warn(`⚠️ Error en transferencia compensatoria cron para #${doc.id}:`, compErr.message);
+          }
+        }
         continue;
       }
 
@@ -580,14 +709,6 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
 
       if (!ReadyToRelease) continue;
 
-      let destinationAccountId = booking.caregiverStripeAccountId;
-      if (!destinationAccountId && booking.caregiverId) {
-        const caregiverDoc = await db.collection("caregivers").doc(booking.caregiverId).get();
-        if (caregiverDoc.exists) {
-          destinationAccountId = caregiverDoc.data().stripeConnectedAccountId;
-        }
-      }
-
       const totalAmountInCents = booking.totalAmountInCents || Math.round((booking.totalPaid || 0) * 100);
       const baseAmountInCents = booking.baseAmountInCents || Math.round((booking.cost || 0) * 100);
       const {
@@ -624,9 +745,24 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").pubsub.schedule
             idempotencyKey: `cron_release_transfer_${doc.id}`,
           });
         } catch (transferErr) {
-          const retryStatus = transferErr.code === "balance_insufficient"
-            ? "pending_settlement_transfer"
-            : "pending_kyc_transfer";
+          let retryStatus = "pending_kyc_transfer";
+          if (transferErr.code === "balance_insufficient") {
+            retryStatus = "pending_settlement_transfer";
+          } else if (
+            transferErr.code === "account_invalid" ||
+            transferErr.code === "invalid_destination" ||
+            transferErr.code === "account_closed"
+          ) {
+            retryStatus = "pending_caregiver_connect";
+          } else if (
+            transferErr.type === "StripeConnectionError" ||
+            transferErr.type === "StripeAPIError" ||
+            transferErr.code === "ETIMEDOUT" ||
+            transferErr.code === "ECONNRESET"
+          ) {
+            retryStatus = "pending_network_retry";
+          }
+
           await doc.ref.update({
             status: "Completed",
             escrowStatus: retryStatus,
@@ -986,14 +1122,107 @@ exports.stripeWebhook = functions.region("europe-west1").https.onRequest(async (
     } else if (event.type === "account.updated") {
       const account = event.data.object;
       const kycStatus = account.details_submitted ? "verified" : "pending";
+      const payoutsEnabled = Boolean(account.payouts_enabled);
       const cgSnap = await db.collection("caregivers")
         .where("stripeConnectedAccountId", "==", account.id)
         .get();
       for (const doc of cgSnap.docs) {
         await doc.ref.update({
           stripeKycStatus: kycStatus,
+          payoutsEnabled: payoutsEnabled,
+          bankPayoutStatus: payoutsEnabled ? "active" : "action_required",
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        // Si el cuidador ha completado/actualizado su cuenta bancaria y tiene cobros habilitados,
+        // liberamos automáticamente las transferencias retenidas por falta de IBAN
+        if (payoutsEnabled) {
+          const pendingBookingsSnap = await db.collection("bookings")
+            .where("caregiverId", "==", doc.id)
+            .where("escrowStatus", "in", ["pending_caregiver_connect", "pending_kyc_transfer", "pending_network_retry"])
+            .get();
+
+          for (const bDoc of pendingBookingsSnap.docs) {
+            const bData = bDoc.data();
+            const transferAmount = bData.releasedAmountInCents || 0;
+            if (transferAmount > 0) {
+              try {
+                await stripe.transfers.create({
+                  amount: transferAmount,
+                  currency: "eur",
+                  destination: account.id,
+                  transfer_group: bData.transferGroup || `booking_${bDoc.id}`,
+                  description: `Liquidación reactivada tras actualizar IBAN - Reserva #${bDoc.id}`,
+                }, {
+                  idempotencyKey: `auto_retry_transfer_${bDoc.id}`,
+                });
+                await bDoc.ref.update({
+                  escrowStatus: "released",
+                  lastTransferError: admin.firestore.FieldValue.delete(),
+                  releasedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                console.log(`✅ Liquidación reactivada tras actualizar cuenta bancaria para reserva #${bDoc.id}`);
+              } catch (retryErr) {
+                console.warn(`⚠️ Reintento automático falló para #${bDoc.id}:`, retryErr.message);
+              }
+            }
+          }
+        }
+      }
+    } else if (event.type === "payout.failed") {
+      const payout = event.data.object;
+      const accountId = event.account;
+      console.warn(`❌ Fallo de transferencia hacia el banco del cuidador (Stripe Account: ${accountId}): ${payout.failure_message || payout.failure_code}`);
+      const cgSnap = await db.collection("caregivers")
+        .where("stripeConnectedAccountId", "==", accountId)
+        .get();
+      for (const doc of cgSnap.docs) {
+        await doc.ref.update({
+          bankPayoutStatus: "bank_rejected",
+          lastPayoutError: payout.failure_message || "Transferencia rechazada por la entidad bancaria. Por favor actualiza tu IBAN.",
+          lastPayoutErrorCode: payout.failure_code || "account_invalid",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    } else if (event.type === "payout.paid") {
+      const accountId = event.account;
+      const cgSnap = await db.collection("caregivers")
+        .where("stripeConnectedAccountId", "==", accountId)
+        .get();
+      for (const doc of cgSnap.docs) {
+        await doc.ref.update({
+          bankPayoutStatus: "active",
+          lastSuccessfulPayout: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    } else if (event.type === "charge.refunded") {
+      const charge = event.data.object;
+      const paymentIntentId = charge.payment_intent;
+      if (paymentIntentId) {
+        const snap = await db.collection("bookings")
+          .where("paymentIntentId", "==", paymentIntentId)
+          .get();
+        for (const doc of snap.docs) {
+          await doc.ref.update({
+            isRefunded: true,
+            escrowStatus: "refunded_by_stripe",
+            refundedAmountInCents: charge.amount_refunded,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
+    } else if (event.type === "transfer.reversed") {
+      const transfer = event.data.object;
+      const transferGroup = transfer.transfer_group;
+      if (transferGroup && transferGroup.startsWith("booking_")) {
+        const bookingId = transferGroup.replace("booking_", "");
+        await db.collection("bookings").doc(bookingId).set({
+          transferReversed: true,
+          transferReversedAmountInCents: transfer.amount_reversed,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
       }
     }
     res.status(200).send({ received: true });
