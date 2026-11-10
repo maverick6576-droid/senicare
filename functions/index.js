@@ -833,15 +833,56 @@ exports.pushOnMessageCreated = onDocumentCreated({
   region: "europe-west1"
 }, async (event) => {
   const message = event.data.data();
+  if (!message) return null;
   const roomParts = event.params.chatRoomId.split('_');
   if (roomParts.length !== 2) return null;
   
-  const senderId = message.senderId;
-  const receiverId = senderId === roomParts[0] ? roomParts[1] : roomParts[0];
-  
-  await sendPushNotification(receiverId, "Nuevo Mensaje de Chat", message.text || "Tienes un mensaje nuevo.", {
+  const clientId = roomParts[0];
+  const caregiverId = roomParts[1];
+
+  // Determinar con certeza el emisor y el receptor
+  let senderId = message.senderId;
+  let receiverId = message.receiverId;
+
+  if (!senderId) {
+    if (message.sender === 'Client') {
+      senderId = clientId;
+      receiverId = caregiverId;
+    } else if (message.sender === 'Caregiver') {
+      senderId = caregiverId;
+      receiverId = clientId;
+    } else {
+      senderId = roomParts[0];
+      receiverId = roomParts[1];
+    }
+  }
+
+  if (!receiverId) {
+    receiverId = senderId === clientId ? caregiverId : clientId;
+  }
+
+  // PROTECCIÓN ABSOLUTA: Si el receptor resulta ser el mismo que el emisor, abortar
+  if (receiverId === senderId) {
+    console.log(`[pushOnMessageCreated] Se omite push: el destinatario (${receiverId}) es el mismo emisor.`);
+    return null;
+  }
+
+  // Obtener nombre del remitente para personalizar el título
+  let notificationTitle = "Nuevo mensaje de chat";
+  try {
+    const chatDoc = await admin.firestore().collection("chats").doc(event.params.chatRoomId).get();
+    const chatData = chatDoc.exists ? chatDoc.data() : {};
+    if (receiverId === caregiverId) {
+      notificationTitle = "Mensaje de la Familia";
+    } else {
+      notificationTitle = `Mensaje de ${chatData.caregiverName || "tu cuidador/a"}`;
+    }
+  } catch (_) {}
+
+  await sendPushNotification(receiverId, notificationTitle, message.text || "Tienes un mensaje nuevo.", {
     type: "chat",
-    chatRoomId: event.params.chatRoomId
+    chatRoomId: event.params.chatRoomId,
+    senderId: senderId
   });
   return null;
 });

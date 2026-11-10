@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
@@ -93,6 +94,15 @@ class FCMService {
   static void _handleForegroundMessage(RemoteMessage message) {
     debugPrint('Got a message whilst in the foreground!');
     debugPrint('Message data: ${message.data}');
+
+    // Si la notificación pertenece a un mensaje enviado por el propio usuario actual, no mostrar banner de eco
+    try {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUid != null && message.data['senderId'] == currentUid) {
+        debugPrint('Ignorando notificación en primer plano: proviene del propio usuario emisor.');
+        return;
+      }
+    } catch (_) {}
 
     if (message.notification != null) {
       // Mostrar la notificación usando local_notifications

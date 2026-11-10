@@ -8,11 +8,15 @@ class ChatMessage {
   final ChatSender sender;
   final String text;
   final DateTime timestamp;
+  final String? senderId;
+  final String? receiverId;
 
   ChatMessage({
     required this.sender,
     required this.text,
     required this.timestamp,
+    this.senderId,
+    this.receiverId,
   });
 
   factory ChatMessage.fromFirestore(DocumentSnapshot doc) {
@@ -24,6 +28,8 @@ class ChatMessage {
         timestamp: (data['timestamp'] is Timestamp)
             ? (data['timestamp'] as Timestamp).toDate()
             : DateTime.now(),
+        senderId: data['senderId']?.toString(),
+        receiverId: data['receiverId']?.toString(),
       );
     } catch (e) {
       debugPrint('Error parsing ChatMessage ${doc.id}: $e');
@@ -40,6 +46,8 @@ class ChatMessage {
       'sender': sender == ChatSender.Caregiver ? 'Caregiver' : 'Client',
       'text': text,
       'timestamp': Timestamp.fromDate(timestamp),
+      if (senderId != null) 'senderId': senderId,
+      if (receiverId != null) 'receiverId': receiverId,
     };
   }
 }

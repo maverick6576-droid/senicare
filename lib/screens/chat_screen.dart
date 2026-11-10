@@ -62,10 +62,14 @@ class _ChatScreenState extends State<ChatScreen> {
         _isRecordingVoice = false;
         _recordingSeconds = 0;
       });
+      final senderId = isClient ? widget.clientId : widget.caregiverId;
+      final receiverId = isClient ? widget.caregiverId : widget.clientId;
       final message = ChatMessage(
         sender: isClient ? ChatSender.Client : ChatSender.Caregiver,
         text: '🎤 Nota de voz ($mins:$secs)',
         timestamp: DateTime.now(),
+        senderId: senderId,
+        receiverId: receiverId,
       );
       DependencyInjection.chats.sendMessage(
         widget.clientId,
@@ -120,10 +124,14 @@ class _ChatScreenState extends State<ChatScreen> {
               child: TextButton.icon(
                 onPressed: () {
                   HapticFeedback.lightImpact();
+                  final senderId = isClient ? widget.clientId : widget.caregiverId;
+                  final receiverId = isClient ? widget.caregiverId : widget.clientId;
                   final message = ChatMessage(
                     sender: isClient ? ChatSender.Client : ChatSender.Caregiver,
                     text: '📹 Ha iniciado una sala de entrevista por videollamada (15 min gratis)',
                     timestamp: DateTime.now(),
+                    senderId: senderId,
+                    receiverId: receiverId,
                   );
                   DependencyInjection.chats.sendMessage(
                     widget.clientId,
@@ -350,10 +358,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         }
                       }
 
+                      final senderId = isClient ? widget.clientId : widget.caregiverId;
+                      final receiverId = isClient ? widget.caregiverId : widget.clientId;
                       final message = ChatMessage(
                         sender: isClient ? ChatSender.Client : ChatSender.Caregiver,
                         text: text,
                         timestamp: DateTime.now(),
+                        senderId: senderId,
+                        receiverId: receiverId,
                       );
                       DependencyInjection.chats.sendMessage(widget.clientId, widget.caregiverId, widget.caregiverName, message);
                       _controller.clear();

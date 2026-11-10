@@ -62,10 +62,15 @@ class FirestoreChatRepository implements ChatRepository {
       final messagesColRef = parentDocRef.collection('messages');
       
       final sanitizedText = _sanitizeMessage(message.text);
+      final senderId = message.sender == ChatSender.Client ? clientId : caregiverId;
+      final receiverId = message.sender == ChatSender.Client ? caregiverId : clientId;
+
       final safeMessage = ChatMessage(
         sender: message.sender,
         text: sanitizedText,
         timestamp: message.timestamp,
+        senderId: senderId,
+        receiverId: receiverId,
       );
       
       final batch = FirebaseFirestore.instance.batch();
