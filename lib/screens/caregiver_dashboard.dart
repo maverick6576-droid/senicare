@@ -196,6 +196,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             pendingBookings.sort((a, b) => a.day.compareTo(b.day) != 0 ? a.day.compareTo(b.day) : a.slot.compareTo(b.slot));
             final nextService = pendingBookings.isNotEmpty ? pendingBookings.first : null;
 
+            final incomingRequests = caregiverBookings.where((b) {
+              return b.status == BookingStatus.pending && !b.isExpired;
+            }).toList();
+            incomingRequests.sort((a, b) => a.day.compareTo(b.day) != 0 ? a.day.compareTo(b.day) : a.slot.compareTo(b.slot));
+
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -228,6 +233,10 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                       ],
                     ),
                   ),
+                ],
+                if (incomingRequests.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _buildIncomingRequestsBanner(context, incomingRequests, bookingState),
                 ],
                 const SizedBox(height: 24),
                 if (activeService != null) ...[
@@ -580,9 +589,35 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                             ),
                             if (profile.homeAddress.isNotEmpty) ...[
                               const SizedBox(height: 6),
-                              Text(
-                                '📍 Domicilio: ${profile.homeAddress}',
-                                style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '📍 Domicilio: ${profile.homeAddress}',
+                                      style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () => _openMaps(profile.homeAddress),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.22),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.navigation_rounded, color: Colors.white, size: 12),
+                                          SizedBox(width: 4),
+                                          Text('Maps', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                             if (profile.patientDetails.isNotEmpty) ...[
@@ -767,7 +802,33 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (profile.homeAddress.isNotEmpty)
-                              Text('📍 Domicilio: ${profile.homeAddress}', style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text('📍 Domicilio: ${profile.homeAddress}', style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () => _openMaps(profile.homeAddress),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.22),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.navigation_rounded, color: Colors.white, size: 12),
+                                          SizedBox(width: 4),
+                                          Text('Maps', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             if (profile.patientDetails.isNotEmpty) ...[
                               const SizedBox(height: 4),
                               Text('📋 Pautas: ${profile.patientDetails}', style: const TextStyle(color: Colors.white, fontSize: 12.5)),
@@ -996,6 +1057,183 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _openMaps(String address) async {
+    if (address.isEmpty) return;
+    final query = Uri.encodeComponent(address);
+    final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Widget _buildIncomingRequestsBanner(BuildContext context, List<Booking> requests, BookingNotifier bookingState) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.amber.shade400, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.amber.shade200.withValues(alpha: 0.35),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade100,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.notification_important_rounded, color: Colors.amber.shade900, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '¡Tienes ${requests.length} solicitud${requests.length > 1 ? "es" : ""} de reserva pendiente${requests.length > 1 ? "s" : ""}!',
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ...requests.take(2).map((req) {
+                  return FutureBuilder<ClientProfile?>(
+                    future: DependencyInjection.clients.getClient(req.clientId),
+                    builder: (context, snap) {
+                      final profile = snap.data;
+                      final clientName = profile?.name ?? '';
+                      final nameParts = clientName.trim().split(RegExp(r'\s+'));
+                      final surname = nameParts.length > 1 ? nameParts[1] : clientName;
+                      final displayName = surname.isNotEmpty ? 'Familia $surname' : 'Familia';
+
+                      double payout = req.caregiverPayout;
+                      if (payout <= 0 && req.cost > 0) {
+                        final rate = req.caregiverCommissionRate > 0 ? req.caregiverCommissionRate : 0.18;
+                        payout = req.cost * (1.0 - rate);
+                      }
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.amber.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  displayName,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.green.shade200),
+                                  ),
+                                  child: Text(
+                                    '+${payout.toStringAsFixed(1)} € netos',
+                                    style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '📅 ${req.day} · ⏰ ${req.slot}',
+                              style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () async {
+                                      final confirm = await CustomDialog.showConfirmation(
+                                        context,
+                                        title: 'Rechazar Solicitud',
+                                        message: '¿Seguro que deseas rechazar este servicio?',
+                                        confirmText: 'Rechazar',
+                                        isDestructive: true,
+                                      );
+                                      if (confirm == true) {
+                                        await bookingState.rejectBooking(req.id);
+                                        if (context.mounted) {
+                                          CustomSnackBar.show(context, message: 'Solicitud rechazada.', type: SnackBarType.info);
+                                        }
+                                      }
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red.shade700,
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      minimumSize: const Size(0, 36),
+                                      side: BorderSide(color: Colors.red.shade200),
+                                    ),
+                                    child: const Text('Rechazar', style: TextStyle(fontSize: 12.5)),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 2,
+                                  child: FilledButton.icon(
+                                    onPressed: () async {
+                                      HapticFeedback.mediumImpact();
+                                      await bookingState.confirmBooking(req.id);
+                                      if (context.mounted) {
+                                        CustomSnackBar.show(
+                                          context,
+                                          message: '✅ ¡Servicio aceptado! Recuerda registrar tu llegada al domicilio.',
+                                          type: SnackBarType.success,
+                                        );
+                                      }
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.primary,
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      minimumSize: const Size(0, 36),
+                                    ),
+                                    icon: const Icon(Icons.check_rounded, size: 16),
+                                    label: const Text('Aceptar Servicio', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

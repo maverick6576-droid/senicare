@@ -17,6 +17,7 @@ class ExplorerScreen extends StatefulWidget {
 
 class _ExplorerScreenState extends State<ExplorerScreen> {
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -26,6 +27,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -102,10 +104,21 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                   children: [
                     Expanded(
                       child: TextField(
+                        controller: _searchController,
                         onChanged: caregiverState.setSearchQuery,
                         decoration: InputDecoration(
                           hintText: 'Buscar por nombre o especialidad...',
                           prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.primary),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded, size: 18),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    caregiverState.setSearchQuery('');
+                                    setState(() {});
+                                  },
+                                )
+                              : null,
                           filled: true,
                           fillColor: AppTheme.backgroundNeutral,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -319,9 +332,42 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    'Prueba a quitar algún filtro o ampliar la búsqueda.',
+                                    'Prueba a restablecer filtros o publica una oferta para que los cuidadores te contacten.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(color: Colors.grey.shade500),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Wrap(
+                                    spacing: 12,
+                                    runSpacing: 10,
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: () {
+                                          _searchController.clear();
+                                          caregiverState.setSearchQuery('');
+                                          caregiverState.setSpecialty('Todos');
+                                          caregiverState.resetFilters();
+                                          setState(() {});
+                                        },
+                                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                                        label: const Text('Restablecer Filtros'),
+                                      ),
+                                      ElevatedButton.icon(
+                                        onPressed: () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(builder: (_) => const CreateOfferScreen()),
+                                          );
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppTheme.primary,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        icon: const Icon(Icons.add_task_rounded, size: 18),
+                                        label: const Text('Publicar Oferta de Empleo'),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
