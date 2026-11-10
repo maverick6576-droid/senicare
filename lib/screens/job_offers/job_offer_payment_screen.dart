@@ -168,7 +168,14 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         for (int i = 0; i < totalDays; i++) {
           final targetDate = widget.offer.startDate.add(Duration(days: i));
           if (widget.offer.recurringDaysOfWeek.contains(targetDate.weekday)) {
-            final startDateTime = DateTime(targetDate.year, targetDate.month, targetDate.day, int.parse(widget.offer.recurringStartTime.split(':')[0]), int.parse(widget.offer.recurringStartTime.split(':')[1]));
+            int startHour = 9;
+            int startMinute = 0;
+            if (widget.offer.recurringStartTime.contains(':')) {
+              final timeParts = widget.offer.recurringStartTime.split(':');
+              startHour = int.tryParse(timeParts[0]) ?? 9;
+              startMinute = int.tryParse(timeParts[1]) ?? 0;
+            }
+            final startDateTime = DateTime(targetDate.year, targetDate.month, targetDate.day, startHour, startMinute);
             final endDateTime = startDateTime.add(Duration(hours: widget.offer.recurringHoursPerDay));
             
             final cost = widget.offer.recurringHoursPerDay * widget.application.proposedPrice;

@@ -327,11 +327,27 @@ class _ChatScreenState extends State<ChatScreen> {
                     }
                     final text = _controller.text.trim();
                     if (text.isNotEmpty) {
-                      // RegEx anti-fuga
-                      final leakRegExp = RegExp(r'(bizum|efectivo|whatsapp|@|\+34|\b[679][0-9]{8}\b|tlf|telefono|teléfono)', caseSensitive: false);
-                      if (leakRegExp.hasMatch(text)) {
-                         CustomSnackBar.show(context, message: '⚠️ Por seguridad, no se permite compartir datos de contacto o pagos externos antes de reservar.', type: SnackBarType.error);
-                         return;
+                      // RegEx anti-fuga inteligente (distingue entre pre-reserva y reserva confirmada)
+                      final bookings = context.read<BookingNotifier>().bookings;
+                      final hasConfirmedBooking = bookings.any((b) =>
+                        (b.status == BookingStatus.confirmed || b.status == BookingStatus.completed) &&
+                        (b.caregiverId == widget.caregiverId)
+                      );
+
+                      if (hasConfirmedBooking) {
+                        // En servicios confirmados permitimos teléfonos para coordinar la llegada, pero bloqueamos pagos fuera de plataforma
+                        final offPlatformPayment = RegExp(r'(bizum|efectivo|pago en mano|transferencia externa)', caseSensitive: false);
+                        if (offPlatformPayment.hasMatch(text)) {
+                          CustomSnackBar.show(context, message: '⚠️ Para mantener el seguro de 500.000€ y la protección de fondos, los pagos deben gestionarse dentro de SeniCare.', type: SnackBarType.error);
+                          return;
+                        }
+                      } else {
+                        // Antes de reservar: bloqueo estricto de teléfonos y pagos externos
+                        final preBookingLeak = RegExp(r'(bizum|efectivo|whatsapp|@|\+34|\b[679][0-9]{8}\b|tlf|telefono|teléfono)', caseSensitive: false);
+                        if (preBookingLeak.hasMatch(text)) {
+                          CustomSnackBar.show(context, message: '⚠️ Por seguridad de ambas partes, no se permite compartir datos de contacto directo antes de confirmar una reserva.', type: SnackBarType.error);
+                          return;
+                        }
                       }
 
                       final message = ChatMessage(

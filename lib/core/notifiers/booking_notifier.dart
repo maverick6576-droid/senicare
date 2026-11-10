@@ -432,7 +432,16 @@ class BookingNotifier extends ChangeNotifier {
     if (bookings.isEmpty) return;
     
     final firstBooking = bookings.first;
-    final clientName = 'Familia'; 
+    String clientName = 'Familia';
+    if (currentUserId != null && currentUserId.isNotEmpty) {
+      try {
+        final profile = await DependencyInjection.clients.getClient(currentUserId);
+        if (profile != null && profile.name.trim().isNotEmpty) {
+          final parts = profile.name.trim().split(RegExp(r'\s+'));
+          clientName = parts.length > 1 ? 'Familia ${parts[1]}' : 'Familia ${parts[0]}';
+        }
+      } catch (_) {}
+    } 
     
     final review = Review(
       id: DateTime.now().millisecondsSinceEpoch.toString(),

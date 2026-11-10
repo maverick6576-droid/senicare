@@ -19,8 +19,31 @@ class _ScannerScreenState extends State<ScannerScreen> {
   bool _isProcessing = false;
   final TextEditingController _pinController = TextEditingController();
 
+  bool _validateCheckInWindow() {
+    final start = widget.booking.scheduledStartTime;
+    final end = widget.booking.scheduledEndTime;
+    final now = DateTime.now();
+
+    if (start != null && now.isBefore(start.subtract(const Duration(minutes: 30)))) {
+      final diff = start.difference(now);
+      final waitHours = diff.inHours;
+      final waitMins = diff.inMinutes % 60;
+      final waitText = waitHours > 0 ? '${waitHours}h y ${waitMins}m' : '${waitMins}m';
+      _showError('Aún es pronto para este turno. El fichaje se habilitará 30 min antes del inicio (en $waitText).');
+      return false;
+    }
+
+    if (end != null && now.isAfter(end)) {
+      _showError('El horario previsto de este servicio ya ha concluido (${widget.booking.slot}). Contacta con soporte.');
+      return false;
+    }
+
+    return true;
+  }
+
   Future<void> _handleQRDetect(String rawValue) async {
     if (_isProcessing) return;
+    if (!_validateCheckInWindow()) return;
     setState(() => _isProcessing = true);
 
     final normalized = rawValue.trim();
@@ -100,12 +123,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _handlePINSubmit() async {
-    if (_pinController.text == widget.booking.bookingPin) {
+    if (!_validateCheckInWindow()) return;
+    final entered = _pinController.text.trim();
+    final expected = (widget.booking.bookingPin ?? '').trim();
+    if (entered.isNotEmpty && entered == expected) {
       if (_isProcessing) return;
       setState(() => _isProcessing = true);
       await _completeCheckIn();
     } else {
-      _showError('PIN Incorrecto');
+      _showError('PIN Incorrecto. Comprueba los 4 dígitos facilitados por la familia.');
     }
   }
 

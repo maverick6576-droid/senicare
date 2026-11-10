@@ -74,7 +74,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
         b.status != BookingStatus.cancelled && 
         b.status != BookingStatus.cancelledLate &&
         b.escrowStatus != 'disputed' &&
-        isBookingExpired(b)
+        (b.status == BookingStatus.completed || b.liveStatus == 'completed' || isBookingExpired(b))
     ).toList();
     
     if (pending.isEmpty) return;
@@ -733,7 +733,21 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                 children: [
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () => state.rejectBooking(b.id),
+                                      onPressed: () async {
+                                        final confirm = await CustomDialog.showConfirmation(
+                                          context,
+                                          title: 'Rechazar Solicitud',
+                                          message: '¿Seguro que no puedes atender este servicio? La reserva se cancelará y los fondos se liberarán para la familia.',
+                                          confirmText: 'Rechazar',
+                                          isDestructive: true,
+                                        );
+                                        if (confirm == true) {
+                                          await state.rejectBooking(b.id);
+                                          if (context.mounted) {
+                                            CustomSnackBar.show(context, message: 'Solicitud rechazada.', type: SnackBarType.info);
+                                          }
+                                        }
+                                      },
                                       style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                                       child: const Text('Rechazar'),
                                     ),
@@ -741,7 +755,13 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                   const SizedBox(width: 16),
                                   Expanded(
                                     child: FilledButton(
-                                      onPressed: () => state.confirmBooking(b.id),
+                                      onPressed: () async {
+                                        HapticFeedback.mediumImpact();
+                                        await state.confirmBooking(b.id);
+                                        if (context.mounted) {
+                                          CustomSnackBar.show(context, message: '✅ ¡Servicio aceptado! Recuerda registrar tu llegada al domicilio.', type: SnackBarType.success);
+                                        }
+                                      },
                                       child: const Text('Aceptar'),
                                     ),
                                   ),
@@ -899,6 +919,52 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                           label: const Text('Incidencia', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                         ),
                                       ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                          if (isClient && isBookingExpired(b) && b.checkInTime == null && b.escrowStatus != 'refunded')
+                            Padding(
+                              padding: const EdgeInsets.only(top: 14.0),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.red.shade200),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(Icons.person_off_outlined, size: 18, color: Colors.red.shade800),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Incomparecencia / Sin Check-in',
+                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red.shade900),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'El cuidador no registró su llegada presencial. Tu importe (${b.totalPaid.toStringAsFixed(2)} €) está asegurado y el reembolso total se tramita automáticamente sin costes.',
+                                      style: TextStyle(fontSize: 12, color: Colors.red.shade900, height: 1.3),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => _findUrgentSubstitute(context),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.red.shade900,
+                                          side: BorderSide(color: Colors.red.shade300),
+                                        ),
+                                        icon: const Icon(Icons.flash_on_rounded, size: 16),
+                                        label: const Text('🚨 Buscar un cuidador de sustitución hoy', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                      ),
                                     ),
                                   ],
                                 ),

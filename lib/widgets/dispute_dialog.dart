@@ -76,13 +76,39 @@ class _DisputeDialogState extends State<DisputeDialog> {
             ),
             const SizedBox(height: 16),
             Text('Coste Total Pagado: ${widget.booking.cost.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            const Text('Importe a reembolsar (€):'),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
+            const Text('Propuesta de reembolso:', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                ActionChip(
+                  label: Text('25% (${(widget.booking.cost * 0.25).toStringAsFixed(1)}€)'),
+                  onPressed: () {
+                    _amountController.text = (widget.booking.cost * 0.25).toStringAsFixed(2);
+                  },
+                ),
+                ActionChip(
+                  label: Text('50% (${(widget.booking.cost * 0.50).toStringAsFixed(1)}€)'),
+                  onPressed: () {
+                    _amountController.text = (widget.booking.cost * 0.50).toStringAsFixed(2);
+                  },
+                ),
+                ActionChip(
+                  label: Text('100% (${widget.booking.cost.toStringAsFixed(1)}€)'),
+                  onPressed: () {
+                    _amountController.text = widget.booking.cost.toStringAsFixed(2);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             TextField(
               controller: _amountController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
+                labelText: 'Importe exacto (€)',
                 hintText: 'Ej. 15.50',
                 border: OutlineInputBorder(),
               ),
@@ -108,8 +134,8 @@ class _DisputeDialogState extends State<DisputeDialog> {
                   final amountText = _amountController.text.replaceAll(',', '.');
                   final amount = double.tryParse(amountText);
                   
-                  if (amount == null || amount < 0 || amount > widget.booking.cost) {
-                    CustomSnackBar.show(context, message: 'Por favor, introduce una cantidad válida que no supere el coste total.', type: SnackBarType.error);
+                  if (amount == null || amount <= 0 || amount > widget.booking.cost) {
+                    CustomSnackBar.show(context, message: 'Por favor, introduce una cantidad mayor que 0 € y que no supere el coste total.', type: SnackBarType.error);
                     return;
                   }
                   

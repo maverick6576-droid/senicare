@@ -75,7 +75,7 @@ class Booking {
   DateTime? onTheWayAt;
   double tipAmount;
 
-  bool get isExpired {
+  DateTime? get scheduledStartTime {
     try {
       DateTime dayDate;
       if (day.contains('/')) {
@@ -83,19 +83,39 @@ class Booking {
       } else {
         dayDate = DateFormat('yyyy-MM-dd').parse(day);
       }
-      DateTime slotEndTime;
-      if (slot.contains('-')) {
-        final endStr = slot.split('-')[1];
-        final timeParts = endStr.split(':');
-        slotEndTime = DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
-      } else {
-        final timeParts = slot.split(':');
-        slotEndTime = DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]) + 1, int.parse(timeParts[1]));
-      }
-      return slotEndTime.isBefore(DateTime.now());
-    } catch (e) {
-      return false;
+      final startStr = slot.contains('-') ? slot.split('-')[0].trim() : slot.trim();
+      final timeParts = startStr.split(':');
+      return DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
+    } catch (_) {
+      return null;
     }
+  }
+
+  DateTime? get scheduledEndTime {
+    try {
+      DateTime dayDate;
+      if (day.contains('/')) {
+        dayDate = DateFormat('dd/MM/yyyy').parse(day);
+      } else {
+        dayDate = DateFormat('yyyy-MM-dd').parse(day);
+      }
+      if (slot.contains('-')) {
+        final endStr = slot.split('-')[1].trim();
+        final timeParts = endStr.split(':');
+        return DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
+      } else {
+        final timeParts = slot.trim().split(':');
+        return DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]) + 1, int.parse(timeParts[1]));
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get isExpired {
+    final end = scheduledEndTime;
+    if (end == null) return false;
+    return end.isBefore(DateTime.now());
   }
 
   bool get isActive =>
