@@ -37,17 +37,7 @@ class FirestoreReviewRepository implements ReviewRepository {
       _lastDocument = querySnapshot.docs.last;
     }
 
-    return querySnapshot.docs.map((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      return Review(
-        id: doc.id,
-        caregiverId: data['caregiverId'] ?? '',
-        clientId: data['clientId'] ?? '',
-        clientName: data['clientName'] ?? 'Anónimo',
-        rating: (data['rating'] ?? 0).toDouble(),
-        comment: data['comment'] ?? '',
-      );
-    }).toList();
+    return querySnapshot.docs.map((doc) => Review.fromFirestore(doc)).toList();
   }
 
   @override
@@ -57,6 +47,10 @@ class FirestoreReviewRepository implements ReviewRepository {
       'clientId': review.clientId,
       'clientName': review.clientName,
       'rating': review.rating,
+      'punctualityRating': review.punctualityRating,
+      'empathyRating': review.empathyRating,
+      'communicationRating': review.communicationRating,
+      'hygieneRating': review.hygieneRating,
       'comment': review.comment,
       'createdAt': FieldValue.serverTimestamp(),
     });

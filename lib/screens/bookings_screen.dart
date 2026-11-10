@@ -1,6 +1,10 @@
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/screens/screens.dart';
@@ -129,19 +133,19 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final activeBookings = bookings.where((b) => 
       b.status != BookingStatus.cancelled && 
       b.status != BookingStatus.cancelledLate && 
+      b.status != BookingStatus.completed &&
       b.escrowStatus != 'released' && 
       b.escrowStatus != 'resolved_partial' &&
-      !isBookingExpired(b) &&
-      b.checkInTime == null
+      !isBookingExpired(b)
     ).toList();
 
     final historyBookings = bookings.where((b) => 
       b.status == BookingStatus.cancelled || 
       b.status == BookingStatus.cancelledLate || 
+      b.status == BookingStatus.completed ||
       b.escrowStatus == 'released' || 
       b.escrowStatus == 'resolved_partial' ||
-      isBookingExpired(b) ||
-      b.checkInTime != null
+      isBookingExpired(b)
     ).toList();
     
     historyBookings.sort((a, b) => b.day.compareTo(a.day) != 0 ? b.day.compareTo(a.day) : b.slot.compareTo(a.slot));
@@ -192,9 +196,53 @@ class _BookingsScreenState extends State<BookingsScreen> {
           ? ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.6,
-                  child: const Center(child: Text('No hay reservas en esta sección')),
+                Container(
+                  height: MediaQuery.of(context).size.height * 0.58,
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  alignment: Alignment.center,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(22),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primarySurface,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isActiveTab ? Icons.favorite_border_rounded : Icons.history_edu_rounded,
+                          size: 52,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        isActiveTab
+                            ? 'Aún no tienes cuidados activos'
+                            : 'Tu historial de cuidados está vacío',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.darkSlate,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        isActiveTab
+                            ? (isClient
+                                ? 'Reserva un cuidador verificado o publica una oferta personalizada para tu familiar.'
+                                : 'Revisa el tablón de ofertas cercanas o mantén tu calendario actualizado para recibir solicitudes.')
+                            : 'Aquí aparecerán todas las visitas finalizadas con su Diario del Cuidado y valoraciones.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          color: AppTheme.slateMuted,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
                 )
               ],
             )
@@ -330,26 +378,62 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             Text('${b.totalPaid.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primary)),
                           ],
                         ),
+
+                        if (b.status == BookingStatus.confirmed || b.status == BookingStatus.completed) ...[
+                          const SizedBox(height: 14),
+                          _buildLiveStatusStepper(b),
+                          const SizedBox(height: 14),
+                          _buildCareJournalSection(context, b, isClient, state, isActiveTab: isActiveTab),
+                        ],
                         
                         if (isActiveTab) ...[
                           const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(
-                                  builder: (_) => ChatScreen(
-                                    clientId: b.clientId, 
-                                    caregiverId: b.caregiverId, 
-                                    caregiverName: b.caregiverName
-                                  )
-                                ));
-                              },
-                              icon: const Icon(Icons.chat_bubble_outline),
-                              label: const Text('Contactar por Chat'),
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    Navigator.push(context, MaterialPageRoute(
+                                      builder: (_) => ChatScreen(
+                                        clientId: b.clientId, 
+                                        caregiverId: b.caregiverId, 
+                                        caregiverName: b.caregiverName
+                                      )
+                                    ));
+                                  },
+                                  icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                                  label: const Text('Chat'),
+                                ),
+                              ),
+                              if (isClient && b.status == BookingStatus.confirmed) ...[
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _shareLiveTrackingWithFamily(context, b),
+                                    icon: const Icon(Icons.share_rounded, size: 18, color: AppTheme.primary),
+                                    label: const Text('Compartir', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                              ],
+                              if (b.status == BookingStatus.confirmed) ...[
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  onPressed: () => _showSosQuickContactModal(context, b, isClient),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.red.shade50,
+                                    foregroundColor: Colors.red.shade700,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: BorderSide(color: Colors.red.shade200),
+                                    ),
+                                  ),
+                                  tooltip: 'SOS / Contacto Rápido',
+                                  icon: const Icon(Icons.sos_rounded, size: 22),
+                                ),
+                              ],
+                            ],
                           ),
-                          if (isClient && b.status == BookingStatus.confirmed) ...[
+                          if (isClient && b.status == BookingStatus.confirmed && b.checkInTime == null) ...[
                             const SizedBox(height: 12),
                             Container(
                               padding: const EdgeInsets.all(10),
@@ -516,17 +600,46 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           if (!isClient && b.status == BookingStatus.confirmed && b.checkInTime == null && !isBookingExpired(b))
                             Padding(
                               padding: const EdgeInsets.only(top: 16.0),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: FilledButton.icon(
-                                  onPressed: () {
-                                    Navigator.push(context, MaterialPageRoute(
-                                      builder: (_) => ScannerScreen(booking: b)
-                                    ));
-                                  },
-                                  icon: const Icon(Icons.qr_code_scanner),
-                                  label: const Text('Fichar Llegada'),
-                                ),
+                              child: Column(
+                                children: [
+                                  if (b.liveStatus != 'on_the_way') ...[
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          HapticFeedback.mediumImpact();
+                                          await state.markOnTheWay(b.id);
+                                          if (context.mounted) {
+                                            CustomSnackBar.show(
+                                              context,
+                                              message: '🚗 Familia avisada de que estás en camino al domicilio.',
+                                              type: SnackBarType.success,
+                                            );
+                                          }
+                                        },
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.orange.shade800,
+                                          side: BorderSide(color: Colors.orange.shade400, width: 1.5),
+                                        ),
+                                        icon: const Icon(Icons.directions_car_rounded),
+                                        label: const Text('🚗 Avisar a la familia: Estoy en camino'),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: FilledButton.icon(
+                                      onPressed: () {
+                                        Navigator.push(context, MaterialPageRoute(
+                                          builder: (_) => ScannerScreen(booking: b)
+                                        ));
+                                      },
+                                      icon: const Icon(Icons.qr_code_scanner),
+                                      label: const Text('Fichar Llegada (QR / PIN)'),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                         ],
@@ -720,7 +833,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
     if (b.escrowStatus == 'refunded') return 'Cancelado (Reembolsado)';
     if (b.escrowStatus == 'resolved_partial') return 'Cancelado (Parcial)';
     
+    if (b.checkInTime != null && !isBookingExpired(b) && b.status == BookingStatus.confirmed) return '🟢 En domicilio (Cuidado en curso)';
     if (b.checkInTime != null && b.status == BookingStatus.confirmed) return 'Realizada (En espera)';
+    if (b.liveStatus == 'on_the_way' && b.checkInTime == null && !isBookingExpired(b) && b.status == BookingStatus.confirmed) return '🚗 Cuidador en camino';
     if (isBookingExpired(b) && b.checkInTime == null && b.status == BookingStatus.confirmed) return 'Caducada / No-Show';
 
     switch (b.status) {
@@ -742,6 +857,639 @@ class _BookingsScreenState extends State<BookingsScreen> {
       case BookingStatus.cancelledLate: return Colors.red;
       case BookingStatus.completed: return Colors.blue;
     }
+  }
+
+  Widget _buildLiveStatusStepper(Booking b) {
+    final bool step1 = true;
+    final bool step2 = b.liveStatus == 'on_the_way' ||
+        b.checkInTime != null ||
+        b.status == BookingStatus.completed;
+    final bool step3 = b.checkInTime != null ||
+        b.liveStatus == 'in_progress' ||
+        b.status == BookingStatus.completed;
+    final bool step4 = b.status == BookingStatus.completed ||
+        (b.checkInTime != null && isBookingExpired(b)) ||
+        b.escrowStatus == 'released';
+
+    final steps = [
+      {'label': 'Confirmada', 'done': step1, 'icon': Icons.event_available_rounded},
+      {'label': 'En camino', 'done': step2, 'icon': Icons.directions_car_rounded},
+      {'label': 'En domicilio', 'done': step3, 'icon': Icons.home_rounded},
+      {'label': 'Finalizada', 'done': step4, 'icon': Icons.verified_rounded},
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.backgroundNeutral,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Row(
+        children: List.generate(steps.length * 2 - 1, (idx) {
+          if (idx.isOdd) {
+            final nextDone = steps[(idx + 1) ~/ 2]['done'] as bool;
+            return Expanded(
+              child: Container(
+                height: 3,
+                color: nextDone ? AppTheme.secondaryColor : Colors.grey.shade300,
+              ),
+            );
+          }
+          final step = steps[idx ~/ 2];
+          final done = step['done'] as bool;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 13,
+                backgroundColor: done ? AppTheme.secondaryColor : Colors.grey.shade300,
+                child: Icon(
+                  step['icon'] as IconData,
+                  size: 14,
+                  color: done ? Colors.white : Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                step['label'] as String,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: done ? FontWeight.w800 : FontWeight.w500,
+                  color: done ? AppTheme.darkSlate : Colors.grey.shade500,
+                ),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildCareJournalSection(
+    BuildContext context,
+    Booking b,
+    bool isClient,
+    BookingNotifier state, {
+    required bool isActiveTab,
+  }) {
+    final completedCount = b.careChecklist.where((t) => t.completed).length;
+    final totalCount = b.careChecklist.length;
+
+    const quickFamilySuggestions = [
+      '💊 Dar medicación pautada',
+      '🍲 Preparar comida y supervisar hidratación',
+      '🚶 Paseo tranquilo de 30-40 min',
+      '🧠 Conversación y estimulación cognitiva',
+      '🚿 Apoyo en aseo e higiene personal',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.primarySurface.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.assignment_turned_in_rounded, color: AppTheme.primary, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Diario del Cuidado y Checklist Familiar',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: AppTheme.darkSlate,
+                  ),
+                ),
+              ),
+              if (totalCount > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: completedCount == totalCount
+                        ? AppTheme.secondaryColor.withValues(alpha: 0.16)
+                        : AppTheme.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$completedCount/$totalCount hechas',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: completedCount == totalCount
+                          ? AppTheme.secondaryColor
+                          : AppTheme.primary,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isClient
+                ? 'Personaliza las tareas que necesita tu familiar. El cuidador las irá marcando en tiempo real.'
+                : 'Toca cada tarea creada por la familia cuando la completes para registrar la hora exacta.',
+            style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted),
+          ),
+          const SizedBox(height: 10),
+          if (b.careChecklist.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                isClient
+                    ? 'Aún no has añadido tareas para esta visita. Usa los botones rápidos de abajo o escribe una tarea a medida.'
+                    : 'La familia aún no ha indicado tareas específicas en la checklist de esta visita.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            )
+          else
+            ...b.careChecklist.map((item) {
+              final timeFormatted = item.completedAt;
+              return InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: (!isClient && isActiveTab)
+                    ? () {
+                        HapticFeedback.mediumImpact();
+                        state.toggleChecklistTask(b.id, item.id);
+                      }
+                    : null,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: item.completed
+                          ? AppTheme.secondaryColor.withValues(alpha: 0.45)
+                          : Colors.grey.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        item.completed
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        color: item.completed ? AppTheme.secondaryColor : Colors.grey.shade400,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          item.title,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            decoration: item.completed ? TextDecoration.lineThrough : null,
+                            color: item.completed ? Colors.grey.shade600 : AppTheme.darkSlate,
+                          ),
+                        ),
+                      ),
+                      if (timeFormatted != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.secondaryColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '✓ $timeFormatted',
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.secondaryColor,
+                            ),
+                          ),
+                        ),
+                      if (isClient && isActiveTab && !item.completed)
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          icon: const Icon(Icons.close_rounded, size: 17, color: Colors.grey),
+                          tooltip: 'Quitar tarea',
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            state.removeChecklistTask(b.id, item.id);
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          if (isClient && isActiveTab) ...[
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.add_rounded, size: 16, color: Colors.white),
+                    backgroundColor: AppTheme.primary,
+                    label: const Text(
+                      'Escribir tarea a medida',
+                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () => _showAddTaskDialog(context, b, state),
+                  ),
+                  const SizedBox(width: 6),
+                  ...quickFamilySuggestions
+                      .where((s) => !b.careChecklist.any((t) => t.title == s))
+                      .map((suggestion) => Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ActionChip(
+                              backgroundColor: Colors.white,
+                              label: Text(suggestion, style: const TextStyle(fontSize: 11.5)),
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                state.addChecklistTask(b.id, suggestion);
+                              },
+                            ),
+                          )),
+                ],
+              ),
+            ),
+          ],
+          if (b.careNotes.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.borderSubtle),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '📝 Parte del cuidador:',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: AppTheme.primary),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    b.careNotes,
+                    style: const TextStyle(fontSize: 13, color: AppTheme.darkSlate),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (b.carePhotoUrls.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 70,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: b.carePhotoUrls.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (ctx, i) => ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.network(
+                    b.carePhotoUrls[i],
+                    width: 70,
+                    height: 70,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      width: 70,
+                      height: 70,
+                      color: Colors.grey.shade200,
+                      child: const Icon(Icons.photo_camera_back_rounded),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (!isClient && isActiveTab) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showEditCareNotesDialog(context, b, state),
+                    icon: const Icon(Icons.edit_note_rounded, size: 18),
+                    label: Text(
+                      b.careNotes.isEmpty ? 'Añadir nota del día' : 'Editar nota',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _uploadCarePhoto(context, b, state),
+                    icon: const Icon(Icons.add_a_photo_rounded, size: 16),
+                    label: const Text('Foto cuidado', style: TextStyle(fontSize: 12)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddTaskDialog(
+    BuildContext context,
+    Booking b,
+    BookingNotifier state,
+  ) async {
+    final ctrl = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Añadir tarea para el cuidador'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Ej. Pastilla tensión a las 13:00, regar plantas...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().isNotEmpty) {
+                HapticFeedback.mediumImpact();
+                state.addChecklistTask(b.id, ctrl.text.trim());
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Añadir a la Checklist'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showEditCareNotesDialog(
+    BuildContext context,
+    Booking b,
+    BookingNotifier state,
+  ) async {
+    final ctrl = TextEditingController(text: b.careNotes);
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('📝 Resumen del Cuidado'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 4,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Escribe cómo se encuentra el familiar hoy, qué ha comido, estado de ánimo...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              HapticFeedback.mediumImpact();
+              state.updateCareNotes(b.id, ctrl.text.trim());
+              Navigator.pop(ctx);
+              CustomSnackBar.show(
+                context,
+                message: 'Resumen guardado en el Diario del Cuidado.',
+                type: SnackBarType.success,
+              );
+            },
+            child: const Text('Guardar Nota'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _uploadCarePhoto(
+    BuildContext context,
+    Booking b,
+    BookingNotifier state,
+  ) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('care_journal/${b.id}/${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      final url = await ref.getDownloadURL();
+      await state.addCarePhotoUrl(b.id, url);
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: '📸 Foto subida al Diario del Cuidado para la familia.',
+          type: SnackBarType.success,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo adjuntar la foto: $e',
+          type: SnackBarType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _shareLiveTrackingWithFamily(BuildContext context, Booking b) async {
+    HapticFeedback.mediumImpact();
+    final completed = b.careChecklist.where((t) => t.completed).length;
+    final total = b.careChecklist.length;
+    final summaryText = '🛡️ Seguimiento SeniCare en Tiempo Real\n'
+        '👩‍⚕️ Cuidador/a: ${b.caregiverName}\n'
+        '📅 Fecha: ${_formatDay(b.day)} (${b.slot})\n'
+        '📍 Estado: ${_getStatusText(b)}\n'
+        '📋 Checklist familiar: $completed de $total tareas completadas\n'
+        '${b.careNotes.isNotEmpty ? "📝 Parte del día: ${b.careNotes}\n" : ""}'
+        '🔗 Ver en vivo: https://senicare-3342d.web.app/#/tracking/${b.id}';
+
+    await Clipboard.setData(ClipboardData(text: summaryText));
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.share_rounded, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Expanded(child: Text('Enlace copiado para familiares')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Hemos copiado el parte en tiempo real al portapapeles. Pégalo en vuestro grupo de WhatsApp familiar para que tus hermanos o familiares sigan la visita:',
+              style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.backgroundNeutral,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.borderSubtle),
+              ),
+              child: Text(
+                summaryText,
+                style: const TextStyle(fontSize: 12, height: 1.4),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Listo'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showSosQuickContactModal(
+    BuildContext context,
+    Booking b,
+    bool isClient,
+  ) async {
+    HapticFeedback.heavyImpact();
+    final clientProfile = await _getClientProfile(b.clientId);
+    if (!context.mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.sos_rounded, color: Colors.red.shade700, size: 26),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Contacto Rápido y Emergencias',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        ),
+                        Text(
+                          'Asistencia inmediata durante el servicio activo',
+                          style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              if (clientProfile != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.backgroundNeutral,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '📍 Domicilio: ${clientProfile.homeAddress.isNotEmpty ? clientProfile.homeAddress : "No especificado"}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '🩺 Indicaciones médicas: ${clientProfile.patientDetails.isNotEmpty ? clientProfile.patientDetails : "Sin observaciones médicas registradas"}',
+                        style: const TextStyle(fontSize: 13, color: AppTheme.darkSlate),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final uri = Uri.parse('tel:112');
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  icon: const Icon(Icons.local_hospital_rounded),
+                  label: const Text('Llamar al 112 (Emergencias Sanitarias)'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (clientProfile != null && clientProfile.phone.isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final uri = Uri.parse('tel:${clientProfile.phone}');
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri);
+                      }
+                    },
+                    icon: const Icon(Icons.phone_in_talk_rounded),
+                    label: Text('Llamar a la familia (${clientProfile.phone})'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

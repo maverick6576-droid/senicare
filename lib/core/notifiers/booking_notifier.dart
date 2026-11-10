@@ -199,10 +199,115 @@ class BookingNotifier extends ChangeNotifier {
       debugPrint('Error calculating punctuality: $e');
     }
 
+    b.liveStatus = 'in_progress';
+    notifyListeners();
+
     if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
       await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
         'checkInTime': Timestamp.fromDate(checkInTime),
         'isPunctual': isPunctual,
+        'liveStatus': 'in_progress',
+      });
+    }
+  }
+
+  Future<void> markOnTheWay(String bookingId) async {
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    final now = DateTime.now();
+    if (b != null) {
+      b.liveStatus = 'on_the_way';
+      b.onTheWayAt = now;
+      notifyListeners();
+    }
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'liveStatus': 'on_the_way',
+        'onTheWayAt': Timestamp.fromDate(now),
+      });
+    }
+  }
+
+  Future<void> addChecklistTask(String bookingId, String taskTitle) async {
+    final trimmed = taskTitle.trim();
+    if (trimmed.isEmpty) return;
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b == null) return;
+
+    final newItem = CareChecklistItem(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      title: trimmed,
+      completed: false,
+    );
+    b.careChecklist.add(newItem);
+    notifyListeners();
+
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'careChecklist': b.careChecklist.map((e) => e.toMap()).toList(),
+      });
+    }
+  }
+
+  Future<void> removeChecklistTask(String bookingId, String itemId) async {
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b == null) return;
+
+    b.careChecklist.removeWhere((item) => item.id == itemId);
+    notifyListeners();
+
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'careChecklist': b.careChecklist.map((e) => e.toMap()).toList(),
+      });
+    }
+  }
+
+  Future<void> toggleChecklistTask(String bookingId, String itemId) async {
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b == null) return;
+
+    final item = b.careChecklist.where((i) => i.id == itemId).firstOrNull;
+    if (item == null) return;
+
+    item.completed = !item.completed;
+    if (item.completed) {
+      final now = DateTime.now();
+      item.completedAt = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    } else {
+      item.completedAt = null;
+    }
+    notifyListeners();
+
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'careChecklist': b.careChecklist.map((e) => e.toMap()).toList(),
+      });
+    }
+  }
+
+  Future<void> updateCareNotes(String bookingId, String notes) async {
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b != null) {
+      b.careNotes = notes.trim();
+      notifyListeners();
+    }
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'careNotes': notes.trim(),
+      });
+    }
+  }
+
+  Future<void> addCarePhotoUrl(String bookingId, String photoUrl) async {
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b == null) return;
+
+    b.carePhotoUrls.add(photoUrl);
+    notifyListeners();
+
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'carePhotoUrls': b.carePhotoUrls,
       });
     }
   }
@@ -247,11 +352,38 @@ class BookingNotifier extends ChangeNotifier {
     await batch.commit();
   }
 
-  Future<void> submitReview(Booking booking, double rating, String comment, String? currentUserId) async {
-    await submitReviewForBookings([booking], rating, comment, currentUserId);
+  Future<void> submitReview(
+    Booking booking,
+    double rating,
+    String comment,
+    String? currentUserId, {
+    double? punctualityRating,
+    double? empathyRating,
+    double? communicationRating,
+    double? hygieneRating,
+  }) async {
+    await submitReviewForBookings(
+      [booking],
+      rating,
+      comment,
+      currentUserId,
+      punctualityRating: punctualityRating,
+      empathyRating: empathyRating,
+      communicationRating: communicationRating,
+      hygieneRating: hygieneRating,
+    );
   }
 
-  Future<void> submitReviewForBookings(List<Booking> bookings, double rating, String comment, String? currentUserId) async {
+  Future<void> submitReviewForBookings(
+    List<Booking> bookings,
+    double rating,
+    String comment,
+    String? currentUserId, {
+    double? punctualityRating,
+    double? empathyRating,
+    double? communicationRating,
+    double? hygieneRating,
+  }) async {
     if (bookings.isEmpty) return;
     
     final firstBooking = bookings.first;
@@ -263,6 +395,10 @@ class BookingNotifier extends ChangeNotifier {
       clientId: firstBooking.clientId,
       clientName: clientName,
       rating: rating,
+      punctualityRating: punctualityRating ?? rating,
+      empathyRating: empathyRating ?? rating,
+      communicationRating: communicationRating ?? rating,
+      hygieneRating: hygieneRating ?? rating,
       comment: comment,
     );
 

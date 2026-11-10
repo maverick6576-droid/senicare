@@ -23,6 +23,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _isLoading = true;
   bool _isProcessingPayment = false;
   int _accumulatedHours = 0;
+  List<String> _customChecklist = [];
+  final TextEditingController _taskCtrl = TextEditingController();
 
   // Tracks booking IDs created in Firestore so we can delete them on rollback.
   final List<String> _createdBookingIds = [];
@@ -30,7 +32,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
   @override
   void initState() {
     super.initState();
+    final client = context.read<AuthNotifier>().currentClient;
+    _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
     _loadStats();
+  }
+
+  @override
+  void dispose() {
+    _taskCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadStats() async {
@@ -289,6 +299,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
           clientLongitude: location.longitude,
           bookingPin: generatedPin,
           status: BookingStatus.pendingPayment,
+          careChecklist: _customChecklist
+              .asMap()
+              .entries
+              .map((e) => CareChecklistItem(
+                    id: 'task_${e.key}_${DateTime.now().millisecondsSinceEpoch}',
+                    title: e.value,
+                  ))
+              .toList(),
         );
 
         final firestoreId = await bookingState.addBooking(newBooking);
@@ -485,6 +503,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 20),
+          _buildCheckoutCareChecklistCard(),
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(12),
@@ -529,18 +549,124 @@ class _PaymentScreenState extends State<PaymentScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: ElevatedButton(
+          child: ElevatedButton.icon(
             onPressed: _isProcessingPayment ? null : _handlePayment,
-            child: _isProcessingPayment
+            icon: _isProcessingPayment
+                ? const SizedBox.shrink()
+                : const Icon(Icons.lock_rounded, size: 18),
+            label: _isProcessingPayment
                 ? const SizedBox(
                     height: 20,
                     width: 20,
                     child: CircularProgressIndicator(
                         color: Colors.white, strokeWidth: 2),
                   )
-                : const Text('Pagar con Tarjeta'),
+                : const Text('Pagar con Apple Pay / Google Pay / Tarjeta'),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCheckoutCareChecklistCard() {
+    const quickOptions = [
+      '💊 Control de medicación',
+      '🍲 Preparar comida / cena',
+      '🚶 Paseo de 30-40 min',
+      '🧠 Estimulación y compañía',
+      '🚿 Apoyo en higiene personal',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.primarySurface.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.checklist_rtl_rounded, color: AppTheme.primary, size: 22),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Checklist para el Cuidador (Personalizable)',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.darkSlate),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Indica las tareas específicas que necesita tu familiar durante el servicio. El cuidador las marcará en tiempo real desde su app.',
+            style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+          ),
+          const SizedBox(height: 12),
+          if (_customChecklist.isNotEmpty) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _customChecklist.map((task) {
+                return Chip(
+                  backgroundColor: Colors.white,
+                  label: Text(task, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                  onDeleted: () {
+                    setState(() => _customChecklist.remove(task));
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _taskCtrl,
+                  decoration: InputDecoration(
+                    hintText: 'Añadir tarea específica (ej. Pastilla 12:30)...',
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  final text = _taskCtrl.text.trim();
+                  if (text.isNotEmpty && !_customChecklist.contains(text)) {
+                    setState(() {
+                      _customChecklist.add(text);
+                      _taskCtrl.clear();
+                    });
+                  }
+                },
+                child: const Text('Añadir'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: quickOptions
+                .where((o) => !_customChecklist.contains(o))
+                .map((opt) => ActionChip(
+                      backgroundColor: Colors.white,
+                      label: Text('+ $opt', style: const TextStyle(fontSize: 11.5)),
+                      onPressed: () {
+                        setState(() => _customChecklist.add(opt));
+                      },
+                    ))
+                .toList(),
+          ),
+        ],
       ),
     );
   }

@@ -1,9 +1,12 @@
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:senicare/core/core.dart';
+import 'package:senicare/models/models.dart';
 import 'package:senicare/screens/screens.dart';
+import 'package:senicare/widgets/widgets.dart';
 
 class ExplorerScreen extends StatefulWidget {
   const ExplorerScreen({super.key});
@@ -39,7 +42,12 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     final locationState = context.watch<LocationNotifier>();
     final auth = context.watch<AuthNotifier>();
     final configState = context.watch<ConfigNotifier>();
+    final bookingState = context.watch<BookingNotifier>();
     final theme = Theme.of(context);
+
+    final activeClientBookings = bookingState.bookings
+        .where((b) => b.isActive && b.status == BookingStatus.confirmed)
+        .toList();
 
     return Scaffold(
       body: Column(
@@ -153,7 +161,10 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                         child: FilterChip(
                           label: Text(spec),
                           selected: isSelected,
-                          onSelected: (val) => caregiverState.setSpecialty(spec),
+                          onSelected: (val) {
+                            HapticFeedback.selectionClick();
+                            caregiverState.setSpecialty(spec);
+                          },
                           selectedColor: AppTheme.primary.withValues(alpha: 0.16),
                           checkmarkColor: AppTheme.primary,
                           labelStyle: TextStyle(
@@ -165,9 +176,65 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                     }).toList(),
                   ),
                 ),
+                const SizedBox(height: 10),
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () {
+                    GuidedMatchingWizard.show(
+                      context,
+                      caregivers: caregiverState.caregivers,
+                      onSelectCaregiver: (selected) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => CaregiverDetailScreen(caregiver: selected),
+                          ),
+                        );
+                      },
+                      onApplyFilters: (specs, maxRate) {
+                        caregiverState.setMaxPriceFilter(maxRate);
+                        if (specs.isNotEmpty) {
+                          caregiverState.setSpecialty(specs.first);
+                        }
+                      },
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          AppTheme.primary.withValues(alpha: 0.12),
+                          AppTheme.secondaryColor.withValues(alpha: 0.12),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.primary.withValues(alpha: 0.28)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.auto_awesome_rounded, color: AppTheme.primary, size: 20),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '¿No sabes a quién elegir? Encuentra tu cuidador ideal en 3 pasos',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.darkSlate,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppTheme.primary),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
+          if (activeClientBookings.isNotEmpty)
+            _buildWeeklyCareSummaryBanner(context, activeClientBookings),
           Expanded(
             child: RefreshIndicator(
               onRefresh: caregiverState.refreshCaregivers,
@@ -250,23 +317,26 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                       Row(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(18),
-                                            child: CachedNetworkImage(
-                                              imageUrl: c.imageUrl,
-                                              height: 76,
-                                              width: 76,
-                                              fit: BoxFit.cover,
-                                              placeholder: (context, url) => Shimmer.fromColors(
-                                                baseColor: Colors.grey.shade300,
-                                                highlightColor: Colors.grey.shade100,
-                                                child: Container(height: 76, width: 76, color: Colors.white),
-                                              ),
-                                              errorWidget: (context, url, error) => Container(
+                                          Hero(
+                                            tag: 'caregiver_img_${c.id}',
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(18),
+                                              child: CachedNetworkImage(
+                                                imageUrl: c.imageUrl,
                                                 height: 76,
                                                 width: 76,
-                                                color: AppTheme.backgroundNeutral,
-                                                child: const Icon(Icons.person, size: 40, color: AppTheme.slateMuted),
+                                                fit: BoxFit.cover,
+                                                placeholder: (context, url) => Shimmer.fromColors(
+                                                  baseColor: Colors.grey.shade300,
+                                                  highlightColor: Colors.grey.shade100,
+                                                  child: Container(height: 76, width: 76, color: Colors.white),
+                                                ),
+                                                errorWidget: (context, url, error) => Container(
+                                                  height: 76,
+                                                  width: 76,
+                                                  color: AppTheme.backgroundNeutral,
+                                                  child: const Icon(Icons.person, size: 40, color: AppTheme.slateMuted),
+                                                ),
                                               ),
                                             ),
                                           ),
@@ -287,6 +357,25 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                                     if (c.verified) ...[
                                                       const SizedBox(width: 6),
                                                       const Icon(Icons.verified_rounded, color: AppTheme.primary, size: 18),
+                                                    ],
+                                                    if (c.isSuperCaregiver) ...[
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.amber.shade100,
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(color: Colors.amber.shade400),
+                                                        ),
+                                                        child: const Text(
+                                                          '🏆 Supercuidador',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.w800,
+                                                            color: Colors.black87,
+                                                          ),
+                                                        ),
+                                                      ),
                                                     ],
                                                   ],
                                                 ),
@@ -319,6 +408,21 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                                             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
                                                           ),
                                                         ],
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                                      decoration: BoxDecoration(
+                                                        color: AppTheme.secondaryColor.withValues(alpha: 0.1),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Text(
+                                                        '🔄 ${c.retentionRate}% familias repiten',
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight: FontWeight.w700,
+                                                          color: AppTheme.secondaryColor,
+                                                        ),
                                                       ),
                                                     ),
                                                     Builder(
@@ -423,6 +527,130 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
             ),
           )
         ],
+      ),
+    );
+  }
+
+  Widget _buildWeeklyCareSummaryBanner(
+    BuildContext context,
+    List<Booking> activeBookings,
+  ) {
+    final nextBooking = activeBookings.first;
+    final bool isInProgress = nextBooking.checkInTime != null ||
+        nextBooking.liveStatus == 'in_progress';
+    final bool isOnTheWay = nextBooking.liveStatus == 'on_the_way';
+    final int completedTasks =
+        nextBooking.careChecklist.where((t) => t.completed).length;
+    final int totalTasks = nextBooking.careChecklist.length;
+
+    Color statusColor = AppTheme.primary;
+    String statusLabel = '📅 Próxima visita: ${nextBooking.day} (${nextBooking.slot})';
+    if (isInProgress) {
+      statusColor = AppTheme.secondaryColor;
+      statusLabel = '🟢 En domicilio ahora con ${nextBooking.caregiverName}';
+    } else if (isOnTheWay) {
+      statusColor = Colors.orange.shade800;
+      statusLabel = '🚗 ${nextBooking.caregiverName} está en camino al domicilio';
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1.5),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => Scaffold(
+                appBar: AppBar(
+                  title: const Text('Resumen y Diario del Cuidado'),
+                ),
+                body: const BookingsScreen(),
+              ),
+            ),
+          );
+        },
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isInProgress
+                    ? Icons.verified_user_rounded
+                    : isOnTheWay
+                        ? Icons.directions_car_rounded
+                        : Icons.event_available_rounded,
+                color: statusColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Resumen Semanal (${activeBookings.length} ${activeBookings.length == 1 ? 'reserva activa' : 'reservas activas'})',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: statusColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    statusLabel,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.darkSlate,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (totalTasks > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '📋 Checklist familiar: $completedTasks/$totalTasks tareas completadas',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.slateMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: statusColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Ver Diario',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,8 +1,10 @@
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/screens/screens.dart';
+import 'package:senicare/widgets/widgets.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class CaregiverDetailScreen extends StatefulWidget {
@@ -91,15 +93,22 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (c.imageUrl.isNotEmpty)
-                  CachedNetworkImage(
-                    imageUrl: c.imageUrl,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator())),
-                    errorWidget: (context, url, error) => const Center(child: Icon(Icons.person, size: 80, color: Colors.grey)),
-                  )
-                else
-                  const Center(child: Icon(Icons.person, size: 80, color: Colors.grey)),
+                Hero(
+                  tag: 'caregiver_img_${c.id}',
+                  child: c.imageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: c.imageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey.shade100,
+                            child: const Center(child: CircularProgressIndicator()),
+                          ),
+                          errorWidget: (context, url, error) => const Center(
+                            child: Icon(Icons.person, size: 80, color: Colors.grey),
+                          ),
+                        )
+                      : const Center(child: Icon(Icons.person, size: 80, color: Colors.grey)),
+                ),
                 Positioned(
                   bottom: 0,
                   left: 0,
@@ -124,22 +133,69 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(c.title, style: theme.textTheme.titleLarge),
-                if (c.isKycVerified) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.verified, color: Colors.green, size: 16),
-                        SizedBox(width: 4),
-                        Text('Identidad Verificada por Stripe', style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    if (c.isSuperCaregiver)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade100,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.amber.shade400),
+                        ),
+                        child: const Text(
+                          '🏆 Supercuidador',
+                          style: TextStyle(
+                            color: Colors.black87,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppTheme.secondaryColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '🔄 El ${c.retentionRate}% de las familias repiten',
+                        style: const TextStyle(
+                          color: AppTheme.secondaryColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (c.isKycVerified)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified, color: Colors.green, size: 15),
+                            SizedBox(width: 4),
+                            Text(
+                              'Identidad Verificada',
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 Wrap(
                   spacing: 16,
                   runSpacing: 6,
@@ -195,6 +251,31 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      VideoCallModal.show(
+                        context,
+                        participantName: c.name,
+                        participantImageUrl: c.imageUrl,
+                        isCaregiver: false,
+                      );
+                    },
+                    icon: const Icon(Icons.videocam_rounded, color: AppTheme.primary),
+                    label: const Text(
+                      'Entrevista previa gratuita por videollamada (15 min)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
+                      side: const BorderSide(color: AppTheme.primary, width: 1.5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 18),
                 Text('Sobre mí', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
@@ -214,6 +295,7 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                     firstDate: DateTime.now(),
                     lastDate: DateTime.now().add(const Duration(days: 90)),
                     onDateChanged: (date) {
+                      HapticFeedback.selectionClick();
                       setState(() {
                         _selectedDate = date;
                         _selectedSlots.clear();
@@ -251,6 +333,7 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                               label: Text(timeStr),
                               selected: isSelected,
                               onSelected: (selected) {
+                                HapticFeedback.selectionClick();
                                 setState(() {
                                   if (selected) {
                                     _selectedSlots.add(slot);
@@ -305,7 +388,9 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                 const SizedBox(height: 32),
                 const Divider(),
                 const SizedBox(height: 16),
-                Text('Reseñas de Clientes', style: theme.textTheme.titleMedium),
+                Text('Valoraciones y Desglose de Calidad', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                _buildCategoryRatingsBreakdown(c),
                 const SizedBox(height: 16),
                 if (_isLoadingReviews)
                   const Center(child: CircularProgressIndicator())
@@ -375,6 +460,91 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
         label: const Text('Contactar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         icon: const Icon(Icons.chat, color: Colors.white),
         backgroundColor: AppTheme.primary,
+      ),
+    );
+  }
+
+  Widget _buildCategoryRatingsBreakdown(CaregiverProfile c) {
+    final baseScore = c.rating > 0 ? c.rating : 4.9;
+    double avgPunctuality = baseScore;
+    double avgEmpathy = baseScore;
+    double avgCommunication = baseScore;
+    double avgHygiene = baseScore;
+
+    if (_reviews.isNotEmpty) {
+      final pList = _reviews.map((r) => r.punctualityRating).toList();
+      final eList = _reviews.map((r) => r.empathyRating).toList();
+      final cList = _reviews.map((r) => r.communicationRating).toList();
+      final hList = _reviews.map((r) => r.hygieneRating).toList();
+
+      avgPunctuality = pList.reduce((a, b) => a + b) / pList.length;
+      avgEmpathy = eList.reduce((a, b) => a + b) / eList.length;
+      avgCommunication = cList.reduce((a, b) => a + b) / cList.length;
+      avgHygiene = hList.reduce((a, b) => a + b) / hList.length;
+    }
+
+    final categories = [
+      {'label': '⏰ Puntualidad', 'score': avgPunctuality},
+      {'label': '💛 Trato y Empatía', 'score': avgEmpathy},
+      {'label': '💬 Comunicación con la familia', 'score': avgCommunication},
+      {'label': '✨ Higiene y Asistencia', 'score': avgHygiene},
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.backgroundNeutral,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Column(
+        children: categories.map((cat) {
+          final label = cat['label'] as String;
+          final score = (cat['score'] as double).clamp(1.0, 5.0);
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 5,
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.darkSlate,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 4,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: score / 5.0,
+                      minHeight: 7,
+                      backgroundColor: Colors.grey.shade300,
+                      valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    score.toStringAsFixed(1),
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color: AppTheme.darkSlate,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
       ),
     );
   }

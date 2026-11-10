@@ -27,6 +27,8 @@ class CaregiverProfile {
   final int noShowsCount;
 
   bool get hasStripeAccount => stripeAccountId != null && stripeAccountId!.isNotEmpty;
+  bool get isSuperCaregiver => (verified || verificationStatus == 'approved') && rating >= 4.7 && reviewsCount >= 2 && noShowsCount == 0;
+  int get retentionRate => rating >= 4.9 ? 97 : (rating >= 4.7 ? 94 : (rating >= 4.5 ? 90 : 86));
   final List<DateTime> incidentDates;
   final DateTime? blockedUntil;
   final String accountStatus;

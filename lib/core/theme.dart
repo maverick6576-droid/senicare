@@ -3,10 +3,14 @@ import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   static const Color primary = Color(0xFF0D9488); // Teal corporativo vibrante
+  static const Color primaryColor = primary;
+  static const Color secondaryColor = Color(0xFF059669); // Esmeralda de confirmación
   static const Color primaryLight = Color(0xFF5EEAD4); // Mint luminoso estilo Antigravity
   static const Color primarySurface = Color(0xFFF0FDFA); // Fondo suave Teal
   static const Color darkSlate = Color(0xFF0F172A); // Slate profundo de alto contraste
+  static const Color textPrimary = darkSlate;
   static const Color slateMuted = Color(0xFF475569); // Texto secundario legible
+  static const Color textSecondary = slateMuted;
   static const Color borderSubtle = Color(0xFFE2E8F0); // Borde fino estructural Antigravity
   static const Color backgroundNeutral = Color(0xFFF8FAFC);
   static const Color amber = Color(0xFFF59E0B);

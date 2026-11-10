@@ -99,6 +99,14 @@ class StripeService {
           paymentIntentClientSecret: paymentIntentData['clientSecret'] as String,
           merchantDisplayName: 'SeniCare',
           style: ThemeMode.light,
+          applePay: const PaymentSheetApplePay(
+            merchantCountryCode: 'ES',
+          ),
+          googlePay: const PaymentSheetGooglePay(
+            merchantCountryCode: 'ES',
+            currencyCode: 'EUR',
+            testEnv: false,
+          ),
         ),
       );
       return true;

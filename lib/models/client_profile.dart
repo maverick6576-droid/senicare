@@ -9,6 +9,8 @@ class ClientProfile {
   final double? longitude;
   final String patientDetails;
   final bool onboardingComplete;
+  final List<String> defaultCareChecklist;
+  final List<String> authorizedFamilyEmails;
 
   ClientProfile({
     required this.id,
@@ -19,6 +21,8 @@ class ClientProfile {
     this.longitude,
     required this.patientDetails,
     required this.onboardingComplete,
+    this.defaultCareChecklist = const [],
+    this.authorizedFamilyEmails = const [],
   });
 
   factory ClientProfile.fromFirestore(DocumentSnapshot doc) {
@@ -32,6 +36,14 @@ class ClientProfile {
       longitude: (data['longitude'] as num?)?.toDouble(),
       patientDetails: data['patientDetails']?.toString() ?? '',
       onboardingComplete: data['onboardingComplete'] ?? false,
+      defaultCareChecklist: (data['defaultCareChecklist'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      authorizedFamilyEmails: (data['authorizedFamilyEmails'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
     );
   }
 
@@ -44,6 +56,8 @@ class ClientProfile {
       'longitude': longitude,
       'patientDetails': patientDetails,
       'onboardingComplete': onboardingComplete,
+      'defaultCareChecklist': defaultCareChecklist,
+      'authorizedFamilyEmails': authorizedFamilyEmails,
     };
   }
 }

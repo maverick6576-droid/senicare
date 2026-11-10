@@ -6,6 +6,10 @@ class Review {
   final String clientId;
   final String clientName;
   final double rating;
+  final double punctualityRating;
+  final double empathyRating;
+  final double communicationRating;
+  final double hygieneRating;
   final String comment;
   final DateTime createdAt;
 
@@ -15,18 +19,31 @@ class Review {
     required this.clientId,
     required this.clientName,
     required this.rating,
+    double? punctualityRating,
+    double? empathyRating,
+    double? communicationRating,
+    double? hygieneRating,
     required this.comment,
     DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+  })  : punctualityRating = punctualityRating ?? rating,
+        empathyRating = empathyRating ?? rating,
+        communicationRating = communicationRating ?? rating,
+        hygieneRating = hygieneRating ?? rating,
+        createdAt = createdAt ?? DateTime.now();
 
   factory Review.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>? ?? {};
+    final baseRating = (data['rating'] as num? ?? 5.0).toDouble();
     return Review(
       id: doc.id,
       caregiverId: data['caregiverId']?.toString() ?? '',
       clientId: data['clientId']?.toString() ?? '',
       clientName: data['clientName']?.toString() ?? 'Anónimo',
-      rating: (data['rating'] ?? 0).toDouble(),
+      rating: baseRating,
+      punctualityRating: (data['punctualityRating'] as num?)?.toDouble() ?? baseRating,
+      empathyRating: (data['empathyRating'] as num?)?.toDouble() ?? baseRating,
+      communicationRating: (data['communicationRating'] as num?)?.toDouble() ?? baseRating,
+      hygieneRating: (data['hygieneRating'] as num?)?.toDouble() ?? baseRating,
       comment: data['comment']?.toString() ?? '',
       createdAt: (data['createdAt'] is Timestamp)
           ? (data['createdAt'] as Timestamp).toDate()
@@ -40,6 +57,10 @@ class Review {
       'clientId': clientId,
       'clientName': clientName,
       'rating': rating,
+      'punctualityRating': punctualityRating,
+      'empathyRating': empathyRating,
+      'communicationRating': communicationRating,
+      'hygieneRating': hygieneRating,
       'comment': comment,
       'createdAt': Timestamp.fromDate(createdAt),
     };

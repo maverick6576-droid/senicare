@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/widgets/widgets.dart';
@@ -17,7 +18,11 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   late TextEditingController _phoneCtrl;
   late TextEditingController _addressCtrl;
   late TextEditingController _patientDetailsCtrl;
+  final TextEditingController _newChecklistCtrl = TextEditingController();
+  final TextEditingController _newFamilyEmailCtrl = TextEditingController();
   
+  List<String> _defaultChecklist = [];
+  List<String> _authorizedFamilyEmails = [];
   bool _isLoading = false;
   bool _isEditing = false;
   double? _homeLat;
@@ -31,6 +36,8 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     _phoneCtrl = TextEditingController(text: client?.phone ?? '');
     _addressCtrl = TextEditingController(text: client?.homeAddress ?? '');
     _patientDetailsCtrl = TextEditingController(text: client?.patientDetails ?? '');
+    _defaultChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
+    _authorizedFamilyEmails = List<String>.from(client?.authorizedFamilyEmails ?? []);
     _homeLat = client?.latitude;
     _homeLon = client?.longitude;
   }
@@ -41,7 +48,21 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     _patientDetailsCtrl.dispose();
+    _newChecklistCtrl.dispose();
+    _newFamilyEmailCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveFamilyListsQuickly() async {
+    final auth = context.read<AuthNotifier>();
+    final userId = auth.currentUserId;
+    if (userId == null) return;
+    await DependencyInjection.clients.updateClient(userId, {
+      'defaultCareChecklist': _defaultChecklist,
+      'authorizedFamilyEmails': _authorizedFamilyEmails,
+    });
+    auth.currentClient = await DependencyInjection.clients.getClient(userId);
+    auth.forceRefresh();
   }
 
   Future<void> _submit() async {
@@ -77,6 +98,8 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
         'patientDetails': _patientDetailsCtrl.text.trim(),
         'latitude': lat,
         'longitude': lon,
+        'defaultCareChecklist': _defaultChecklist,
+        'authorizedFamilyEmails': _authorizedFamilyEmails,
       };
 
       await DependencyInjection.clients.updateClient(userId, data);
@@ -276,9 +299,219 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                             style: TextStyle(fontSize: 16, color: Colors.grey.shade800, height: 1.4),
                           ),
                         ),
+                        const SizedBox(height: 28),
+                        _buildFamilyDefaultChecklistCard(),
+                        const SizedBox(height: 24),
+                        _buildSharedFamilyAccountCard(),
+                        const SizedBox(height: 80),
                       ],
                     ),
             ),
+    );
+  }
+
+  Widget _buildFamilyDefaultChecklistCard() {
+    const quickPresets = [
+      '💊 Tomar medicación pautada',
+      '🍲 Preparar comida e hidratación',
+      '🚶 Paseo diario de 30-40 min',
+      '🧠 Ejercicios de memoria y charla',
+      '🚿 Apoyo en higiene personal',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.primarySurface.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.playlist_add_check_circle_rounded, color: AppTheme.primary, size: 22),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Checklist Habitual de Cuidado',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Define aquí las tareas que tu familiar necesita habitualmente. Se cargarán automáticamente en cada nueva reserva para que el cuidador las marque durante el servicio.',
+            style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted, height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          if (_defaultChecklist.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Aún no has definido tareas habituales. Toca una sugerencia o escribe una abajo:',
+                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey),
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _defaultChecklist.map((task) {
+                return Chip(
+                  backgroundColor: Colors.white,
+                  label: Text(task, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                  onDeleted: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _defaultChecklist.remove(task));
+                    _saveFamilyListsQuickly();
+                  },
+                );
+              }).toList(),
+            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _newChecklistCtrl,
+                  decoration: InputDecoration(
+                    hintText: 'Añadir tarea (ej. Pastilla tensión 12:30)...',
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  final val = _newChecklistCtrl.text.trim();
+                  if (val.isNotEmpty && !_defaultChecklist.contains(val)) {
+                    HapticFeedback.mediumImpact();
+                    setState(() {
+                      _defaultChecklist.add(val);
+                      _newChecklistCtrl.clear();
+                    });
+                    _saveFamilyListsQuickly();
+                  }
+                },
+                child: const Text('Añadir'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: quickPresets
+                .where((p) => !_defaultChecklist.contains(p))
+                .map((preset) => ActionChip(
+                      backgroundColor: Colors.white,
+                      label: Text('+ $preset', style: const TextStyle(fontSize: 11.5)),
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _defaultChecklist.add(preset));
+                        _saveFamilyListsQuickly();
+                      },
+                    ))
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSharedFamilyAccountCard() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.family_restroom_rounded, color: AppTheme.primary, size: 22),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Cuenta Familiar Compartida',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Autoriza a tus hermanos u otros familiares para que reciban notificaciones del Diario del Cuidado y consulten el calendario de visitas.',
+            style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted, height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          if (_authorizedFamilyEmails.isNotEmpty) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _authorizedFamilyEmails.map((email) {
+                return Chip(
+                  avatar: const Icon(Icons.person_outline_rounded, size: 16, color: AppTheme.primary),
+                  backgroundColor: AppTheme.backgroundNeutral,
+                  label: Text(email, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                  onDeleted: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _authorizedFamilyEmails.remove(email));
+                    _saveFamilyListsQuickly();
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _newFamilyEmailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    hintText: 'Email del familiar (ej. hermano@email.com)',
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  final email = _newFamilyEmailCtrl.text.trim();
+                  if (email.contains('@') && !_authorizedFamilyEmails.contains(email)) {
+                    HapticFeedback.mediumImpact();
+                    setState(() {
+                      _authorizedFamilyEmails.add(email);
+                      _newFamilyEmailCtrl.clear();
+                    });
+                    _saveFamilyListsQuickly();
+                    CustomSnackBar.show(
+                      context,
+                      message: 'Familiar autorizado correctamente.',
+                      type: SnackBarType.success,
+                    );
+                  }
+                },
+                child: const Text('Invitar'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
