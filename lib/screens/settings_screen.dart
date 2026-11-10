@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -160,16 +161,126 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Accesibilidad Visual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primary)),
-          const SizedBox(height: 10),
+          const Text('👓 Modo Senior & Accesibilidad Visual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+          const SizedBox(height: 6),
+          const Text(
+            'Diseñado para familiares mayores o usuarios con vista cansada. Aumenta la tipografía, refuerza el contraste y ensancha los botones.',
+            style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+          ),
+          const SizedBox(height: 12),
           Card(
-            child: SwitchListTile(
-              secondary: const Icon(Icons.text_fields_rounded, color: AppTheme.primary),
-              title: const Text('Modo Letra Grande (Accesible)', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('Aumenta el tamaño de los textos y botones para facilitar la lectura.'),
-              value: config.seniorMode,
-              activeThumbColor: AppTheme.primary,
-              onChanged: (val) => config.toggleSeniorMode(val),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: config.seniorMode ? AppTheme.primary : AppTheme.borderSubtle,
+                width: config.seniorMode ? 1.8 : 1.0,
+              ),
+            ),
+            elevation: config.seniorMode ? 2 : 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    secondary: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: config.seniorMode ? AppTheme.primarySurface : AppTheme.backgroundNeutral,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.text_increase_rounded,
+                        color: config.seniorMode ? AppTheme.primary : AppTheme.darkSlate,
+                        size: 26,
+                      ),
+                    ),
+                    title: const Text('Activar Modo Senior (Letra Grande)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    subtitle: const Text(
+                      'Aumenta el tamaño tipográfico (+30%) y el área de toque en toda la aplicación.',
+                      style: TextStyle(fontSize: 12.5),
+                    ),
+                    value: config.seniorMode,
+                    activeThumbColor: AppTheme.primary,
+                    onChanged: (val) {
+                      HapticFeedback.mediumImpact();
+                      config.toggleSeniorMode(val);
+                    },
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: config.seniorMode ? AppTheme.primarySurface.withValues(alpha: 0.5) : AppTheme.backgroundNeutral,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: config.seniorMode ? AppTheme.primary.withValues(alpha: 0.4) : AppTheme.borderSubtle),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                config.seniorMode ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                                size: 16,
+                                color: config.seniorMode ? AppTheme.primary : AppTheme.slateMuted,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                config.seniorMode ? 'Modo Senior Activado (Tamaño XL)' : 'Modo Estándar (Tamaño Normal)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: config.seniorMode ? 14 : 12.5,
+                                  color: config.seniorMode ? AppTheme.primary : AppTheme.darkSlate,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Así es como leerás los nombres de los cuidadores, los horarios de medicación y las pautas familiares de SeniCare.',
+                            style: TextStyle(
+                              fontSize: config.seniorMode ? 16 : 13,
+                              height: 1.4,
+                              color: AppTheme.darkSlate,
+                              fontWeight: config.seniorMode ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                CustomSnackBar.show(
+                                  context,
+                                  message: config.seniorMode
+                                      ? '✅ Botón táctil Senior XL: fácil de pulsar y altamente visible.'
+                                      : 'Botón táctil estándar.',
+                                  type: SnackBarType.info,
+                                );
+                              },
+                              style: FilledButton.styleFrom(
+                                backgroundColor: config.seniorMode ? AppTheme.primary : AppTheme.darkSlate,
+                                minimumSize: Size(double.infinity, config.seniorMode ? 52 : 42),
+                              ),
+                              child: Text(
+                                'Botón de Prueba Táctil',
+                                style: TextStyle(
+                                  fontSize: config.seniorMode ? 16 : 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 20),

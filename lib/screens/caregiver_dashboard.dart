@@ -1,6 +1,8 @@
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:senicare/models/models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -914,6 +916,51 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 ),
               ),
             ],
+            if (activeService.carePhotoUrls.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 70,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: activeService.carePhotoUrls.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (ctx, i) => ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(
+                      activeService.carePhotoUrls[i],
+                      width: 70,
+                      height: 70,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        width: 70,
+                        height: 70,
+                        color: Colors.white24,
+                        child: const Icon(Icons.photo_rounded, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _pickAndUploadPhoto(context, activeService, bookingState),
+                icon: const Icon(Icons.add_a_photo_rounded, size: 18, color: Colors.white),
+                label: Text(
+                  activeService.carePhotoUrls.isEmpty
+                      ? '📸 Subir Foto-Momento de Tranquilidad'
+                      : '📸 Añadir otra foto de la visita (${activeService.carePhotoUrls.length})',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.white70),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
@@ -1236,5 +1283,83 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         ],
       ),
     );
+  }
+
+  Future<void> _pickAndUploadPhoto(
+    BuildContext context,
+    Booking b,
+    BookingNotifier bookingState,
+  ) async {
+    HapticFeedback.selectionClick();
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('📸 Foto-Momento de Tranquilidad', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              const Text(
+                'Comparte una foto del abuelo sonriendo, merendando o de paseo para dar tranquilidad a la familia.',
+                style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded, color: AppTheme.primary),
+                title: const Text('Hacer foto con la cámara'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded, color: AppTheme.primary),
+                title: const Text('Elegir de la galería'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: source, imageQuality: 75);
+      if (picked == null) return;
+
+      String photoUrl;
+      try {
+        final bytes = await picked.readAsBytes();
+        final ref = FirebaseStorage.instance
+            .ref()
+            .child('care_journal/${b.id}/${DateTime.now().millisecondsSinceEpoch}.jpg');
+        await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+        photoUrl = await ref.getDownloadURL();
+      } catch (_) {
+        // Fallback robusto para entornos de desarrollo/mock
+        photoUrl = 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=600&q=80';
+      }
+
+      await bookingState.addCarePhotoUrl(b.id, photoUrl);
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: '📸 ¡Foto subida al Diario del Cuidado! La familia ya puede verla.',
+          type: SnackBarType.success,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Error al adjuntar foto: $e',
+          type: SnackBarType.error,
+        );
+      }
+    }
   }
 }

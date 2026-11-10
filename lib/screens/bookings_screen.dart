@@ -631,6 +631,23 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _showFridgeSheetModal(context, b),
+                                icon: const Icon(Icons.kitchen_rounded, size: 18, color: AppTheme.primary),
+                                label: const Text(
+                                  '📄 Ficha para la Nevera (Imprimir / WhatsApp)',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primary),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: AppTheme.primary, width: 1.2),
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
                           ],
 
                           if (isClient && b.status == BookingStatus.pendingPayment)
@@ -1632,24 +1649,57 @@ class _BookingsScreenState extends State<BookingsScreen> {
           ],
           if (b.carePhotoUrls.isNotEmpty) ...[
             const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.photo_camera_rounded, size: 16, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  isClient
+                      ? '📸 Fotos del cuidado (compartidas por ${b.caregiverName}):'
+                      : '📸 Fotos compartidas con la familia (${b.carePhotoUrls.length}):',
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppTheme.darkSlate),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             SizedBox(
-              height: 70,
+              height: 75,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: b.carePhotoUrls.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (ctx, i) => ClipRRect(
+                itemBuilder: (ctx, i) => InkWell(
+                  onTap: () => _showPhotoFullScreen(context, b.carePhotoUrls[i], b.caregiverName),
                   borderRadius: BorderRadius.circular(10),
-                  child: Image.network(
-                    b.carePhotoUrls[i],
-                    width: 70,
-                    height: 70,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      width: 70,
-                      height: 70,
-                      color: Colors.grey.shade200,
-                      child: const Icon(Icons.photo_camera_back_rounded),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Stack(
+                      children: [
+                        Image.network(
+                          b.carePhotoUrls[i],
+                          width: 75,
+                          height: 75,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            width: 75,
+                            height: 75,
+                            color: Colors.grey.shade200,
+                            child: const Icon(Icons.photo_camera_back_rounded),
+                          ),
+                        ),
+                        Positioned(
+                          right: 4,
+                          bottom: 4,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.zoom_in_rounded, size: 14, color: Colors.white),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -2043,6 +2093,104 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   Future<void> _repeatBookingNextWeek(BuildContext context, Booking b) async {
     HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.primarySurface,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.repeat_rounded, color: AppTheme.primary, size: 26),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Plan de Cuidado Continuo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        Text('Reserva asegurada semanal con pago protegido', style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.backgroundNeutral,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: const Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.shield_outlined, color: AppTheme.primary, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Escrow Semanal: No pagas todo por adelantado. Sólo se retiene el saldo 24h antes de cada visita.',
+                            style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.event_repeat_rounded, color: AppTheme.primary, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '0% Permanencia: Puedes pausar o cancelar cualquier semana con más de 24h sin ningún coste.',
+                            style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _executeRepeatBooking(context, b);
+                  },
+                  icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                  label: Text('Repetir la próxima semana con ${b.caregiverName}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _executeRepeatBooking(BuildContext context, Booking b) async {
+    HapticFeedback.mediumImpact();
     try {
       final caregiver = await DependencyInjection.caregivers.getCaregiver(b.caregiverId);
       if (caregiver == null) {
@@ -2188,20 +2336,98 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   void _findUrgentSubstitute(BuildContext context) {
     HapticFeedback.mediumImpact();
-    try {
-      final caregiverNotifier = context.read<CaregiverNotifier>();
-      caregiverNotifier.resetFilters();
-      caregiverNotifier.setSortOption(CaregiverSortOption.distanceAsc);
-    } catch (_) {}
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('🚨 Sustitución Urgente (Más Cercanos)'),
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.bolt_rounded, color: Colors.red.shade700, size: 28),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Sustitución Express (<2 horas)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        Text('Encuentra un cuidador verificado de inmediato', style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Tu familiar no se quedará desatendido. El importe abonado permanece seguro en Escrow y puedes reasignarlo a un nuevo profesional disponible hoy mismo.',
+                style: TextStyle(fontSize: 13, color: AppTheme.darkSlate, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    try {
+                      final caregiverNotifier = context.read<CaregiverNotifier>();
+                      caregiverNotifier.resetFilters();
+                      caregiverNotifier.setSortOption(CaregiverSortOption.distanceAsc);
+                    } catch (_) {}
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => Scaffold(
+                          appBar: AppBar(
+                            title: const Text('🚨 Cuidadores Cercanos Disponibles Hoy'),
+                          ),
+                          body: const ExplorerScreen(),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.near_me_rounded),
+                  label: const Text('Ver Cuidadores Cercanos Disponibles Hoy', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const CreateOfferScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.add_task_rounded),
+                  label: const Text('Publicar Oferta Urgente en el Tablón', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
           ),
-          body: const ExplorerScreen(),
         ),
       ),
     );
@@ -2291,6 +2517,310 @@ class _BookingsScreenState extends State<BookingsScreen> {
             label: const Text('Copiar / Descargar'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showFridgeSheetModal(BuildContext context, Booking b) async {
+    HapticFeedback.mediumImpact();
+    final profile = await _getClientProfile(b.clientId);
+    if (!context.mounted) return;
+
+    final pinText = b.bookingPin ?? "Sin PIN";
+    final home = profile?.homeAddress.isNotEmpty == true ? profile!.homeAddress : "Domicilio familiar";
+    final phone = profile?.phone.isNotEmpty == true ? profile!.phone : "Teléfono familiar registrado";
+    final medicalNotes = profile?.patientDetails.isNotEmpty == true ? profile!.patientDetails : "Sin pautas médicas específicas";
+    final tasksList = b.careChecklist.isNotEmpty
+        ? b.careChecklist.map((t) => "• ${t.title}").join("\n")
+        : "• Compañía, atención general y supervisión en el hogar";
+
+    final fridgeSheetText = '🧊 FICHA DE CUIDADOS PARA LA NEVERA · SENICARE\n'
+        '================================================\n'
+        '🏠 Domicilio: $home\n'
+        '👩‍⚕️ Cuidador/a: ${b.caregiverName}\n'
+        '📅 Fecha de Visita: ${_formatDay(b.day)} (${b.slot})\n'
+        '🔑 CÓDIGO PIN DE ENTRADA: $pinText\n'
+        '(Díselo al cuidador al abrir la puerta para iniciar el servicio)\n\n'
+        '🚨 TELÉFONOS DE CONTACTO Y EMERGENCIAS:\n'
+        '• Emergencias Médicas Nacionales: 112\n'
+        '• Familia Directa: $phone\n\n'
+        '💊 PAUTAS Y MEDICACIÓN:\n'
+        '$medicalNotes\n\n'
+        '📋 TAREAS PROGRAMADAS:\n'
+        '$tasksList\n'
+        '================================================\n'
+        'SeniCare: Servicio con Seguro de Responsabilidad Civil y Custodia de Pago.';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primarySurface,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+                      ),
+                      child: const Icon(Icons.kitchen_rounded, color: AppTheme.primary, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Ficha para la Nevera', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+                          Text('Imprime o comparte para tenerla visible en la cocina', style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.amber.shade300, width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.amber.shade100.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Text('🧲', style: TextStyle(fontSize: 18)),
+                              SizedBox(width: 6),
+                              Text('SENICARE · HOJA DE TURNO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.darkSlate)),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppTheme.borderSubtle),
+                            ),
+                            child: Text(
+                              _formatDay(b.day),
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: AppTheme.primary),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 20),
+                      Text('📍 Domicilio: $home', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text('👩‍⚕️ Cuidador/a: ${b.caregiverName} (${b.slot})', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.primary, width: 1.5),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text('🔑 CÓDIGO PIN DE ENTRADA', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                            const SizedBox(height: 4),
+                            Text(
+                              pinText,
+                              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 8, color: AppTheme.primary),
+                            ),
+                            const Text('Dile estos números al cuidador cuando llegue a casa', style: TextStyle(fontSize: 11, color: AppTheme.slateMuted)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text('🚨 TELÉFONOS DE CONTACTO:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.red)),
+                      const SizedBox(height: 2),
+                      const Text('• 112 (Emergencias Médicas / Sanitarias)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                      Text('• Familia Directa: $phone', style: const TextStyle(fontSize: 12.5)),
+                      if (profile != null && profile.patientDetails.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('💊 PAUTAS Y MEDICACIÓN:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+                        const SizedBox(height: 2),
+                        Text(profile.patientDetails, style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate)),
+                      ],
+                      if (b.careChecklist.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('📋 CHECKLIST DEL SERVICIO:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+                        const SizedBox(height: 2),
+                        ...b.careChecklist.map((t) => Text('• ${t.title}', style: const TextStyle(fontSize: 12.5))),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          HapticFeedback.selectionClick();
+                          await Clipboard.setData(ClipboardData(text: fridgeSheetText));
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          if (context.mounted) {
+                            CustomSnackBar.show(
+                              context,
+                              message: '📋 Ficha de la nevera copiada para imprimir o pegar.',
+                              type: SnackBarType.success,
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.copy_rounded, size: 16),
+                        label: const Text('Copiar Ficha', style: TextStyle(fontSize: 12.5)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          HapticFeedback.mediumImpact();
+                          final encoded = Uri.encodeComponent(fridgeSheetText);
+                          final whatsappUrl = Uri.parse('whatsapp://send?text=$encoded');
+                          final webUrl = Uri.parse('https://wa.me/?text=$encoded');
+                          if (await canLaunchUrl(whatsappUrl)) {
+                            await launchUrl(whatsappUrl);
+                          } else if (await canLaunchUrl(webUrl)) {
+                            await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+                          } else {
+                            await Clipboard.setData(ClipboardData(text: fridgeSheetText));
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (context.mounted) {
+                              CustomSnackBar.show(
+                                context,
+                                message: 'Copiado al portapapeles para WhatsApp.',
+                                type: SnackBarType.info,
+                              );
+                            }
+                          }
+                        },
+                        icon: const Icon(Icons.send_rounded, size: 16),
+                        label: const Text('WhatsApp', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showPhotoFullScreen(BuildContext context, String photoUrl, String caregiverName) {
+    HapticFeedback.selectionClick();
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    color: AppTheme.darkSlate,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '📸 Foto compartida por $caregiverName',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                  ),
+                  InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 3.5,
+                    child: Image.network(
+                      photoUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Icon(Icons.broken_image_rounded, size: 48, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    color: Colors.grey.shade50,
+                    child: const Text(
+                      'Pellizca para ampliar. Las fotos del diario de cuidados quedan guardadas en el historial de la visita.',
+                      style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
