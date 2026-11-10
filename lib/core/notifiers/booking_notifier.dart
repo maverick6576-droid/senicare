@@ -68,6 +68,11 @@ class BookingNotifier extends ChangeNotifier {
 
   Future<void> confirmBooking(String bookingId) async {
     await DependencyInjection.bookings.updateBookingStatus(bookingId, BookingStatus.confirmed.toString().split('.').last);
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b != null) {
+      b.status = BookingStatus.confirmed;
+      notifyListeners();
+    }
   }
 
   Future<void> rejectBooking(String bookingId) async {
@@ -76,6 +81,12 @@ class BookingNotifier extends ChangeNotifier {
       await callable.call({
         'bookingId': bookingId,
       });
+      final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+      if (b != null) {
+        b.status = BookingStatus.cancelled;
+        b.escrowStatus = 'refunded';
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('Error rejecting booking: $e');
       rethrow;
@@ -200,6 +211,7 @@ class BookingNotifier extends ChangeNotifier {
     }
 
     b.liveStatus = 'in_progress';
+    b.checkInTime = checkInTime;
     notifyListeners();
 
     if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
@@ -207,6 +219,24 @@ class BookingNotifier extends ChangeNotifier {
         'checkInTime': Timestamp.fromDate(checkInTime),
         'isPunctual': isPunctual,
         'liveStatus': 'in_progress',
+      });
+    }
+  }
+
+  Future<void> completeService(String bookingId) async {
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    final now = DateTime.now();
+    if (b != null) {
+      b.liveStatus = 'completed';
+      b.status = BookingStatus.completed;
+      b.checkOutTime = now;
+      notifyListeners();
+    }
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'liveStatus': 'completed',
+        'status': 'completed',
+        'checkOutTime': Timestamp.fromDate(now),
       });
     }
   }

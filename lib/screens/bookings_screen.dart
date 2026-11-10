@@ -632,6 +632,62 @@ class _BookingsScreenState extends State<BookingsScreen> {
                               ],
                             ),
                           ],
+
+                          if (isClient && b.status == BookingStatus.pendingPayment)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12.0),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.orange.shade300),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Row(
+                                      children: [
+                                        Icon(Icons.hourglass_top_rounded, size: 16, color: Colors.deepOrange),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Pago no completado',
+                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.deepOrange),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Si cancelaste o abandonaste la pasarela de pago, puedes descartar este intento para liberar las horas.',
+                                      style: TextStyle(fontSize: 12, color: AppTheme.darkSlate),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton(
+                                        onPressed: () async {
+                                          final confirm = await CustomDialog.showConfirmation(
+                                            context,
+                                            title: 'Descartar Intento',
+                                            message: '¿Deseas descartar este intento de reserva no pagado?',
+                                            confirmText: 'Descartar',
+                                            isDestructive: true,
+                                          );
+                                          if (confirm == true) {
+                                            state.cancelBooking(b.id, 'Intento descartado por el cliente', false);
+                                          }
+                                        },
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.red.shade700,
+                                          side: BorderSide(color: Colors.red.shade300),
+                                        ),
+                                        child: const Text('Descartar intento de reserva'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           
                           if (isClient && (b.status == BookingStatus.pending || b.status == BookingStatus.confirmed) && b.checkInTime == null && !isBookingExpired(b))
                             Padding(
@@ -738,9 +794,116 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                 ],
                               ),
                             ),
+
+                          if (!isClient && b.status == BookingStatus.confirmed && b.checkInTime != null && b.liveStatus != 'completed')
+                            Padding(
+                              padding: const EdgeInsets.only(top: 14.0),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: () async {
+                                    final confirm = await CustomDialog.showConfirmation(
+                                      context,
+                                      title: 'Finalizar Servicio',
+                                      message: '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
+                                      confirmText: 'Finalizar y Salir',
+                                      cancelText: 'Continuar turno',
+                                    );
+                                    if (confirm == true && context.mounted) {
+                                      HapticFeedback.heavyImpact();
+                                      await state.completeService(b.id);
+                                      if (context.mounted) {
+                                        CustomSnackBar.show(context, message: '🎉 ¡Servicio finalizado con éxito! Buen descanso.', type: SnackBarType.success);
+                                      }
+                                    }
+                                  },
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.green.shade700,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                                  label: const Text('🏁 Finalizar Servicio y Salir', style: TextStyle(fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+                            ),
                         ],
                         
                         if (!isActiveTab) ...[
+                          if (isClient && b.escrowStatus == 'held' && b.checkInTime != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 14.0),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.blue.shade200),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(Icons.shield_outlined, size: 18, color: Colors.blue.shade800),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Pago Protegido en Custodia (24h)',
+                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blue.shade900),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'El importe (${b.totalPaid.toStringAsFixed(2)} €) está retenido de forma segura. Se transferirá al cuidador automáticamente en 24h o puedes liberarlo ya si todo fue excelente.',
+                                      style: TextStyle(fontSize: 12, color: Colors.blue.shade900, height: 1.3),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: FilledButton.icon(
+                                            onPressed: () async {
+                                              final confirm = await CustomDialog.showConfirmation(
+                                                context,
+                                                title: 'Liberar Pago al Cuidador',
+                                                message: '¿Confirmas que el servicio fue satisfactorio? Se transferirán inmediatamente los fondos al cuidador (${b.caregiverPayout > 0 ? b.caregiverPayout.toStringAsFixed(2) : b.cost.toStringAsFixed(2)} €).',
+                                                confirmText: 'Liberar Ahora',
+                                              );
+                                              if (confirm == true) {
+                                                await state.releaseEscrow(b.id);
+                                                if (context.mounted) {
+                                                  CustomSnackBar.show(context, message: '🎉 ¡Pago liberado al cuidador con éxito! Gracias por tu confirmación.', type: SnackBarType.success);
+                                                }
+                                              }
+                                            },
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: Colors.green.shade700,
+                                              padding: const EdgeInsets.symmetric(vertical: 10),
+                                            ),
+                                            icon: const Icon(Icons.check_circle_outline, size: 16),
+                                            label: const Text('Liberar Pago Ahora', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: () {
+                                            showDialog(context: context, builder: (_) => DisputeDialog(booking: b));
+                                          },
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: Colors.deepOrange.shade800,
+                                            side: BorderSide(color: Colors.deepOrange.shade300),
+                                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                                          ),
+                                          icon: const Icon(Icons.warning_amber_rounded, size: 16),
+                                          label: const Text('Incidencia', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                             if ((b.status == BookingStatus.completed || (b.status == BookingStatus.confirmed && b.checkInTime != null && isBookingExpired(b))) && isClient && !b.isReviewed)
                             Padding(
                               padding: const EdgeInsets.only(top: 16.0),
@@ -934,16 +1097,34 @@ class _BookingsScreenState extends State<BookingsScreen> {
     
     switch (statusText) {
       case 'Completado (Pagado)':
-        explanation = 'El servicio se ha realizado correctamente y el pago ha sido liberado al cuidador (se completaron las 24h tras el fin del servicio o se resolvió de mutuo acuerdo).';
+        explanation = 'El servicio se ha realizado correctamente y el pago ha sido liberado al cuidador (se completaron las 24h tras el fin del servicio o se liberó manualmente).';
         break;
       case 'Cancelado (Reembolsado)':
-        explanation = 'El servicio fue cancelado o hubo una incidencia mayor (como un No-Show) y se ha devuelto el importe correspondiente al cliente.';
+        explanation = 'El servicio fue cancelado o hubo una incidencia mayor (como un No-Show) y se ha devuelto el importe íntegro al cliente.';
         break;
-      case 'Cancelado (Parcial)':
-        explanation = 'La reserva fue cancelada fuera de plazo o hubo una resolución de disputa que implicó un reembolso o pago parcial.';
+      case 'Cancelado (Reembolso parcial)':
+        explanation = 'La reserva fue cancelada fuera de plazo (con penalización) y se reembolsó la parte correspondiente al cliente.';
         break;
-      case 'Realizada (En espera)':
-        explanation = 'El cuidador ha finalizado el servicio, pero el dinero se mantiene retenido de forma segura (Escrow) durante 24 horas por si surge alguna incidencia.';
+      case 'Acuerdo Resuelto (Pago ajustado)':
+        explanation = 'Ambas partes alcanzaron un acuerdo satisfactorio para resolver la incidencia y los pagos se han ajustado según lo pactado.';
+        break;
+      case 'Disputa Abierta':
+        explanation = 'Hay una incidencia en curso entre la familia y el cuidador. Los fondos permanecen en custodia hasta que se alcance un acuerdo o transcurran 24h.';
+        break;
+      case 'Disputa en Mediación':
+        explanation = 'La incidencia ha sido escalada al equipo de Administración y Mediación de Senicare para su arbitraje definitivo.';
+        break;
+      case '✅ Visita Finalizada (Custodia 24h)':
+        explanation = 'El cuidador ha finalizado el servicio y registrado su salida. El dinero se mantiene en custodia protegida durante 24 horas por si surge alguna duda o puedes liberarlo de inmediato.';
+        break;
+      case '✅ Visita Realizada (Custodia 24h)':
+        explanation = 'El servicio ha finalizado según el horario previsto y el dinero se mantiene en custodia durante el periodo de garantía de 24 horas.';
+        break;
+      case '🟢 En domicilio (Cuidado en curso)':
+        explanation = 'El cuidador ha registrado su llegada presencial (Check-in con QR/PIN) y se encuentra atendiendo al familiar en el domicilio.';
+        break;
+      case '🚗 Cuidador en camino':
+        explanation = 'El cuidador ha avisado de que se encuentra desplazándose hacia el domicilio para iniciar el servicio.';
         break;
       case 'Caducada / No-Show':
         explanation = 'La hora del servicio ha pasado y el cuidador no llegó a fichar la entrada mediante el código QR o PIN. Se procesará la cancelación automáticamente.';
@@ -952,6 +1133,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
         explanation = 'Se está validando la retención de la tarjeta del cliente a través de la pasarela de pago segura.';
         break;
       case 'Pendiente':
+      case 'Pendiente de aceptación':
         explanation = 'El pago está asegurado pero el cuidador todavía tiene que aceptar la solicitud de servicio para confirmarla.';
         break;
       case 'Confirmada':
@@ -991,16 +1173,22 @@ class _BookingsScreenState extends State<BookingsScreen> {
   String _getStatusText(Booking b) {
     if (b.escrowStatus == 'released' || b.escrowStatus == 'released_manual' || b.escrowStatus == 'released_auto') return 'Completado (Pagado)';
     if (b.escrowStatus == 'refunded') return 'Cancelado (Reembolsado)';
-    if (b.escrowStatus == 'resolved_partial') return 'Cancelado (Parcial)';
+    if (b.escrowStatus == 'resolved_partial') {
+      return b.status == BookingStatus.completed ? 'Acuerdo Resuelto (Pago ajustado)' : 'Cancelado (Reembolso parcial)';
+    }
+    if (b.escrowStatus == 'disputed') {
+      return b.disputeEscalated == true ? 'Disputa en Mediación' : 'Disputa Abierta';
+    }
     
+    if (b.liveStatus == 'completed' || b.status == BookingStatus.completed) return '✅ Visita Finalizada (Custodia 24h)';
     if (b.checkInTime != null && !isBookingExpired(b) && b.status == BookingStatus.confirmed) return '🟢 En domicilio (Cuidado en curso)';
-    if (b.checkInTime != null && b.status == BookingStatus.confirmed) return 'Realizada (En espera)';
+    if (b.checkInTime != null && b.status == BookingStatus.confirmed) return '✅ Visita Realizada (Custodia 24h)';
     if (b.liveStatus == 'on_the_way' && b.checkInTime == null && !isBookingExpired(b) && b.status == BookingStatus.confirmed) return '🚗 Cuidador en camino';
     if (isBookingExpired(b) && b.checkInTime == null && b.status == BookingStatus.confirmed) return 'Caducada / No-Show';
 
     switch (b.status) {
       case BookingStatus.pendingPayment: return 'Procesando pago...';
-      case BookingStatus.pending: return 'Pendiente';
+      case BookingStatus.pending: return 'Pendiente de aceptación';
       case BookingStatus.confirmed: return 'Confirmada';
       case BookingStatus.cancelled: return 'Cancelada';
       case BookingStatus.cancelledLate: return 'Cancelada (Tarde)';
@@ -1011,10 +1199,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
   Color _getStatusColor(BookingStatus status) {
     switch (status) {
       case BookingStatus.pendingPayment: return Colors.orange;
-      case BookingStatus.pending: return Colors.orange;
+      case BookingStatus.pending: return Colors.amber.shade800;
       case BookingStatus.confirmed: return Colors.green;
       case BookingStatus.cancelled: return Colors.red;
-      case BookingStatus.cancelledLate: return Colors.red;
+      case BookingStatus.cancelledLate: return Colors.red.shade800;
       case BookingStatus.completed: return Colors.blue;
     }
   }
@@ -1029,7 +1217,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
         b.status == BookingStatus.completed;
     final bool step4 = b.status == BookingStatus.completed ||
         (b.checkInTime != null && isBookingExpired(b)) ||
-        b.escrowStatus == 'released';
+        b.liveStatus == 'completed' ||
+        b.escrowStatus == 'released' ||
+        b.escrowStatus == 'released_manual' ||
+        b.escrowStatus == 'released_auto';
 
     final steps = [
       {'label': 'Confirmada', 'done': step1, 'icon': Icons.event_available_rounded},

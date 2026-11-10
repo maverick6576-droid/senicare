@@ -170,6 +170,15 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               return sum + payout + b.tipAmount;
             });
 
+            final inProgressBookings = caregiverBookings.where((b) {
+              return b.status == BookingStatus.confirmed &&
+                     b.checkInTime != null &&
+                     b.liveStatus != 'completed' &&
+                     !b.isExpired;
+            }).toList();
+            inProgressBookings.sort((a, b) => a.day.compareTo(b.day) != 0 ? a.day.compareTo(b.day) : a.slot.compareTo(b.slot));
+            final activeService = inProgressBookings.isNotEmpty ? inProgressBookings.first : null;
+
             final pendingBookings = caregiverBookings.where((b) {
               if (b.status != BookingStatus.confirmed || b.checkInTime != null || b.isExpired) return false;
               try {
@@ -220,164 +229,28 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                   ),
                 ],
                 const SizedBox(height: 24),
-                const Text('Próximo Servicio', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                if (nextService == null)
-                  const Text('No tienes servicios pendientes.', style: TextStyle(color: Colors.grey))
-                else
-                  Card(
-                    color: AppTheme.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Builder(builder: (context) {
-                                  try {
-                                    final date = DateTime.parse(nextService.day);
-                                    return Text('${DateFormat('dd/MM/yyyy').format(date)}, ${nextService.slot}', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis);
-                                  } catch (e) {
-                                    final p = nextService.day.split('-');
-                                    final fallback = p.length == 3 ? '${p[2]}/${p[1]}/${p[0]}' : nextService.day;
-                                    return Text('$fallback, ${nextService.slot}', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis);
-                                  }
-                                }),
-                              ),
-                              const SizedBox(width: 8),
-                              const Icon(Icons.directions_walk, color: Colors.white),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          FutureBuilder<ClientProfile?>(
-                            future: DependencyInjection.clients.getClient(nextService.clientId),
-                            builder: (context, snapshot) {
-                              final profile = snapshot.data;
-                              final clientName = profile?.name ?? '';
-                              final nameParts = clientName.trim().split(RegExp(r'\s+'));
-                              final surname = nameParts.length > 1 ? nameParts[1] : clientName;
-                              final displayName = surname.isNotEmpty ? surname : nextService.clientId.substring(0, min(5, nextService.clientId.length));
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Servicio - Familia: $displayName', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                                  if (profile != null && (profile.patientDetails.isNotEmpty || profile.homeAddress.isNotEmpty)) ...[
-                                    const SizedBox(height: 10),
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.14),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          const Row(
-                                            children: [
-                                              Icon(Icons.medical_information_rounded, color: Colors.white, size: 16),
-                                              SizedBox(width: 6),
-                                              Text(
-                                                '🩺 Ficha Rápida del Paciente',
-                                                style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w800),
-                                              ),
-                                            ],
-                                          ),
-                                          if (profile.homeAddress.isNotEmpty) ...[
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              '📍 Domicilio: ${profile.homeAddress}',
-                                              style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
-                                            ),
-                                          ],
-                                          if (profile.patientDetails.isNotEmpty) ...[
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              '📋 Pautas: ${profile.patientDetails}',
-                                              style: const TextStyle(color: Colors.white, fontSize: 12.5),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                          if (nextService.liveStatus != 'on_the_way') ...[
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () async {
-                                  HapticFeedback.mediumImpact();
-                                  await bookingState.markOnTheWay(nextService.id);
-                                  if (context.mounted) {
-                                    CustomSnackBar.show(
-                                      context,
-                                      message: '🚗 La familia ha recibido el aviso de que estás en camino.',
-                                      type: SnackBarType.success,
-                                    );
-                                  }
-                                },
-                                icon: const Icon(Icons.directions_car_rounded, size: 18, color: Colors.white),
-                                label: const Text('🚗 Avisar a la familia: Estoy en camino'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: const BorderSide(color: Colors.white70, width: 1.5),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                          ] else ...[
-                            Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 10),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.shade800,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Row(
-                                children: [
-                                  Icon(Icons.directions_car_rounded, color: Colors.white, size: 16),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      '🚗 Familia avisada: Estás en camino al domicilio',
-                                      style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (_) => ScannerScreen(booking: nextService)));
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: AppTheme.primary,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                              label: const Text('Fichar Llegada (QR / PIN)', style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                        ],
+                if (activeService != null) ...[
+                  Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      const Text('Servicio en Curso', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    ],
                   ),
+                  const SizedBox(height: 16),
+                  _buildActiveServiceCard(context, activeService, bookingState),
+                ] else ...[
+                  const Text('Próximo Servicio', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  if (nextService == null)
+                    const Text('No tienes servicios pendientes.', style: TextStyle(color: Colors.grey))
+                  else
+                    _buildNextServiceCard(context, nextService, bookingState),
+                ],
               ],
             );
           },
@@ -636,6 +509,374 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildNextServiceCard(BuildContext context, Booking nextService, BookingNotifier bookingState) {
+    return Card(
+      color: AppTheme.primary,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Builder(builder: (context) {
+                    try {
+                      final date = DateTime.parse(nextService.day);
+                      return Text('${DateFormat('dd/MM/yyyy').format(date)}, ${nextService.slot}', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis);
+                    } catch (e) {
+                      final p = nextService.day.split('-');
+                      final fallback = p.length == 3 ? '${p[2]}/${p[1]}/${p[0]}' : nextService.day;
+                      return Text('$fallback, ${nextService.slot}', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis);
+                    }
+                  }),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.directions_walk, color: Colors.white),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FutureBuilder<ClientProfile?>(
+              future: DependencyInjection.clients.getClient(nextService.clientId),
+              builder: (context, snapshot) {
+                final profile = snapshot.data;
+                final clientName = profile?.name ?? '';
+                final nameParts = clientName.trim().split(RegExp(r'\s+'));
+                final surname = nameParts.length > 1 ? nameParts[1] : clientName;
+                final displayName = surname.isNotEmpty ? surname : nextService.clientId.substring(0, min(5, nextService.clientId.length));
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Servicio - Familia: $displayName', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    if (profile != null && (profile.patientDetails.isNotEmpty || profile.homeAddress.isNotEmpty)) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.medical_information_rounded, color: Colors.white, size: 16),
+                                SizedBox(width: 6),
+                                Text(
+                                  '🩺 Ficha Rápida del Paciente',
+                                  style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w800),
+                                ),
+                              ],
+                            ),
+                            if (profile.homeAddress.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                '📍 Domicilio: ${profile.homeAddress}',
+                                style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                            if (profile.patientDetails.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '📋 Pautas: ${profile.patientDetails}',
+                                style: const TextStyle(color: Colors.white, fontSize: 12.5),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 14),
+            if (nextService.liveStatus != 'on_the_way') ...[
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    HapticFeedback.mediumImpact();
+                    await bookingState.markOnTheWay(nextService.id);
+                    if (context.mounted) {
+                      CustomSnackBar.show(
+                        context,
+                        message: '🚗 La familia ha recibido el aviso de que estás en camino.',
+                        type: SnackBarType.success,
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.directions_car_rounded, size: 18, color: Colors.white),
+                  label: const Text('🚗 Avisar a la familia: Estoy en camino'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white70, width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ] else ...[
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade800,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.directions_car_rounded, color: Colors.white, size: 16),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '🚗 Familia avisada: Estás en camino al domicilio',
+                        style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => ScannerScreen(booking: nextService)));
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: AppTheme.primary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                label: const Text('Fichar Llegada (QR / PIN)', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActiveServiceCard(BuildContext context, Booking activeService, BookingNotifier bookingState) {
+    final completedTasks = activeService.careChecklist.where((t) => t.completed).length;
+    final totalTasks = activeService.careChecklist.length;
+
+    return Card(
+      color: const Color(0xFF0F4C3A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.greenAccent.shade700,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.fiber_manual_record, color: Colors.white, size: 10),
+                      SizedBox(width: 6),
+                      Text(
+                        'EN CURSO AHORA',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  activeService.slot,
+                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FutureBuilder<ClientProfile?>(
+              future: DependencyInjection.clients.getClient(activeService.clientId),
+              builder: (context, snapshot) {
+                final profile = snapshot.data;
+                final clientName = profile?.name ?? '';
+                final nameParts = clientName.trim().split(RegExp(r'\s+'));
+                final surname = nameParts.length > 1 ? nameParts[1] : clientName;
+                final displayName = surname.isNotEmpty ? surname : activeService.clientId.substring(0, min(5, activeService.clientId.length));
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Familia: $displayName',
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => ChatScreen(
+                                clientId: activeService.clientId,
+                                caregiverId: activeService.caregiverId,
+                                caregiverName: activeService.caregiverName,
+                              ),
+                            ));
+                          },
+                          icon: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white),
+                          tooltip: 'Chat con la familia',
+                        ),
+                      ],
+                    ),
+                    if (profile != null && (profile.patientDetails.isNotEmpty || profile.homeAddress.isNotEmpty)) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (profile.homeAddress.isNotEmpty)
+                              Text('📍 Domicilio: ${profile.homeAddress}', style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                            if (profile.patientDetails.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text('📋 Pautas: ${profile.patientDetails}', style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+            if (activeService.checkInTime != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.access_time_rounded, color: Colors.white70, size: 15),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Llegada registrada: ${DateFormat('HH:mm').format(activeService.checkInTime!)}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (activeService.careChecklist.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('📋 Checklist de Cuidados', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                        Text('$completedTasks/$totalTasks completadas', style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ...activeService.careChecklist.map((item) => InkWell(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        bookingState.toggleChecklistTask(activeService.id, item.id);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Icon(
+                              item.completed ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                              size: 18,
+                              color: item.completed ? Colors.greenAccent : Colors.white60,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                item.title,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  decoration: item.completed ? TextDecoration.lineThrough : null,
+                                  decorationColor: Colors.white70,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final confirm = await CustomDialog.showConfirmation(
+                    context,
+                    title: 'Finalizar Servicio',
+                    message: '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
+                    confirmText: 'Finalizar y Salir',
+                    cancelText: 'Continuar turno',
+                  );
+                  if (confirm == true && context.mounted) {
+                    HapticFeedback.heavyImpact();
+                    await bookingState.completeService(activeService.id);
+                    if (context.mounted) {
+                      CustomSnackBar.show(context, message: '🎉 ¡Servicio finalizado con éxito! Buen descanso.', type: SnackBarType.success);
+                    }
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.green.shade900,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
+                label: const Text('🏁 Finalizar Servicio y Salir', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

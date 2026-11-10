@@ -126,9 +126,54 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  widget.offer.title,
-                  style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.offer.title,
+                        style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: widget.offer.status == JobOfferStatus.open
+                            ? Colors.green.shade50
+                            : widget.offer.status == JobOfferStatus.cancelled
+                                ? Colors.red.shade50
+                                : Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: widget.offer.status == JobOfferStatus.open
+                              ? Colors.green.shade300
+                              : widget.offer.status == JobOfferStatus.cancelled
+                                  ? Colors.red.shade300
+                                  : Colors.blue.shade300,
+                        ),
+                      ),
+                      child: Text(
+                        widget.offer.status == JobOfferStatus.open
+                            ? '🟢 Abierta'
+                            : widget.offer.status == JobOfferStatus.cancelled
+                                ? '🚫 Cancelada'
+                                : widget.offer.status == JobOfferStatus.inProgress
+                                    ? '🤝 Contratada'
+                                    : '✅ Finalizada',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: widget.offer.status == JobOfferStatus.open
+                              ? Colors.green.shade800
+                              : widget.offer.status == JobOfferStatus.cancelled
+                                  ? Colors.red.shade800
+                                  : Colors.blue.shade800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -373,6 +418,38 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                 ),
               ),
               )),
+            if (widget.offer.status == JobOfferStatus.open) ...[
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final confirm = await CustomDialog.showConfirmation(
+                      context,
+                      title: 'Retirar Oferta',
+                      message: '¿Estás seguro de que deseas retirar esta oferta? Se cerrará la convocatoria y los cuidadores ya no podrán postularse.',
+                      confirmText: 'Retirar Oferta',
+                      cancelText: 'Mantener',
+                      isDestructive: true,
+                    );
+                    if (confirm == true && context.mounted) {
+                      await context.read<JobOfferNotifier>().cancelOffer(widget.offer.id);
+                      if (context.mounted) {
+                        CustomSnackBar.show(context, message: 'Oferta retirada correctamente', type: SnackBarType.info);
+                        Navigator.pop(context);
+                      }
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade700,
+                    side: BorderSide(color: Colors.red.shade300),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.cancel_outlined, size: 18),
+                  label: const Text('Retirar / Cancelar Oferta'),
+                ),
+              ),
+            ],
           ]
         ],
       );

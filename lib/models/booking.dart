@@ -60,7 +60,8 @@ class Booking {
   bool isReviewed;
   bool reviewPromptDismissed;
   final DateTime createdAt;
-  final DateTime? checkInTime;
+  DateTime? checkInTime;
+  DateTime? checkOutTime;
   final bool? isPunctual;
   bool disputeRequested;
   bool disputeEscalated;
@@ -130,6 +131,7 @@ class Booking {
     this.reviewPromptDismissed = false,
     DateTime? createdAt,
     this.checkInTime,
+    this.checkOutTime,
     this.isPunctual,
     this.disputeRequested = false,
     this.disputeEscalated = false,
@@ -188,6 +190,9 @@ class Booking {
             : DateTime.now(),
         checkInTime: (data['checkInTime'] != null && data['checkInTime'] is Timestamp)
             ? (data['checkInTime'] as Timestamp).toDate()
+            : null,
+        checkOutTime: (data['checkOutTime'] != null && data['checkOutTime'] is Timestamp)
+            ? (data['checkOutTime'] as Timestamp).toDate()
             : null,
         isPunctual: data['isPunctual'] as bool?,
         disputeRequested: data['disputeRequested'] ?? false,
@@ -248,6 +253,7 @@ class Booking {
       'reviewPromptDismissed': reviewPromptDismissed,
       'createdAt': Timestamp.fromDate(createdAt),
       if (checkInTime != null) 'checkInTime': Timestamp.fromDate(checkInTime!),
+      if (checkOutTime != null) 'checkOutTime': Timestamp.fromDate(checkOutTime!),
       if (isPunctual != null) 'isPunctual': isPunctual,
       'disputeRequested': disputeRequested,
       'disputeEscalated': disputeEscalated,

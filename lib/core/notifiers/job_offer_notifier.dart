@@ -120,6 +120,15 @@ class JobOfferNotifier extends ChangeNotifier {
     }
   }
 
+  Future<void> cancelOffer(String offerId) async {
+    await DependencyInjection.jobOffers.updateOfferStatus(offerId, JobOfferStatus.cancelled);
+    final offer = clientOffers.where((o) => o.id == offerId).firstOrNull;
+    if (offer != null) {
+      offer.status = JobOfferStatus.cancelled;
+      notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
     _clientSub?.cancel();
