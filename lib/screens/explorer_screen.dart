@@ -154,26 +154,68 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: caregiverState.availableSpecialties.map((spec) {
-                      final isSelected = caregiverState.selectedSpecialty == spec;
-                      return Padding(
+                    children: [
+                      Padding(
                         padding: const EdgeInsets.only(right: 8.0),
-                        child: FilterChip(
-                          label: Text(spec),
-                          selected: isSelected,
-                          onSelected: (val) {
-                            HapticFeedback.selectionClick();
-                            caregiverState.setSpecialty(spec);
-                          },
-                          selectedColor: AppTheme.primary.withValues(alpha: 0.16),
-                          checkmarkColor: AppTheme.primary,
-                          labelStyle: TextStyle(
-                            color: isSelected ? AppTheme.primary : AppTheme.darkSlate,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        child: ActionChip(
+                          avatar: Icon(
+                            Icons.flash_on_rounded,
+                            size: 16,
+                            color: caregiverState.sortOption == CaregiverSortOption.distanceAsc
+                                ? Colors.white
+                                : Colors.orange.shade800,
                           ),
+                          backgroundColor: caregiverState.sortOption == CaregiverSortOption.distanceAsc
+                              ? Colors.orange.shade800
+                              : Colors.orange.shade50,
+                          side: BorderSide(color: Colors.orange.shade300),
+                          label: Text(
+                            '🚨 Sustituto urgente hoy',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: caregiverState.sortOption == CaregiverSortOption.distanceAsc
+                                  ? Colors.white
+                                  : Colors.orange.shade900,
+                            ),
+                          ),
+                          onPressed: () {
+                            HapticFeedback.mediumImpact();
+                            if (caregiverState.sortOption == CaregiverSortOption.distanceAsc) {
+                              caregiverState.setSortOption(CaregiverSortOption.recommended);
+                            } else {
+                              caregiverState.resetFilters();
+                              caregiverState.setSortOption(CaregiverSortOption.distanceAsc);
+                              CustomSnackBar.show(
+                                context,
+                                message: '🚨 Mostrando cuidadores verificados más cercanos disponibles hoy.',
+                                type: SnackBarType.info,
+                              );
+                            }
+                          },
                         ),
-                      );
-                    }).toList(),
+                      ),
+                      ...caregiverState.availableSpecialties.map((spec) {
+                        final isSelected = caregiverState.selectedSpecialty == spec;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8.0),
+                          child: FilterChip(
+                            label: Text(spec),
+                            selected: isSelected,
+                            onSelected: (val) {
+                              HapticFeedback.selectionClick();
+                              caregiverState.setSpecialty(spec);
+                            },
+                            selectedColor: AppTheme.primary.withValues(alpha: 0.16),
+                            checkmarkColor: AppTheme.primary,
+                            labelStyle: TextStyle(
+                              color: isSelected ? AppTheme.primary : AppTheme.darkSlate,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 10),

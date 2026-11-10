@@ -163,7 +163,8 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 if (b.caregiverCommissionAmount > 0) {
                   payout = b.cost - b.caregiverCommissionAmount;
                 } else {
-                  payout = b.cost * 0.85; // 15% comisión por defecto si payout es 0 en datos antiguos/mock
+                  final rate = b.caregiverCommissionRate > 0 ? b.caregiverCommissionRate : 0.18;
+                  payout = b.cost * (1.0 - rate);
                 }
               }
               return sum + payout + b.tipAmount;
@@ -382,12 +383,42 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
           },
         ),
         const SizedBox(height: 24),
-        const Text('Mis Clientes y Comisiones', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Expanded(
+              child: Text('Mis Clientes y Comisiones', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+            ),
+            TextButton.icon(
+              onPressed: () => _showCommissionTiersModal(context),
+              icon: const Icon(Icons.info_outline_rounded, size: 17),
+              label: const Text('Ver Tramos (18%→6%)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
         if (_isLoading)
           const Center(child: CircularProgressIndicator())
         else if (_clientStats.isEmpty)
-          const Text('Aún no tienes clientes recurrentes. ¡Completa servicios para bajar tu comisión!')
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: AppTheme.modernCardDecoration(),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '📉 Programa de Fidelidad: ¡Cuanto más cuidas a una familia, menos comisión pagas!',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppTheme.darkSlate),
+                ),
+                SizedBox(height: 8),
+                Text('• De 1 a 20h con una familia: 18% comisión (cobras el 82%)', style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted)),
+                SizedBox(height: 4),
+                Text('• De 21 a 80h con la misma familia: 12% comisión (cobras el 88%)', style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted)),
+                SizedBox(height: 4),
+                Text('• Más de 80h acumuladas: ¡Solo 6% de comisión! (cobras el 94%)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor)),
+              ],
+            ),
+          )
         else
           ..._clientStats.map((stat) {
             final hours = stat['accumulatedHours'] as int? ?? 0;
@@ -422,7 +453,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(color: AppTheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-                          child: Text('Comisión: ${currentRate.toInt()}%', style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                          child: Text('Comisión: ${currentRate.toInt()}% (Cobras ${(100 - currentRate.toInt())}%)', style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 12)),
                         )
                       ],
                     ),
@@ -437,8 +468,8 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     const SizedBox(height: 8),
                     Text(
                       hours >= 80 
-                        ? '$hours horas acumuladas. ¡Estás en la comisión mínima (6%)!'
-                        : '$hours horas de ${nextTierHours.toInt()} necesarias para bajar de comisión.',
+                        ? '🏆 $hours horas acumuladas. ¡Tienes la Tarifa Fidelidad mínima (6% comisión)!'
+                        : '$hours h acumuladas — Te faltan ${(nextTierHours.toInt() - hours).clamp(1, 80)} h con esta familia para bajar al ${hours <= 20 ? "12%" : "6%"} de comisión.',
                       style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                     )
                   ],
@@ -448,6 +479,57 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
           }),
       ],
      ),
+    );
+  }
+
+  void _showCommissionTiersModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.trending_down_rounded, color: AppTheme.primary, size: 24),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Tramos de Comisión por Fidelidad',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'En SeniCare premiamos tu continuidad con cada familia. Cuantas más horas acumules con un mismo cliente, mayor porcentaje íntegro recibes:',
+              style: TextStyle(fontSize: 13, color: AppTheme.slateMuted, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            const Text('• Tramo Inicial (1 a 20 horas): 18% comisión → Recibes el 82% neto.', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            const Text('• Tramo Continuidad (21 a 80 horas): 12% comisión → Recibes el 88% neto.', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            const Text('• 🏆 Tramo Fidelidad (+80 horas): ¡Solo 6% de comisión! → Recibes el 94% neto.', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppTheme.secondaryColor)),
+            const SizedBox(height: 8),
+            const Text('• ☕ Propinas de agradecimiento: 0% comisión (100% íntegras para ti).', style: TextStyle(fontSize: 13, color: AppTheme.darkSlate)),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendido'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

@@ -120,53 +120,160 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
           return ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(widget.offer.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text(widget.offer.description),
-          const SizedBox(height: 16),
-          if (widget.offer.isUrgent)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)),
-              child: Row(
-                children: [
-                  const Icon(Icons.flash_on, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(isClient ? 'Oferta Urgente: Atraerá a más cuidadores' : '¡URGENTE! Ganas un +10% de comisión extra si te aceptan.', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold))),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: AppTheme.modernCardDecoration(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.offer.title,
+                  style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  widget.offer.description,
+                  style: const TextStyle(fontSize: 14, color: AppTheme.slateMuted, height: 1.4),
+                ),
+                if (widget.offer.isUrgent) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.flash_on_rounded, color: Colors.orange.shade800),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            isClient
+                                ? '⚡ Oferta Urgente: destacada prioritariamente y con comisión reducida para atraer más cuidadores rápido.'
+                                : '⚡ ¡Oferta Urgente! Bonificación especial: tu comisión de plataforma se reduce un 10% (cobras hasta el 92% neto de tu tarifa).',
+                            style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w700, fontSize: 12.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
-              ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Divider(height: 1),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primarySurface,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.euro_rounded, color: AppTheme.primary, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${widget.offer.pricePerHour.toStringAsFixed(2)} €/h  •  Total est.: ${(widget.offer.totalHours * widget.offer.pricePerHour).toStringAsFixed(2)} €',
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.darkSlate),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${widget.offer.totalHours}h en total (${widget.offer.isRecurring ? "Servicio recurrente" : "Servicio puntual"})',
+                            style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primarySurface,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.calendar_today_rounded, color: AppTheme.primary, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Inicio: ${widget.offer.startDate.day.toString().padLeft(2, '0')}/${widget.offer.startDate.month.toString().padLeft(2, '0')}/${widget.offer.startDate.year} a las ${widget.offer.startDate.hour.toString().padLeft(2, '0')}:${widget.offer.startDate.minute.toString().padLeft(2, '0')}',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.darkSlate),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          const SizedBox(height: 16),
-          ListTile(
-            leading: const Icon(Icons.euro),
-            title: Text('${widget.offer.pricePerHour} €/h (Total estimado: ${widget.offer.totalHours * widget.offer.pricePerHour}€)'),
-            subtitle: Text(widget.offer.isRecurring ? 'Servicio recurrente' : 'Servicio puntual'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.calendar_today),
-            title: Text('Inicio: ${widget.offer.startDate.day.toString().padLeft(2, '0')}/${widget.offer.startDate.month.toString().padLeft(2, '0')}/${widget.offer.startDate.year} ${widget.offer.startDate.hour.toString().padLeft(2, '0')}:${widget.offer.startDate.minute.toString().padLeft(2, '0')}'),
           ),
           if (!isClient && widget.offer.status == JobOfferStatus.open && !widget.offer.isExpired)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
+              padding: const EdgeInsets.symmetric(vertical: 20),
               child: hasApplied 
                   ? FilledButton.icon(
                       onPressed: null,
                       icon: const Icon(Icons.check_circle),
                       label: const Text('Solicitud Enviada'),
                     )
-                  : FilledButton(
+                  : FilledButton.icon(
                       onPressed: () => _apply(context),
-                      child: const Text('Solicitar este trabajo'),
+                      icon: const Icon(Icons.send_rounded, size: 18),
+                      label: const Text('Postularme a este cuidado'),
                     ),
             ),
           
           if (isClient) ...[
-            const Divider(height: 32),
-            const Text('Solicitudes Recibidas', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Candidatos Interesados', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primarySurface,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${apps.length}',
+                    style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.primary, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             if (apps.isEmpty)
-              const Text('Aún no hay cuidadores interesados.')
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: AppTheme.modernCardDecoration(),
+                child: const Column(
+                  children: [
+                    Icon(Icons.hourglass_top_rounded, size: 40, color: AppTheme.primary),
+                    SizedBox(height: 10),
+                    Text(
+                      'Avisando a los cuidadores verificados de tu zona',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.darkSlate),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'En cuanto un profesional se postule, verás aquí su valoración, su propuesta económica y podrás revisar su perfil antes de contratar.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13, color: AppTheme.slateMuted, height: 1.4),
+                    ),
+                  ],
+                ),
+              )
             else
               ...apps.map((app) => Card(
                 clipBehavior: Clip.antiAlias,

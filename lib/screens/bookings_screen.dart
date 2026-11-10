@@ -162,7 +162,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
         body: Column(
           children: [
             Container(
-              color: Colors.white,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
+              ),
               child: const TabBar(
                 labelColor: AppTheme.primary,
                 unselectedLabelColor: AppTheme.slateMuted,
@@ -649,7 +652,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                       title: 'Cancelar Reserva',
                                       message: isLate 
                                           ? 'Al cancelar con menos de 24h de antelación, se aplicará una penalización: se te reembolsará el 45% del importe y el resto cubrirá la compensación del cuidador y los gastos de gestión.'
-                                          : '¿Estás seguro de que quieres cancelar esta reserva? Se te reembolsará el importe pagado descontando un 5% (mínimo 1.00€) en concepto de costes de pasarela y gestión.',
+                                          : 'Cancelación gratuita (>24h de antelación): Se te reembolsará el 100% del importe íntegramente a tu método de pago original sin ninguna penalización.',
                                       cancelText: 'Mantener',
                                       confirmText: 'Cancelar Reserva',
                                       isDestructive: true,
@@ -759,16 +762,30 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             if (isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate) ...[
                               Padding(
                                 padding: const EdgeInsets.only(top: 10.0),
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _repeatBookingNextWeek(context, b),
-                                    icon: const Icon(Icons.repeat_rounded, size: 18, color: AppTheme.primary),
-                                    label: const Text(
-                                      '🔄 Repetir mismo horario la próxima semana',
-                                      style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => _repeatBookingNextWeek(context, b),
+                                        icon: const Icon(Icons.repeat_rounded, size: 17, color: AppTheme.primary),
+                                        label: const Text(
+                                          '🔄 Repetir semana',
+                                          style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
+                                        ),
+                                      ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => _showLegalReceiptDialog(context, b),
+                                        icon: const Icon(Icons.receipt_long_rounded, size: 17, color: AppTheme.darkSlate),
+                                        label: const Text(
+                                          '🧾 Justificante Legal',
+                                          style: TextStyle(color: AppTheme.darkSlate, fontWeight: FontWeight.bold, fontSize: 12.5),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                               if (b.tipAmount == 0 && b.isReviewed)
@@ -787,6 +804,25 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                   ),
                                 ),
                             ],
+                            if (isClient && (b.status == BookingStatus.cancelled || b.status == BookingStatus.cancelledLate))
+                              Padding(
+                                padding: const EdgeInsets.only(top: 10.0),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _findUrgentSubstitute(context),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.orange.shade900,
+                                      side: BorderSide(color: Colors.orange.shade400),
+                                    ),
+                                    icon: const Icon(Icons.flash_on_rounded, size: 18),
+                                    label: const Text(
+                                      '🚨 Buscar sustituto urgente disponible hoy',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                                    ),
+                                  ),
+                                ),
+                              ),
                           
                           if (b.escrowStatus == 'disputed' && !isClient && b.disputeEscalated != true)
                             Padding(
@@ -1889,6 +1925,115 @@ class _BookingsScreenState extends State<BookingsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _findUrgentSubstitute(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    try {
+      final caregiverNotifier = context.read<CaregiverNotifier>();
+      caregiverNotifier.resetFilters();
+      caregiverNotifier.setSortOption(CaregiverSortOption.distanceAsc);
+    } catch (_) {}
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('🚨 Sustitución Urgente (Más Cercanos)'),
+          ),
+          body: const ExplorerScreen(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLegalReceiptDialog(BuildContext context, Booking b) async {
+    HapticFeedback.selectionClick();
+    final profile = await _getClientProfile(b.clientId);
+    if (!context.mounted) return;
+    final receiptNumber = 'SC-${b.day.replaceAll("-", "")}-${b.id.substring(0, b.id.length > 5 ? 5 : b.id.length).toUpperCase()}';
+    final receiptText = '🧾 JUSTIFICANTE OFICIAL DE SERVICIO ASISTENCIAL — SENICARE\n'
+        'Nº Justificante: $receiptNumber\n'
+        'Plataforma: SeniCare Asistencia Domiciliaria S.L. (Directiva Europea DAC7 / RGPD Art. 9)\n'
+        '────────────────────────────────────────\n'
+        'Titular / Familia: ${profile?.name ?? b.clientId}\n'
+        'Domicilio: ${profile?.homeAddress.isNotEmpty == true ? profile!.homeAddress : "Registrado en cuenta"}\n'
+        'Profesional Sociosanitario: ${b.caregiverName} (ID: ${b.caregiverId})\n'
+        'Fecha y Horario: ${_formatDay(b.day)} (${b.slot})\n'
+        '────────────────────────────────────────\n'
+        'Honorarios Asistenciales: ${b.cost.toStringAsFixed(2)} €\n'
+        'Gestión, Seguro RC y Cobertura (3%): ${b.clientFee.toStringAsFixed(2)} €\n'
+        '${b.tipAmount > 0 ? "Propina voluntaria (100% cuidador): ${b.tipAmount.toStringAsFixed(2)} €\n" : ""}'
+        'TOTAL ABONADO: ${(b.totalPaid + b.tipAmount).toStringAsFixed(2)} €\n'
+        'Ref. Transacción Stripe Escrow: ${b.paymentIntentId ?? "Verificada"}\n'
+        'Estado: Servicio prestado y verificado en domicilio.';
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: const Row(
+          children: [
+            Icon(Icons.receipt_long_rounded, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Justificante Oficial de Gasto',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Válido como comprobante para ayudas a la Ley de Dependencia, seguros privados de salud o deducciones autonómicas:',
+                style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.backgroundNeutral,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: Text(
+                  receiptText,
+                  style: const TextStyle(fontSize: 11.5, height: 1.45, fontFamily: 'monospace'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: receiptText));
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (context.mounted) {
+                CustomSnackBar.show(
+                  context,
+                  message: '🧾 Justificante oficial copiado al portapapeles para guardar o imprimir.',
+                  type: SnackBarType.success,
+                );
+              }
+            },
+            icon: const Icon(Icons.copy_rounded, size: 17),
+            label: const Text('Copiar / Descargar'),
+          ),
+        ],
       ),
     );
   }

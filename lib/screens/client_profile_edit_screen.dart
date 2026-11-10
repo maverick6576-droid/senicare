@@ -60,6 +60,7 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     await DependencyInjection.clients.updateClient(userId, {
       'defaultCareChecklist': _defaultChecklist,
       'authorizedFamilyEmails': _authorizedFamilyEmails,
+      'patientDetails': _patientDetailsCtrl.text.trim(),
     });
     auth.currentClient = await DependencyInjection.clients.getClient(userId);
     auth.forceRefresh();
@@ -299,7 +300,9 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                             style: TextStyle(fontSize: 16, color: Colors.grey.shade800, height: 1.4),
                           ),
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 16),
+                        _buildSeniorPreferencesQuickCard(),
+                        const SizedBox(height: 24),
                         _buildFamilyDefaultChecklistCard(),
                         const SizedBox(height: 24),
                         _buildSharedFamilyAccountCard(),
@@ -499,16 +502,90 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                       _newFamilyEmailCtrl.clear();
                     });
                     _saveFamilyListsQuickly();
-                    CustomSnackBar.show(
-                      context,
-                      message: 'Familiar autorizado correctamente.',
-                      type: SnackBarType.success,
-                    );
-                  }
-                },
-                child: const Text('Invitar'),
+                        CustomSnackBar.show(
+                          context,
+                          message: 'Familiar autorizado correctamente.',
+                        );
+                      }
+                    },
+                    child: const Text('Invitar'),
+                  ),
+                ],
               ),
             ],
+          ),
+        );
+      }
+
+  Widget _buildSeniorPreferencesQuickCard() {
+    const preferenceChips = [
+      '🥗 Dieta baja en sal',
+      '🥗 Dieta para diabéticos',
+      '🍲 Textura blanda / triturada',
+      '🚶 Usa bastón o andador',
+      '♿ Silla de ruedas',
+      '🩺 Control de tensión arterial',
+      '🎵 Le gusta la música y conversar',
+      '🌳 Disfruta paseando al aire libre',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.amber.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.medical_information_rounded, color: Colors.amber.shade900, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '🩺 Etiquetas Rápidas de Salud y Preferencias',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.amber.shade900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Toca para añadir o quitar pautas rápidas a la Ficha del Paciente que verá tu cuidador antes de llegar:',
+            style: TextStyle(fontSize: 12, color: AppTheme.slateMuted),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: preferenceChips.map((chip) {
+              final isPresent = _patientDetailsCtrl.text.contains(chip);
+              return FilterChip(
+                label: Text(chip, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                selected: isPresent,
+                backgroundColor: Colors.white,
+                selectedColor: Colors.amber.shade200,
+                checkmarkColor: Colors.amber.shade900,
+                onSelected: (selected) {
+                  HapticFeedback.selectionClick();
+                  setState(() {
+                    String current = _patientDetailsCtrl.text.trim();
+                    if (selected) {
+                      _patientDetailsCtrl.text = current.isEmpty ? chip : '$current • $chip';
+                    } else {
+                      _patientDetailsCtrl.text = current
+                          .replaceAll(' • $chip', '')
+                          .replaceAll('$chip • ', '')
+                          .replaceAll(chip, '')
+                          .trim();
+                    }
+                  });
+                  _saveFamilyListsQuickly();
+                },
+              );
+            }).toList(),
           ),
         ],
       ),

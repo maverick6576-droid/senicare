@@ -98,12 +98,21 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)),
-                child: const Row(
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Row(
                   children: [
-                    Icon(Icons.flash_on, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('⚡ Esta oferta es urgente (<24h). Los cuidadores recibirán un bonus de urgencia, haciéndola muy atractiva.', style: TextStyle(color: Colors.orange))),
+                    Icon(Icons.flash_on_rounded, color: Colors.orange.shade800),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '⚡ Oferta urgente (<24h): SeniCare rebaja un 10% su comisión al cuidador para que recibas candidatos mucho más rápido (sin coste extra para ti).',
+                        style: TextStyle(color: Colors.orange.shade900, fontSize: 12.5, fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -192,12 +201,37 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
               ),
             ],
             */
-            const SizedBox(height: 32),
-            FilledButton(
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppTheme.primarySurface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.verified_user_rounded, color: AppTheme.primary, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Publicar tu oferta es 100% gratuito y sin compromiso. Solo abonarás el servicio (con cobertura de Seguro RC y pago protegido en Escrow) cuando elijas y contrates al candidato que más te guste.',
+                      style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate, height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
               onPressed: context.watch<JobOfferNotifier>().isCreating ? null : _submit,
-              child: context.watch<JobOfferNotifier>().isCreating
+              icon: context.watch<JobOfferNotifier>().isCreating
+                  ? const SizedBox.shrink()
+                  : const Icon(Icons.campaign_rounded, size: 20),
+              label: context.watch<JobOfferNotifier>().isCreating
                   ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('Publicar Oferta (3% Gestión y Seguro)'),
+                  : const Text('Publicar Oferta Gratis'),
             )
           ],
         ),

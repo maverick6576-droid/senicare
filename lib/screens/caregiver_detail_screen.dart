@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,12 +23,49 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   List<Review> _reviews = [];
   bool _isLoading = false;
   bool _isLoadingReviews = false;
+  bool _isPlayingVoiceIntro = false;
+  double _voiceIntroProgress = 0.0;
+  Timer? _voiceIntroTimer;
 
   @override
   void initState() {
     super.initState();
     _loadSlots();
     _loadReviews();
+  }
+
+  @override
+  void dispose() {
+    _voiceIntroTimer?.cancel();
+    super.dispose();
+  }
+
+  void _toggleVoiceIntro() {
+    HapticFeedback.selectionClick();
+    if (_isPlayingVoiceIntro) {
+      _voiceIntroTimer?.cancel();
+      setState(() => _isPlayingVoiceIntro = false);
+      return;
+    }
+    setState(() {
+      _isPlayingVoiceIntro = true;
+      if (_voiceIntroProgress >= 1.0) _voiceIntroProgress = 0.0;
+    });
+    _voiceIntroTimer?.cancel();
+    _voiceIntroTimer = Timer.periodic(const Duration(milliseconds: 240), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _voiceIntroProgress += 0.04;
+        if (_voiceIntroProgress >= 1.0) {
+          _voiceIntroProgress = 1.0;
+          _isPlayingVoiceIntro = false;
+          timer.cancel();
+        }
+      });
+    });
   }
 
   bool _hasMoreReviews = true;
@@ -293,6 +331,69 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          InkWell(
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: _toggleVoiceIntro,
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primary,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                _isPlayingVoiceIntro ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '🎙️ Presentación en voz de ${c.name.split(" ").first} (0:24)',
+                                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppTheme.darkSlate),
+                                ),
+                                const SizedBox(height: 6),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: LinearProgressIndicator(
+                                    value: _voiceIntroProgress,
+                                    minHeight: 6,
+                                    backgroundColor: AppTheme.primarySurface,
+                                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_isPlayingVoiceIntro || _voiceIntroProgress > 0) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          '"Hola, soy ${c.name.split(" ").first}. Cuento con amplia experiencia en ${c.specialties.isNotEmpty ? c.specialties.take(2).join(" y ") : "cuidado de personas mayores"} con trato cercano, puntualidad y cariño..."',
+                          style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppTheme.slateMuted),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 18),
                 Text('Sobre mí', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
@@ -303,6 +404,27 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                 const Text(
                   '1. Elige el día en el calendario  →  2. Toca las horas que necesitas  →  3. Pulsa Reservar',
                   style: TextStyle(fontSize: 13, color: AppTheme.primary, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.secondaryColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.secondaryColor.withValues(alpha: 0.3)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Text('📦', style: TextStyle(fontSize: 16)),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Bono Ahorro Familiar: 5% de descuento directo al seleccionar 4 o más horas.',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Container(

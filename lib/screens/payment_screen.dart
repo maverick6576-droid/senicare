@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 import 'package:senicare/core/core.dart';
@@ -23,6 +24,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _isLoading = true;
   bool _isProcessingPayment = false;
   int _accumulatedHours = 0;
+  bool _applyPackDiscount = false;
   List<String> _customChecklist = [];
   final TextEditingController _taskCtrl = TextEditingController();
 
@@ -34,6 +36,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     super.initState();
     final client = context.read<AuthNotifier>().currentClient;
     _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
+    _applyPackDiscount = widget.slots.length >= 4;
     _loadStats();
   }
 
@@ -117,7 +120,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final double caregiverCommissionRate =
         FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
     final int totalHours = widget.slots.length;
-    final double baseCost = widget.caregiver.pricePerHour * totalHours;
+    final double discountMultiplier = _applyPackDiscount ? 0.95 : 1.0;
+    final double baseCost = widget.caregiver.pricePerHour * totalHours * discountMultiplier;
     final double total = baseCost * 1.03;
 
     _safeSetState(() => _isProcessingPayment = true);
@@ -274,7 +278,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         final slotRangeStr = '$startTimeStr-$endTimeStr';
 
         final groupHours = group.length;
-        final groupCost = widget.caregiver.pricePerHour * groupHours;
+        final groupCost = widget.caregiver.pricePerHour * groupHours * discountMultiplier;
         final groupClientFee = groupCost * 0.03;
         final groupTotalPaid = groupCost + groupClientFee;
         final groupCommission = groupCost * caregiverCommissionRate;
@@ -346,31 +350,178 @@ class _PaymentScreenState extends State<PaymentScreen> {
           }
         }
         _createdBookingIds.clear();
-        _showSnackBar(
-          scaffoldMessenger,
-          '✅ Pago protegido recibido. Solicitud enviada al cuidador para su confirmación.',
-          Colors.green,
-        );
+        if (mounted) {
+          HapticFeedback.heavyImpact();
+          await _showBookingSuccessModal(context, total, generatedPin);
+        }
         navigator.popUntil((route) => route.isFirst);
 
       case 'cancelled':
         // User dismissed the sheet — roll back so they can try again
         await _rollback();
-        _showSnackBar(
-          scaffoldMessenger,
-          'Pago cancelado. Puedes intentarlo de nuevo cuando quieras.',
-          Colors.orange,
-        );
+        if (mounted) {
+          CustomDialog.showError(
+            context,
+            title: 'Pago no completado',
+            message: 'Has cerrado la pasarela de pago. Tu reserva no se ha cobrado. Puedes volver a intentarlo con tarjeta o en 1 toque con Apple Pay / Google Pay.',
+          );
+        }
 
       default:
         // Payment failed — roll back so they can retry with different card
         await _rollback();
-        _showSnackBar(
-          scaffoldMessenger,
-          'El pago ha fallado. Verifica tus datos de tarjeta e inténtalo de nuevo.',
-          Colors.red,
-        );
+        if (mounted) {
+          CustomDialog.showError(
+            context,
+            title: 'Operación denegada por el banco',
+            message: 'No se ha podido completar el cargo o la verificación 3D Secure. Revisa los datos de tu tarjeta o utiliza Apple Pay / Google Pay.',
+          );
+        }
     }
+  }
+
+  Future<void> _showBookingSuccessModal(BuildContext context, double totalPaid, String pin) async {
+    final dateFormatted = DateFormat('dd/MM/yyyy').format(DateTime.parse(widget.dateString));
+    final hoursStr = widget.slots
+        .map((s) => '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
+        .join(', ');
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        contentPadding: const EdgeInsets.all(22),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.elasticOut,
+              builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.secondaryColor.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.verified_rounded, color: AppTheme.secondaryColor, size: 48),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              '¡Reserva Solicitada con Éxito!',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Tu pago de ${totalPaid.toStringAsFixed(2)} € está protegido en custodia bancaria (Stripe Escrow). Solo se liberará a ${widget.caregiver.name} tras realizar el cuidado.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppTheme.primarySurface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    '🔑 CÓDIGO PIN DE ENTRADA AL DOMICILIO',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.primary),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    pin,
+                    style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 6, color: AppTheme.darkSlate),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Entrégaselo al cuidador cuando llegue a casa',
+                    style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final text = '✅ Reserva en SeniCare con ${widget.caregiver.name}\n'
+                      '📅 Fecha: $dateFormatted ($hoursStr)\n'
+                      '🔑 Código PIN de llegada: $pin\n'
+                      '🛡️ Pago protegido en garantía: ${totalPaid.toStringAsFixed(2)} €';
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (ctx.mounted) {
+                    CustomSnackBar.show(ctx, message: '📋 Recibo y PIN copiados para enviar por WhatsApp a tu familia.', type: SnackBarType.success);
+                  }
+                },
+                icon: const Icon(Icons.share_rounded, size: 17),
+                label: const Text('Compartir recibo y PIN por WhatsApp'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Finalizar e ir al Inicio'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showManagementFeeSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.shield_rounded, color: AppTheme.primary, size: 24),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '¿Qué incluye el 3% de Gestión y Cobertura?',
+                    style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text('• 🛡️ Seguro de Responsabilidad Civil hasta 500.000€ durante toda la estancia en el domicilio.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+            const SizedBox(height: 8),
+            const Text('• 🔐 Custodia Bancaria Stripe Escrow: tu dinero no se transfiere al cuidador hasta que se verifica su llegada con PIN/QR.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+            const SizedBox(height: 8),
+            const Text('• 🎧 Soporte prioritario, sustitución urgente y mediación familiar 7 días a la semana.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendido'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -388,7 +539,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
 
     final int totalHours = widget.slots.length;
-    final double baseCost = widget.caregiver.pricePerHour * totalHours;
+    final double rawBaseCost = widget.caregiver.pricePerHour * totalHours;
+    final double packDiscountAmount = _applyPackDiscount ? rawBaseCost * 0.05 : 0.0;
+    final double baseCost = rawBaseCost - packDiscountAmount;
     final double clientFee = baseCost * 0.03;
     final double total = baseCost + clientFee;
 
@@ -398,7 +551,53 @@ class _PaymentScreenState extends State<PaymentScreen> {
         padding: EdgeInsets.all(seniorMode ? 24 : 16),
         children: [
           Text('Resumen de Reserva', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _applyPackDiscount
+                  ? AppTheme.secondaryColor.withValues(alpha: 0.12)
+                  : AppTheme.backgroundNeutral,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _applyPackDiscount
+                    ? AppTheme.secondaryColor.withValues(alpha: 0.4)
+                    : AppTheme.borderSubtle,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Text('📦', style: TextStyle(fontSize: 20)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Bono Familiar Multi-Sesión (-5% dto.)',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.darkSlate),
+                      ),
+                      Text(
+                        _applyPackDiscount
+                            ? 'Ahorras ${currencyFormat.format(packDiscountAmount)} en esta reserva por planificar tu cuidado'
+                            : 'Activa el pack familiar semanal para ahorrar un 5% en los honorarios',
+                        style: const TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _applyPackDiscount,
+                  activeThumbColor: AppTheme.secondaryColor,
+                  onChanged: (val) {
+                    HapticFeedback.selectionClick();
+                    setState(() => _applyPackDiscount = val);
+                  },
+                ),
+              ],
+            ),
+          ),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -465,18 +664,46 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Costo Base:'),
-                      Text(currencyFormat.format(baseCost)),
+                      const Text('Honorarios del cuidador:'),
+                      Text(currencyFormat.format(rawBaseCost)),
                     ],
                   ),
+                  if (_applyPackDiscount) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          '📦 Descuento Bono Familiar (-5%):',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
+                        ),
+                        Text(
+                          '-${currencyFormat.format(packDiscountAmount)}',
+                          style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.secondaryColor),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Flexible(
-                        child: Text(
-                          '3% Comisión de Gestión y Cobertura:',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                      Flexible(
+                        child: InkWell(
+                          onTap: () => _showManagementFeeSheet(context),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  '3% Comisión de Gestión y Cobertura:',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                                ),
+                              ),
+                              SizedBox(width: 4),
+                              Icon(Icons.info_outline_rounded, size: 16, color: AppTheme.primary),
+                            ],
+                          ),
                         ),
                       ),
                       Text(currencyFormat.format(clientFee),
