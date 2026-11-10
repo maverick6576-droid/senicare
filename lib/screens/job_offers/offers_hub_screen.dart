@@ -228,9 +228,25 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
                 itemCount: offers.length,
                 itemBuilder: (context, index) {
                   final offer = offers[index];
+                  final auth = context.read<AuthNotifier>();
+                  final location = context.read<LocationNotifier>();
+                  final caregiverLat = auth.currentCaregiver?.latitude ?? location.latitude;
+                  final caregiverLng = auth.currentCaregiver?.longitude ?? location.longitude;
+                  String? distBadge;
+                  if (caregiverLat != null && caregiverLng != null) {
+                    final km = calculateDistance(
+                      caregiverLat,
+                      caregiverLng,
+                      offer.clientLatitude,
+                      offer.clientLongitude,
+                    );
+                    distBadge = '📍 A ${km.toStringAsFixed(1)} km de ti';
+                  }
+
                   return Card(
                     margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: InkWell(
+                      borderRadius: BorderRadius.circular(22),
                       onTap: () {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => OfferDetailScreen(offer: offer)));
                       },
@@ -239,13 +255,35 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (offer.isUrgent)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(4)),
-                                child: const Text('⏰ URGENTE (+10%)', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                              ),
-                            if (offer.isUrgent) const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                if (offer.isUrgent)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(6)),
+                                    child: const Text('⏰ URGENTE (+10%)', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ),
+                                if (distBadge != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primarySurface,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      distBadge,
+                                      style: const TextStyle(
+                                        color: AppTheme.primary,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            if (offer.isUrgent || distBadge != null) const SizedBox(height: 8),
                             Text(
                               'Familia: ${offer.clientName.trim().split(RegExp(r'\s+')).length > 1 ? offer.clientName.trim().split(RegExp(r'\s+'))[1] : offer.clientName}',
                               style: const TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),

@@ -19,6 +19,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
   double _empathy = 5.0;
   double _communication = 5.0;
   double _hygiene = 5.0;
+  double _selectedTip = 0.0;
   final TextEditingController _commentController = TextEditingController();
   bool _isSubmitting = false;
 
@@ -137,6 +138,63 @@ class _ReviewDialogState extends State<ReviewDialog> {
               _hygiene,
               (v) => setState(() => _hygiene = v),
             ),
+            if (overall >= 4.0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.volunteer_activism_rounded, color: AppTheme.primary, size: 18),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '¿Añadir una propina de agradecimiento?',
+                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.darkSlate),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'El 100% de la propina va íntegra para el cuidador sin comisión.',
+                      style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [0.0, 2.0, 5.0, 10.0].map((amount) {
+                        final isSelected = _selectedTip == amount;
+                        final label = amount == 0.0 ? 'Sin propina' : '☕ +${amount.toInt()} €';
+                        return ChoiceChip(
+                          label: Text(label),
+                          selected: isSelected,
+                          selectedColor: AppTheme.primary.withValues(alpha: 0.2),
+                          checkmarkColor: AppTheme.primary,
+                          labelStyle: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            color: isSelected ? AppTheme.primary : AppTheme.darkSlate,
+                          ),
+                          onSelected: (_) {
+                            HapticFeedback.selectionClick();
+                            setState(() => _selectedTip = amount);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             TextField(
               controller: _commentController,
@@ -186,10 +244,17 @@ class _ReviewDialogState extends State<ReviewDialog> {
                           empathyRating: _empathy,
                           communicationRating: _communication,
                           hygieneRating: _hygiene,
+                          tipAmount: _selectedTip,
                         );
                     if (context.mounted) {
                       Navigator.pop(context);
-                      CustomSnackBar.show(context, message: '¡Reseña enviada! Gracias por ayudar a otras familias.', type: SnackBarType.success);
+                      CustomSnackBar.show(
+                        context,
+                        message: _selectedTip > 0
+                            ? '¡Reseña y propina de ${_selectedTip.toInt()}€ enviadas con éxito!'
+                            : '¡Reseña enviada! Gracias por ayudar a otras familias.',
+                        type: SnackBarType.success,
+                      );
                     }
                   } catch (e) {
                     debugPrint('Error in submitReviewForBookings: $e');

@@ -21,8 +21,8 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
   DateTime _startDate = DateTime.now().add(const Duration(days: 1));
   TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
   
-  bool _isRecurring = false;
-  int _recurringWeeks = 1;
+  final bool _isRecurring = false;
+  final int _recurringWeeks = 1;
   final List<bool> _recurringDays = List.filled(7, false); // Mon-Sun
   
   bool get _isUrgent {
@@ -195,7 +195,9 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
             const SizedBox(height: 32),
             FilledButton(
               onPressed: context.watch<JobOfferNotifier>().isCreating ? null : _submit,
-              child: context.watch<JobOfferNotifier>().isCreating ? const CircularProgressIndicator(color: Colors.white) : const Text('Publicar Oferta (Comisión 5%)'),
+              child: context.watch<JobOfferNotifier>().isCreating
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Publicar Oferta (3% Gestión y Seguro)'),
             )
           ],
         ),

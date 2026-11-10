@@ -2,6 +2,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:senicare/models/models.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/screens/screens.dart';
 import 'package:senicare/widgets/widgets.dart';
@@ -155,6 +156,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             }).toList();
 
             final servicesCount = completedBookings.length;
+            final totalTips = caregiverBookings.fold(0.0, (sum, b) => sum + b.tipAmount);
             final totalIncome = completedBookings.fold(0.0, (sum, b) {
               double payout = b.caregiverPayout;
               if (payout <= 0 && b.cost > 0) {
@@ -164,7 +166,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                   payout = b.cost * 0.85; // 15% comisión por defecto si payout es 0 en datos antiguos/mock
                 }
               }
-              return sum + payout;
+              return sum + payout + b.tipAmount;
             });
 
             final pendingBookings = caregiverBookings.where((b) {
@@ -193,6 +195,29 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     Expanded(child: StatCard(title: 'Realizado', value: servicesCount.toString(), icon: Icons.check_circle, color: Colors.blue)),
                   ],
                 ),
+                if (totalTips > 0) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        const Text('☕', style: TextStyle(fontSize: 16)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Propinas de agradecimiento recibidas (100% íntegras para ti): +${totalTips.toStringAsFixed(0)} €',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.amber.shade900),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 24),
                 const Text('Próximo Servicio', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
@@ -201,6 +226,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 else
                   Card(
                     color: AppTheme.primary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
@@ -213,11 +239,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                 child: Builder(builder: (context) {
                                   try {
                                     final date = DateTime.parse(nextService.day);
-                                    return Text('${DateFormat('dd/MM/yyyy').format(date)}, ${nextService.slot}', style: const TextStyle(color: Colors.white70), overflow: TextOverflow.ellipsis);
+                                    return Text('${DateFormat('dd/MM/yyyy').format(date)}, ${nextService.slot}', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis);
                                   } catch (e) {
                                     final p = nextService.day.split('-');
                                     final fallback = p.length == 3 ? '${p[2]}/${p[1]}/${p[0]}' : nextService.day;
-                                    return Text('$fallback, ${nextService.slot}', style: const TextStyle(color: Colors.white70), overflow: TextOverflow.ellipsis);
+                                    return Text('$fallback, ${nextService.slot}', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis);
                                   }
                                 }),
                               ),
@@ -229,21 +255,124 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                           FutureBuilder<ClientProfile?>(
                             future: DependencyInjection.clients.getClient(nextService.clientId),
                             builder: (context, snapshot) {
-                              final clientName = snapshot.data?.name ?? '';
+                              final profile = snapshot.data;
+                              final clientName = profile?.name ?? '';
                               final nameParts = clientName.trim().split(RegExp(r'\s+'));
                               final surname = nameParts.length > 1 ? nameParts[1] : clientName;
                               final displayName = surname.isNotEmpty ? surname : nextService.clientId.substring(0, min(5, nextService.clientId.length));
-                              return Text('Servicio - Familia: $displayName', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold));
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Servicio - Familia: $displayName', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                                  if (profile != null && (profile.patientDetails.isNotEmpty || profile.homeAddress.isNotEmpty)) ...[
+                                    const SizedBox(height: 10),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.14),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Row(
+                                            children: [
+                                              Icon(Icons.medical_information_rounded, color: Colors.white, size: 16),
+                                              SizedBox(width: 6),
+                                              Text(
+                                                '🩺 Ficha Rápida del Paciente',
+                                                style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w800),
+                                              ),
+                                            ],
+                                          ),
+                                          if (profile.homeAddress.isNotEmpty) ...[
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              '📍 Domicilio: ${profile.homeAddress}',
+                                              style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                          if (profile.patientDetails.isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '📋 Pautas: ${profile.patientDetails}',
+                                              style: const TextStyle(color: Colors.white, fontSize: 12.5),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              );
                             },
                           ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: () {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => ScannerScreen(booking: nextService)));
-                            },
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppTheme.primary),
-                            child: const Text('Fichar Llegada'),
-                          )
+                          const SizedBox(height: 14),
+                          if (nextService.liveStatus != 'on_the_way') ...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  HapticFeedback.mediumImpact();
+                                  await bookingState.markOnTheWay(nextService.id);
+                                  if (context.mounted) {
+                                    CustomSnackBar.show(
+                                      context,
+                                      message: '🚗 La familia ha recibido el aviso de que estás en camino.',
+                                      type: SnackBarType.success,
+                                    );
+                                  }
+                                },
+                                icon: const Icon(Icons.directions_car_rounded, size: 18, color: Colors.white),
+                                label: const Text('🚗 Avisar a la familia: Estoy en camino'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white70, width: 1.5),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ] else ...[
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade800,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.directions_car_rounded, color: Colors.white, size: 16),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '🚗 Familia avisada: Estás en camino al domicilio',
+                                      style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.push(context, MaterialPageRoute(builder: (_) => ScannerScreen(booking: nextService)));
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: AppTheme.primary,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                              label: const Text('Fichar Llegada (QR / PIN)', style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                          ),
                         ],
                       ),
                     ),

@@ -72,6 +72,7 @@ class Booking {
   List<String> carePhotoUrls;
   String liveStatus;
   DateTime? onTheWayAt;
+  double tipAmount;
 
   bool get isExpired {
     try {
@@ -140,6 +141,7 @@ class Booking {
     List<String>? carePhotoUrls,
     this.liveStatus = 'scheduled',
     this.onTheWayAt,
+    this.tipAmount = 0.0,
   })  : createdAt = createdAt ?? DateTime.now(),
         careChecklist = careChecklist ?? [],
         carePhotoUrls = carePhotoUrls ?? [];
@@ -200,6 +202,7 @@ class Booking {
         onTheWayAt: (data['onTheWayAt'] != null && data['onTheWayAt'] is Timestamp)
             ? (data['onTheWayAt'] as Timestamp).toDate()
             : null,
+        tipAmount: (data['tipAmount'] as num?)?.toDouble() ?? 0.0,
       );
     } catch (e) {
       debugPrint('Error parsing Booking ${doc.id}: $e');
@@ -256,6 +259,7 @@ class Booking {
       'carePhotoUrls': carePhotoUrls,
       'liveStatus': liveStatus,
       if (onTheWayAt != null) 'onTheWayAt': Timestamp.fromDate(onTheWayAt!),
+      if (tipAmount > 0) 'tipAmount': tipAmount,
     };
   }
 }

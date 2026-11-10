@@ -193,6 +193,23 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                           ],
                         ),
                       ),
+                    if (c.hasOfficialCertification)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
+                        ),
+                        child: Text(
+                          '🎓 Certificación Sociosanitaria Verificada',
+                          style: TextStyle(
+                            color: Colors.indigo.shade700,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 10),

@@ -190,7 +190,27 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                       children: [
                         Row(
                           children: [
-                            CircleAvatar(backgroundImage: CachedNetworkImageProvider(app.caregiverImageUrl)),
+                            ClipOval(
+                              child: app.caregiverImageUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: app.caregiverImageUrl,
+                                      width: 42,
+                                      height: 42,
+                                      fit: BoxFit.cover,
+                                      errorWidget: (_, _, _) => Container(
+                                        width: 42,
+                                        height: 42,
+                                        color: AppTheme.primarySurface,
+                                        child: const Icon(Icons.person, color: AppTheme.primary),
+                                      ),
+                                    )
+                                  : Container(
+                                      width: 42,
+                                      height: 42,
+                                      color: AppTheme.primarySurface,
+                                      child: const Icon(Icons.person, color: AppTheme.primary),
+                                    ),
+                            ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(

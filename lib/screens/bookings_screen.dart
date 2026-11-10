@@ -378,6 +378,85 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             Text('${b.totalPaid.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primary)),
                           ],
                         ),
+                        if (b.tipAmount > 0) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.amber.shade300),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('☕', style: TextStyle(fontSize: 14)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Propina de agradecimiento: +${b.tipAmount.toStringAsFixed(0)} € (100% íntegra)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.amber.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (!isClient && isActiveTab && b.status == BookingStatus.confirmed)
+                          FutureBuilder<ClientProfile?>(
+                            future: _getClientProfile(b.clientId),
+                            builder: (context, snap) {
+                              final profile = snap.data;
+                              if (profile == null || (profile.patientDetails.isEmpty && profile.homeAddress.isEmpty)) {
+                                return const SizedBox.shrink();
+                              }
+                              return Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(top: 12),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.amber.shade300),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(Icons.medical_information_rounded, size: 17, color: Colors.amber.shade900),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          '🩺 Ficha Rápida del Paciente',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.amber.shade900,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (profile.homeAddress.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '📍 Domicilio: ${profile.homeAddress}',
+                                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.darkSlate),
+                                      ),
+                                    ],
+                                    if (profile.patientDetails.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '📋 Indicaciones: ${profile.patientDetails}',
+                                        style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
 
                         if (b.status == BookingStatus.confirmed || b.status == BookingStatus.completed) ...[
                           const SizedBox(height: 14),
@@ -417,6 +496,20 @@ class _BookingsScreenState extends State<BookingsScreen> {
                               ],
                               if (b.status == BookingStatus.confirmed) ...[
                                 const SizedBox(width: 8),
+                                IconButton(
+                                  onPressed: () => _addToGoogleCalendar(context, b, isClient),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: AppTheme.primarySurface,
+                                    foregroundColor: AppTheme.primary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
+                                    ),
+                                  ),
+                                  tooltip: 'Añadir a Google Calendar / Agenda',
+                                  icon: const Icon(Icons.event_available_rounded, size: 20),
+                                ),
+                                const SizedBox(width: 6),
                                 IconButton(
                                   onPressed: () => _showSosQuickContactModal(context, b, isClient),
                                   style: IconButton.styleFrom(
@@ -663,6 +756,37 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                 ),
                               ),
                             ),
+                            if (isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(top: 10.0),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _repeatBookingNextWeek(context, b),
+                                    icon: const Icon(Icons.repeat_rounded, size: 18, color: AppTheme.primary),
+                                    label: const Text(
+                                      '🔄 Repetir mismo horario la próxima semana',
+                                      style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (b.tipAmount == 0 && b.isReviewed)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0),
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: TextButton.icon(
+                                      onPressed: () => _showQuickTipDialog(context, b, state),
+                                      icon: const Text('☕', style: TextStyle(fontSize: 16)),
+                                      label: const Text(
+                                        'Enviar propina de agradecimiento (100% para el cuidador)',
+                                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           
                           if (b.escrowStatus == 'disputed' && !isClient && b.disputeEscalated != true)
                             Padding(
@@ -997,6 +1121,71 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 : 'Toca cada tarea creada por la familia cuando la completes para registrar la hora exacta.',
             style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted),
           ),
+          if (b.onTheWayAt != null || b.checkInTime != null || completedCount > 0 || b.careNotes.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.secondaryColor.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.timeline_rounded, size: 16, color: AppTheme.secondaryColor),
+                      SizedBox(width: 6),
+                      Text(
+                        '🕒 Cronología en Tiempo Real (Modo Tranquilidad)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.secondaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  if (b.onTheWayAt != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        '🚗 ${b.onTheWayAt!.hour.toString().padLeft(2, '0')}:${b.onTheWayAt!.minute.toString().padLeft(2, '0')} — Salida hacia el domicilio',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.darkSlate),
+                      ),
+                    ),
+                  if (b.checkInTime != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        '📍 ${b.checkInTime!.hour.toString().padLeft(2, '0')}:${b.checkInTime!.minute.toString().padLeft(2, '0')} — Entrada verificada en casa (GPS / PIN)',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
+                      ),
+                    ),
+                  ...b.careChecklist.where((t) => t.completed).map(
+                    (t) => Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        '✓ ${t.completedAt ?? 'Hecho'} — ${t.title}',
+                        style: const TextStyle(fontSize: 12, color: AppTheme.darkSlate),
+                      ),
+                    ),
+                  ),
+                  if (b.careNotes.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '📝 Parte registrado: "${b.careNotes}"',
+                        style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppTheme.slateMuted),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           if (b.careChecklist.isEmpty)
             Padding(
@@ -1323,10 +1512,14 @@ class _BookingsScreenState extends State<BookingsScreen> {
     HapticFeedback.mediumImpact();
     final completed = b.careChecklist.where((t) => t.completed).length;
     final total = b.careChecklist.length;
+    final pinLine = (b.checkInTime == null && (b.bookingPin?.isNotEmpty ?? false))
+        ? '🔑 Código PIN de entrada (si recibes al cuidador en casa): ${b.bookingPin}\n'
+        : '';
     final summaryText = '🛡️ Seguimiento SeniCare en Tiempo Real\n'
         '👩‍⚕️ Cuidador/a: ${b.caregiverName}\n'
         '📅 Fecha: ${_formatDay(b.day)} (${b.slot})\n'
         '📍 Estado: ${_getStatusText(b)}\n'
+        '$pinLine'
         '📋 Checklist familiar: $completed de $total tareas completadas\n'
         '${b.careNotes.isNotEmpty ? "📝 Parte del día: ${b.careNotes}\n" : ""}'
         '🔗 Ver en vivo: https://senicare-3342d.web.app/#/tracking/${b.id}';
@@ -1487,6 +1680,214 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addToGoogleCalendar(BuildContext context, Booking b, bool isClient) async {
+    HapticFeedback.selectionClick();
+    try {
+      final dayParts = b.day.split('-');
+      final year = int.parse(dayParts[0]);
+      final month = int.parse(dayParts[1]);
+      final day = int.parse(dayParts[2]);
+
+      int startHour = 9, startMin = 0, endHour = 11, endMin = 0;
+      if (b.slot.contains('-')) {
+        final parts = b.slot.split('-');
+        final sp = parts[0].split(':');
+        final ep = parts[1].split(':');
+        startHour = int.parse(sp[0]);
+        startMin = int.parse(sp[1]);
+        endHour = int.parse(ep[0]);
+        endMin = int.parse(ep[1]);
+      } else if (b.slot.contains(':')) {
+        final sp = b.slot.split(':');
+        startHour = int.parse(sp[0]);
+        startMin = int.parse(sp[1]);
+        endHour = (startHour + 1).clamp(0, 23);
+      }
+
+      final startDt = DateTime(year, month, day, startHour, startMin);
+      final endDt = DateTime(year, month, day, endHour, endMin);
+      String fmt(DateTime dt) =>
+          '${dt.year}${dt.month.toString().padLeft(2, '0')}${dt.day.toString().padLeft(2, '0')}T${dt.hour.toString().padLeft(2, '0')}${dt.minute.toString().padLeft(2, '0')}00';
+
+      final title = Uri.encodeComponent(
+        isClient
+            ? 'SeniCare: Cuidado con ${b.caregiverName}'
+            : 'SeniCare: Servicio a domicilio (${b.slot})',
+      );
+      final details = Uri.encodeComponent(
+        'Servicio confirmado en SeniCare.\n'
+        'Horario: ${b.slot}\n'
+        '${b.bookingPin != null ? "PIN de entrada: ${b.bookingPin}\n" : ""}'
+        'Checklist familiar: ${b.careChecklist.map((t) => t.title).join(", ")}',
+      );
+      final url = Uri.parse(
+        'https://calendar.google.com/calendar/render?action=TEMPLATE&text=$title&dates=${fmt(startDt)}/${fmt(endDt)}&details=$details',
+      );
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo abrir el calendario en este dispositivo.',
+          type: SnackBarType.info,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo generar el evento de calendario: $e',
+          type: SnackBarType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _repeatBookingNextWeek(BuildContext context, Booking b) async {
+    HapticFeedback.mediumImpact();
+    try {
+      final caregiver = await DependencyInjection.caregivers.getCaregiver(b.caregiverId);
+      if (caregiver == null) {
+        if (context.mounted) {
+          CustomSnackBar.show(
+            context,
+            message: 'No se ha encontrado el perfil activo del cuidador.',
+            type: SnackBarType.error,
+          );
+        }
+        return;
+      }
+
+      DateTime baseDate;
+      try {
+        baseDate = DateFormat('yyyy-MM-dd').parse(b.day);
+      } catch (_) {
+        baseDate = DateTime.now();
+      }
+      DateTime nextDate = baseDate.add(const Duration(days: 7));
+      final now = DateTime.now();
+      while (nextDate.isBefore(DateTime(now.year, now.month, now.day + 1))) {
+        nextDate = nextDate.add(const Duration(days: 7));
+      }
+      final nextDateStr =
+          '${nextDate.year}-${nextDate.month.toString().padLeft(2, '0')}-${nextDate.day.toString().padLeft(2, '0')}';
+
+      int startHour = 10;
+      int endHour = 12;
+      if (b.slot.contains('-')) {
+        final parts = b.slot.split('-');
+        startHour = int.tryParse(parts[0].split(':')[0]) ?? 10;
+        endHour = int.tryParse(parts[1].split(':')[0]) ?? (startHour + 2);
+      } else if (b.slot.contains(':')) {
+        startHour = int.tryParse(b.slot.split(':')[0]) ?? 10;
+        endHour = startHour + 1;
+      }
+      if (endHour <= startHour) endHour = startHour + 1;
+
+      final slots = <TimeSlot>[];
+      for (int h = startHour; h < endHour; h++) {
+        slots.add(TimeSlot(
+          id: 'repeat_${nextDateStr}_$h',
+          dateTime: DateTime(nextDate.year, nextDate.month, nextDate.day, h, 0),
+        ));
+      }
+
+      if (!context.mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PaymentScreen(
+            caregiver: caregiver,
+            dateString: nextDateStr,
+            slots: slots,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Error al preparar la repetición de reserva: $e',
+          type: SnackBarType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _showQuickTipDialog(
+    BuildContext context,
+    Booking b,
+    BookingNotifier state,
+  ) async {
+    double selectedTip = 5.0;
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Text('☕', style: TextStyle(fontSize: 22)),
+              SizedBox(width: 8),
+              Expanded(child: Text('Agradecer con una propina')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'El 100% de la propina va íntegro para ${b.caregiverName}, sin ninguna comisión de plataforma.',
+                style: const TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [2.0, 5.0, 10.0].map((amount) {
+                  final isSelected = selectedTip == amount;
+                  return ChoiceChip(
+                    label: Text('+${amount.toInt()} €'),
+                    selected: isSelected,
+                    selectedColor: AppTheme.secondaryColor.withValues(alpha: 0.2),
+                    checkmarkColor: AppTheme.secondaryColor,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? AppTheme.secondaryColor : AppTheme.darkSlate,
+                    ),
+                    onSelected: (_) => setDialogState(() => selectedTip = amount),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                HapticFeedback.mediumImpact();
+                await state.addTipToBooking(b.id, selectedTip);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  CustomSnackBar.show(
+                    context,
+                    message: '☕ ¡Gracias! Has enviado +${selectedTip.toInt()} € íntegros a ${b.caregiverName}.',
+                    type: SnackBarType.success,
+                  );
+                }
+              },
+              style: FilledButton.styleFrom(backgroundColor: AppTheme.secondaryColor),
+              child: Text('Enviar +${selectedTip.toInt()} €'),
+            ),
+          ],
         ),
       ),
     );

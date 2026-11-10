@@ -85,8 +85,10 @@ class _MapScreenState extends State<MapScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Cuidadores Cercanos'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: AppTheme.borderSubtle),
+        ),
       ),
       body: Stack(
         children: [
@@ -127,8 +129,8 @@ class _MapScreenState extends State<MapScreen> {
                   ...caregivers.where((c) => c.latitude != null && c.longitude != null).map((c) {
                     return Marker(
                       point: LatLng(c.latitude!, c.longitude!),
-                      width: 50,
-                      height: 50,
+                      width: 86,
+                      height: 54,
                       child: GestureDetector(
                         onTap: () {
                           Navigator.push(
@@ -139,12 +141,64 @@ class _MapScreenState extends State<MapScreen> {
                           );
                         },
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            CircleAvatar(
-                              radius: 12,
-                              backgroundImage: CachedNetworkImageProvider(c.imageUrl),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: c.isSuperCaregiver ? Colors.amber.shade600 : AppTheme.primary,
+                                  width: 1.8,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  ClipOval(
+                                    child: c.imageUrl.isNotEmpty
+                                        ? CachedNetworkImage(
+                                            imageUrl: c.imageUrl,
+                                            width: 20,
+                                            height: 20,
+                                            fit: BoxFit.cover,
+                                            errorWidget: (_, _, _) => Container(
+                                              width: 20,
+                                              height: 20,
+                                              color: AppTheme.primarySurface,
+                                              child: const Icon(Icons.person, size: 14, color: AppTheme.primary),
+                                            ),
+                                          )
+                                        : Container(
+                                            width: 20,
+                                            height: 20,
+                                            color: AppTheme.primarySurface,
+                                            child: const Icon(Icons.person, size: 14, color: AppTheme.primary),
+                                          ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${c.pricePerHour.toInt()}€',
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.darkSlate,
+                                    ),
+                                  ),
+                                  if (c.isSuperCaregiver)
+                                    const Text('🏆', style: TextStyle(fontSize: 10)),
+                                ],
+                              ),
                             ),
-                            const Icon(Icons.location_on, color: AppTheme.primary, size: 24),
+                            const Icon(Icons.arrow_drop_down_rounded, color: AppTheme.primary, size: 18),
                           ],
                         ),
                       ),

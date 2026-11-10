@@ -17,6 +17,21 @@ class JobOfferPaymentScreen extends StatefulWidget {
 
 class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
   bool _isProcessing = false;
+  List<String> _customChecklist = [];
+  final TextEditingController _taskCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final client = context.read<AuthNotifier>().currentClient;
+    _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
+  }
+
+  @override
+  void dispose() {
+    _taskCtrl.dispose();
+    super.dispose();
+  }
 
   void _safeSetState(VoidCallback fn) {
     if (mounted) setState(fn);
@@ -148,6 +163,13 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
               bookingPin: (Random().nextInt(9000) + 1000).toString(),
               createdAt: DateTime.now(),
               paymentIntentId: paymentIntentId,
+              clientLatitude: widget.offer.clientLatitude,
+              clientLongitude: widget.offer.clientLongitude,
+              careChecklist: _customChecklist
+                  .asMap()
+                  .entries
+                  .map((e) => CareChecklistItem(id: 'task_${e.key + 1}', title: e.value))
+                  .toList(),
             ));
           }
         }
@@ -180,6 +202,13 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
           bookingPin: (Random().nextInt(9000) + 1000).toString(),
           createdAt: DateTime.now(),
           paymentIntentId: paymentIntentId,
+          clientLatitude: widget.offer.clientLatitude,
+          clientLongitude: widget.offer.clientLongitude,
+          careChecklist: _customChecklist
+              .asMap()
+              .entries
+              .map((e) => CareChecklistItem(id: 'task_${e.key + 1}', title: e.value))
+              .toList(),
         );
         await DependencyInjection.bookings.createBooking(booking);
       }
@@ -229,12 +258,78 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
             trailing: Text('${subtotal.toStringAsFixed(2)} €'),
           ),
           ListTile(
-            title: const Text('Comisión plataforma (5%)'),
+            title: Text('${(widget.offer.clientFeeRate * 100).toInt()}% Comisión de Gestión y Cobertura'),
             trailing: Text('${fee.toStringAsFixed(2)} €'),
           ),
           ListTile(
             title: const Text('Total a pagar', style: TextStyle(fontWeight: FontWeight.bold)),
             trailing: Text('${total.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.primarySurface.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '📋 Checklist de Cuidado para esta Oferta',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppTheme.darkSlate),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Tareas que el cuidador marcará en tiempo real durante la visita:',
+                  style: TextStyle(fontSize: 12, color: AppTheme.slateMuted),
+                ),
+                const SizedBox(height: 8),
+                if (_customChecklist.isNotEmpty)
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: _customChecklist
+                        .map((t) => Chip(
+                              backgroundColor: Colors.white,
+                              label: Text(t, style: const TextStyle(fontSize: 12)),
+                              onDeleted: () => setState(() => _customChecklist.remove(t)),
+                            ))
+                        .toList(),
+                  ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _taskCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Añadir tarea (ej. Medicación, paseo)...',
+                          isDense: true,
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () {
+                        final val = _taskCtrl.text.trim();
+                        if (val.isNotEmpty && !_customChecklist.contains(val)) {
+                          setState(() {
+                            _customChecklist.add(val);
+                            _taskCtrl.clear();
+                          });
+                        }
+                      },
+                      child: const Text('Añadir'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           if (widget.offer.isRecurring)

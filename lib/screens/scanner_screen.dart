@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
@@ -112,7 +113,70 @@ class _ScannerScreenState extends State<ScannerScreen> {
     try {
       await context.read<BookingNotifier>().checkInBooking(widget.booking.id);
       if (!mounted) return;
-      CustomSnackBar.show(context, message: '✅ Fichaje completado con éxito', type: SnackBarType.success);
+      HapticFeedback.heavyImpact();
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          contentPadding: const EdgeInsets.all(24),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.elasticOut,
+                builder: (context, scale, child) => Transform.scale(
+                  scale: scale,
+                  child: child,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: AppTheme.secondaryColor.withValues(alpha: 0.14),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.verified_rounded,
+                    color: AppTheme.secondaryColor,
+                    size: 56,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '¡Llegada Verificada!',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.darkSlate,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'La familia ha sido notificada en tiempo real y tu Diario del Cuidado ya está activo.',
+                style: TextStyle(fontSize: 13.5, color: AppTheme.slateMuted),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.secondaryColor,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Continuar al servicio'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
       if (mounted) {

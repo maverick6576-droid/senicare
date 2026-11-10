@@ -312,6 +312,20 @@ class BookingNotifier extends ChangeNotifier {
     }
   }
 
+  Future<void> addTipToBooking(String bookingId, double tipAmount) async {
+    if (tipAmount <= 0) return;
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b != null) {
+      b.tipAmount += tipAmount;
+      notifyListeners();
+    }
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'tipAmount': FieldValue.increment(tipAmount),
+      });
+    }
+  }
+
   Future<void> requestRefund(String bookingId, double amount, String reason) async {
     if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
       await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
@@ -383,6 +397,7 @@ class BookingNotifier extends ChangeNotifier {
     double? empathyRating,
     double? communicationRating,
     double? hygieneRating,
+    double tipAmount = 0.0,
   }) async {
     if (bookings.isEmpty) return;
     
@@ -404,10 +419,18 @@ class BookingNotifier extends ChangeNotifier {
 
     await DependencyInjection.reviews.addReview(firstBooking.caregiverId, review);
 
+    if (tipAmount > 0) {
+      firstBooking.tipAmount += tipAmount;
+    }
+
     for (var b in bookings) {
       b.isReviewed = true;
       if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('bookings').doc(b.id).update({'isReviewed': true});
+        final updateMap = <String, dynamic>{'isReviewed': true};
+        if (b.id == firstBooking.id && tipAmount > 0) {
+          updateMap['tipAmount'] = FieldValue.increment(tipAmount);
+        }
+        await FirebaseFirestore.instance.collection('bookings').doc(b.id).update(updateMap);
       }
     }
     notifyListeners();

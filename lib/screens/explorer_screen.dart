@@ -425,6 +425,23 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                                         ),
                                                       ),
                                                     ),
+                                                    if (c.hasOfficialCertification)
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.indigo.withValues(alpha: 0.1),
+                                                          borderRadius: BorderRadius.circular(8),
+                                                          border: Border.all(color: Colors.indigo.withValues(alpha: 0.3)),
+                                                        ),
+                                                        child: Text(
+                                                          '🎓 Certificación Sociosanitaria',
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            fontWeight: FontWeight.w700,
+                                                            color: Colors.indigo.shade700,
+                                                          ),
+                                                        ),
+                                                      ),
                                                     Builder(
                                                       builder: (context) {
                                                         String distanceText = c.distance;
@@ -628,6 +645,53 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                         color: AppTheme.slateMuted,
                         fontWeight: FontWeight.w600,
                       ),
+                    ),
+                  ],
+                  if (nextBooking.onTheWayAt != null || nextBooking.checkInTime != null || completedTasks > 0) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        if (nextBooking.onTheWayAt != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '🚗 Salida ${nextBooking.onTheWayAt!.hour.toString().padLeft(2, '0')}:${nextBooking.onTheWayAt!.minute.toString().padLeft(2, '0')}',
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.orange.shade900),
+                            ),
+                          ),
+                        if (nextBooking.checkInTime != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.secondaryColor.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '📍 Llegada ${nextBooking.checkInTime!.hour.toString().padLeft(2, '0')}:${nextBooking.checkInTime!.minute.toString().padLeft(2, '0')}',
+                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
+                            ),
+                          ),
+                        ...nextBooking.careChecklist.where((t) => t.completed).take(2).map(
+                          (t) => Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: AppTheme.borderSubtle),
+                            ),
+                            child: Text(
+                              '✓ ${t.title}',
+                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.darkSlate),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ],
