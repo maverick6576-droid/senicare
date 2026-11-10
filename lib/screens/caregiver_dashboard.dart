@@ -1,5 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:senicare/models/models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -731,6 +732,13 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                           ),
                         ),
                         IconButton(
+                          onPressed: () => _showSosQuickModal(context, activeService, profile),
+                          style: IconButton.styleFrom(backgroundColor: Colors.red.shade700),
+                          icon: const Icon(Icons.sos_rounded, color: Colors.white, size: 22),
+                          tooltip: '🚨 Emergencia / 112 / Familia',
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
                           onPressed: () {
                             Navigator.push(context, MaterialPageRoute(
                               builder: (_) => ChatScreen(
@@ -876,6 +884,117 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showSosQuickModal(BuildContext context, Booking booking, ClientProfile? profile) {
+    HapticFeedback.heavyImpact();
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.sos_rounded, color: Colors.red.shade700, size: 28),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Emergencia en Domicilio', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        Text('Llamada rápida y pautas médicas activas', style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              if (profile != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.backgroundNeutral,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '📍 Domicilio: ${profile.homeAddress.isNotEmpty ? profile.homeAddress : "No especificado"}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      if (profile.patientDetails.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '🩺 Pautas médicas: ${profile.patientDetails}',
+                          style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final uri = Uri.parse('tel:112');
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.local_hospital_rounded),
+                  label: const Text('Llamar al 112 (Emergencias Médicas)', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+              if (profile != null && profile.phone.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final uri = Uri.parse('tel:${profile.phone}');
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri);
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.phone_in_talk_rounded),
+                    label: Text('Llamar a la Familia (${profile.phone})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

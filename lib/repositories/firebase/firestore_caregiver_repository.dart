@@ -111,11 +111,24 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
           .collection('slots')
           .get();
 
-      if (snapshot.docs.isEmpty) return [];
+      if (snapshot.docs.isNotEmpty) {
+        final slots = snapshot.docs.map((doc) => TimeSlot.fromFirestore(doc)).toList();
+        slots.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+        return slots;
+      }
 
-      final slots = snapshot.docs.map((doc) => TimeSlot.fromFirestore(doc)).toList();
-      slots.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-      return slots;
+      // Generación por defecto (09:00 - 18:00) si no hay excepciones manuales creadas en Firestore,
+      // garantizando que cualquier cuidador verificado pueda recibir reservas de inmediato.
+      final List<TimeSlot> defaultSlots = [];
+      for (int i = 9; i <= 18; i++) {
+        final hourString = '${i.toString().padLeft(2, '0')}:00';
+        defaultSlots.add(TimeSlot(
+          id: '${date}_$hourString',
+          dateTime: DateTime.parse('${date}T$hourString:00'),
+          isAvailable: true,
+        ));
+      }
+      return defaultSlots;
     } catch (e) {
       debugPrint('Error fetching timeslots from Firestore: $e');
       rethrow;
