@@ -29,7 +29,7 @@ class FirestoreBookingRepository implements BookingRepository {
       debugPrint('==================================================');
       debugPrint('⚠️ Error in streamBookings: $e');
       debugPrint('==================================================');
-      yield* const Stream.empty();
+      yield* Stream.error(e);
     }
   }
 

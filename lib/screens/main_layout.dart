@@ -10,12 +10,25 @@ import 'package:senicare/widgets/widgets.dart';
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
 
+  /// Switches the root bottom navigation tab when hosted inside [MainLayout].
+  static bool switchTab(BuildContext context, int index) {
+    final state = context.findAncestorStateOfType<_MainLayoutState>();
+    if (state == null) return false;
+    state._selectTab(index);
+    return true;
+  }
+
   @override
   State<MainLayout> createState() => _MainLayoutState();
 }
 
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
+
+  void _selectTab(int index) {
+    if (!mounted) return;
+    setState(() => _currentIndex = index);
+  }
   final CaregiverTutorialTargets _tutorialTargets = CaregiverTutorialTargets();
   bool _showCaregiverTutorial = false;
   String? _checkedAutoTutorialUserId;

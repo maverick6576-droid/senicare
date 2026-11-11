@@ -3,13 +3,31 @@ import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 
 class MockBookingRepository implements BookingRepository {
+  MockBookingRepository({this.filterByUser = false});
+
+  final bool filterByUser;
   final StreamController<List<Booking>> _controller = StreamController<List<Booking>>.broadcast();
   final List<Booking> _bookings = [];
 
+  List<Booking> _filterAndSort(String userId, String role, int? limit,
+      [List<Booking>? source]) {
+    final items = (source ?? _bookings).where((b) {
+      if (!filterByUser || userId.isEmpty) return true;
+      if (role == 'caregiver') return b.caregiverId == userId;
+      if (role == 'client') return b.clientId == userId;
+      return true;
+    }).toList();
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (limit != null && limit > 0 && items.length > limit) {
+      return items.take(limit).toList();
+    }
+    return items;
+  }
+
   @override
   Stream<List<Booking>> streamBookings(String userId, String role, {int? limit}) async* {
-    yield List.from(limit != null ? _bookings.take(limit) : _bookings);
-    yield* _controller.stream.map((list) => List.from(limit != null ? list.take(limit) : list));
+    yield _filterAndSort(userId, role, limit);
+    yield* _controller.stream.map((list) => _filterAndSort(userId, role, limit, list));
   }
 
   @override
@@ -23,7 +41,11 @@ class MockBookingRepository implements BookingRepository {
   Future<void> updateBookingStatus(String bookingId, String status) async {
     final idx = _bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
-      _bookings[idx].status = BookingStatus.values.firstWhere((e) => e.toString().contains(status));
+      final normalized = status.toLowerCase();
+      _bookings[idx].status = BookingStatus.values.firstWhere(
+        (e) => e.name.toLowerCase() == normalized,
+        orElse: () => BookingStatus.values.firstWhere((e) => e.toString().contains(status)),
+      );
       _controller.add(List.from(_bookings));
     }
   }
@@ -32,24 +54,10 @@ class MockBookingRepository implements BookingRepository {
   Future<void> releaseEscrow(String bookingId) async {
     final idx = _bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
-      final old = _bookings[idx];
-      _bookings[idx] = Booking(
-        id: old.id,
-        clientId: old.clientId,
-        caregiverId: old.caregiverId,
-        caregiverName: old.caregiverName,
-        day: old.day,
-        slot: old.slot,
+      _bookings[idx] = _bookings[idx].copyWith(
         status: BookingStatus.completed,
-        cost: old.cost,
-        clientFee: old.clientFee,
-        caregiverCommissionRate: old.caregiverCommissionRate,
-        caregiverCommissionAmount: old.caregiverCommissionAmount,
-        caregiverPayout: old.caregiverPayout,
-        totalPaid: old.totalPaid,
         escrowStatus: 'released',
-        cancellationReason: old.cancellationReason,
-        createdAt: old.createdAt,
+        liveStatus: 'completed',
       );
       _controller.add(List.from(_bookings));
     }
@@ -59,24 +67,10 @@ class MockBookingRepository implements BookingRepository {
   Future<void> cancelBooking(String bookingId, String reason, bool isLate) async {
     final idx = _bookings.indexWhere((b) => b.id == bookingId);
     if (idx != -1) {
-      final old = _bookings[idx];
-      _bookings[idx] = Booking(
-        id: old.id,
-        clientId: old.clientId,
-        caregiverId: old.caregiverId,
-        caregiverName: old.caregiverName,
-        day: old.day,
-        slot: old.slot,
+      _bookings[idx] = _bookings[idx].copyWith(
         status: isLate ? BookingStatus.cancelledLate : BookingStatus.cancelled,
-        cost: old.cost,
-        clientFee: old.clientFee,
-        caregiverCommissionRate: old.caregiverCommissionRate,
-        caregiverCommissionAmount: old.caregiverCommissionAmount,
-        caregiverPayout: old.caregiverPayout,
-        totalPaid: old.totalPaid,
         escrowStatus: isLate ? 'held' : 'refunded',
         cancellationReason: reason,
-        createdAt: old.createdAt,
       );
       _controller.add(List.from(_bookings));
     }

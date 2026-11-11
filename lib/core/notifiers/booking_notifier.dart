@@ -14,10 +14,22 @@ class BookingNotifier extends ChangeNotifier {
   String? _currentRole;
   int _limit = 15;
   bool _isLoadingMore = false;
+  bool _isLoadingBookings = false;
+  String? _bookingError;
+  Completer<void>? _refreshCompleter;
 
   int get currentLimit => _limit;
   bool get hasMore => bookings.length >= _limit;
   bool get isLoadingMore => _isLoadingMore;
+  bool get isLoadingBookings => _isLoadingBookings;
+  String? get bookingError => _bookingError;
+
+  void _completeRefresh() {
+    final completer = _refreshCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+  }
 
   void updateAuth(String? userId, String? role) {
     if (_currentUserId != userId || _currentRole != role) {
@@ -25,15 +37,31 @@ class BookingNotifier extends ChangeNotifier {
       _currentRole = role;
       _limit = 15;
       _isLoadingMore = false;
-      _subscribeToBookings();
+      _bookingError = null;
+      _subscribeToBookings(notifyEmptySync: false);
     }
   }
 
   Future<void> refreshBookings() async {
+    _completeRefresh();
+    final completer = Completer<void>();
+    _refreshCompleter = completer;
     _isLoadingMore = false;
+    _bookingError = null;
     _subscribeToBookings(clearBookings: false);
-    // Keep existing items rendered while the fresh snapshot arrives.
-    await Future.delayed(const Duration(milliseconds: 350));
+    try {
+      await completer.future.timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Avoid hanging pull-to-refresh if network/stream stays silent.
+    } finally {
+      if (identical(_refreshCompleter, completer)) {
+        _refreshCompleter = null;
+      }
+    }
+  }
+
+  void retryBookings() {
+    _subscribeToBookings(clearBookings: bookings.isEmpty);
   }
 
   void loadMoreBookings() {
@@ -43,14 +71,29 @@ class BookingNotifier extends ChangeNotifier {
     _subscribeToBookings(clearBookings: false);
   }
 
-  void _subscribeToBookings({bool clearBookings = true}) {
+  void _subscribeToBookings({
+    bool clearBookings = true,
+    bool notifyEmptySync = true,
+  }) {
     _bookingsSubscription?.cancel();
     if (clearBookings) bookings.clear();
 
     if (_currentUserId == null || _currentRole == null || _currentRole == 'admin') {
       _isLoadingMore = false;
-      notifyListeners();
+      _isLoadingBookings = false;
+      _bookingError = null;
+      _completeRefresh();
+      if (notifyEmptySync) {
+        notifyListeners();
+      } else {
+        Future.microtask(notifyListeners);
+      }
       return;
+    }
+
+    _bookingError = null;
+    if (bookings.isEmpty) {
+      _isLoadingBookings = true;
     }
 
     final roleToStream = _currentRole == 'client' ? 'client' : 'caregiver';
@@ -60,10 +103,18 @@ class BookingNotifier extends ChangeNotifier {
       (data) {
         bookings = data;
         _isLoadingMore = false;
+        _isLoadingBookings = false;
+        _bookingError = null;
+        _completeRefresh();
         notifyListeners();
       },
-      onError: (_) {
+      onError: (e) {
+        debugPrint('Error in BookingNotifier stream: $e');
         _isLoadingMore = false;
+        _isLoadingBookings = false;
+        _bookingError =
+            'No pudimos cargar tus reservas en este momento. Comprueba tu conexión e inténtalo de nuevo.';
+        _completeRefresh();
         notifyListeners();
       },
     );
@@ -84,10 +135,16 @@ class BookingNotifier extends ChangeNotifier {
 
   Future<void> rejectBooking(String bookingId) async {
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1').httpsCallable('caregiverRejectBooking');
-      await callable.call({
-        'bookingId': bookingId,
-      });
+      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+        final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+            .httpsCallable('caregiverRejectBooking');
+        await callable.call({
+          'bookingId': bookingId,
+        });
+      } else {
+        await DependencyInjection.bookings
+            .cancelBooking(bookingId, 'Rechazada por el cuidador', false);
+      }
       final b = bookings.where((b) => b.id == bookingId).firstOrNull;
       if (b != null) {
         b.status = BookingStatus.cancelled;
@@ -100,32 +157,42 @@ class BookingNotifier extends ChangeNotifier {
     }
   }
 
-  
-  Future<void> openDispute(String bookingId, double disputeAmount, String reason, String description) async {
-    await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-      'escrowStatus': 'disputed',
-      'disputeRequested': true,
-      'disputeAmount': disputeAmount,
-      'disputeReason': reason,
-      'disputeDescription': description,
-      'disputeOpenedAt': FieldValue.serverTimestamp(),
-    });
-    
+  Future<void> openDispute(
+    String bookingId,
+    double disputeAmount,
+    String reason,
+    String description,
+  ) async {
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'escrowStatus': 'disputed',
+        'disputeRequested': true,
+        'disputeAmount': disputeAmount,
+        'disputeReason': reason,
+        'disputeDescription': description,
+        'disputeOpenedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
     final b = bookings.where((b) => b.id == bookingId).firstOrNull;
     if (b != null) {
       b.escrowStatus = 'disputed';
       b.disputeRequested = true;
       b.disputeAmount = disputeAmount;
+      b.disputeReason = reason;
+      b.disputeDescription = description;
       b.disputeEscalated = false;
       notifyListeners();
     }
   }
 
   Future<void> escalateDispute(String bookingId) async {
-    await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-      'disputeEscalated': true,
-    });
-    
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'disputeEscalated': true,
+      });
+    }
+
     final b = bookings.where((b) => b.id == bookingId).firstOrNull;
     if (b != null) {
       b.disputeEscalated = true;
@@ -134,68 +201,97 @@ class BookingNotifier extends ChangeNotifier {
   }
 
   Future<void> acceptDisputeProposal(String bookingId) async {
-    final func = FirebaseFunctions.instanceFor(region: 'europe-west1').httpsCallable('processResolutionAgreement');
-    await func.call({'bookingId': bookingId});
-    
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      final func = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('processResolutionAgreement');
+      await func.call({'bookingId': bookingId});
+    }
+
     final b = bookings.where((b) => b.id == bookingId).firstOrNull;
     if (b != null) {
       b.status = BookingStatus.completed;
       b.escrowStatus = 'resolved_partial';
+      b.disputeRequested = false;
       notifyListeners();
     }
   }
 
-  Future<void> releaseEscrow(String bookingId) async {
-    final success = await StripeService.releaseEscrowPayment(
-      bookingId: bookingId,
-    );
+  int _calculateRoundedHours(String slot) {
+    if (!slot.contains('-')) return 1;
+    try {
+      final slotParts = slot.split('-');
+      final startParts = slotParts[0].trim().split(':');
+      final endParts = slotParts[1].trim().split(':');
+      final startMins =
+          int.parse(startParts[0]) * 60 + (startParts.length > 1 ? int.parse(startParts[1]) : 0);
+      final endMins =
+          int.parse(endParts[0]) * 60 + (endParts.length > 1 ? int.parse(endParts[1]) : 0);
+      final diffHours = ((endMins - startMins).abs() / 60.0).round();
+      return diffHours < 1 ? 1 : diffHours;
+    } catch (e) {
+      debugPrint('Error calculating hours for stats: $e');
+      return 1;
+    }
+  }
 
-    if (success) {
-      final b = bookings.where((b) => b.id == bookingId).firstOrNull;
-      if (b != null) {
-        b.status = BookingStatus.completed;
-        b.escrowStatus = 'released_manual';
-        
-        int hours = 1;
-        if (b.slot.contains('-')) {
-          try {
-            final slotParts = b.slot.split('-');
-            final startParts = slotParts[0].split(':');
-            final endParts = slotParts[1].split(':');
-            final startHour = int.parse(startParts[0]);
-            final endHour = int.parse(endParts[0]);
-            hours = (endHour - startHour).abs();
-            if (hours == 0) hours = 1;
-          } catch (e) {
-            debugPrint('Error calculating hours for stats: $e');
-          }
-        }
-        await DependencyInjection.stats.addCompletedHours(b.clientId, b.caregiverId, hours);
-        notifyListeners();
+  Future<void> releaseEscrow(String bookingId) async {
+    final bool useCloud = useFirebaseBackend && Firebase.apps.isNotEmpty;
+    if (useCloud) {
+      final success = await StripeService.releaseEscrowPayment(
+        bookingId: bookingId,
+      );
+      if (!success) {
+        debugPrint('Stripe Transfer failed for booking $bookingId');
+        throw Exception(
+          'No se pudo liberar el pago al cuidador en este momento. Inténtalo de nuevo.',
+        );
       }
     } else {
-      debugPrint('Stripe Transfer failed for booking $bookingId');
+      await DependencyInjection.bookings.releaseEscrow(bookingId);
+    }
+
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b != null) {
+      b.status = BookingStatus.completed;
+      b.escrowStatus = useCloud ? 'released_manual' : 'released';
+      b.liveStatus = 'completed';
+
+      final hours = _calculateRoundedHours(b.slot);
+      await DependencyInjection.stats
+          .addCompletedHours(b.clientId, b.caregiverId, hours);
+      notifyListeners();
     }
   }
 
   Future<void> cancelBooking(String bookingId, String reason, bool isLate) async {
     try {
-      final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1').httpsCallable('cancelBookingProcess');
-      await callable.call(<String, dynamic>{
-        'bookingId': bookingId,
-        'reason': reason,
-        'isLate': isLate,
-      });
-      
-      final b = bookings.where((b) => b.id == bookingId).firstOrNull;
-      if (b != null) {
-        b.status = isLate ? BookingStatus.cancelledLate : BookingStatus.cancelled;
-        b.escrowStatus = isLate ? 'resolved_partial' : 'refunded';
+      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+        final HttpsCallable callable =
+            FirebaseFunctions.instanceFor(region: 'europe-west1')
+                .httpsCallable('cancelBookingProcess');
+        await callable.call(<String, dynamic>{
+          'bookingId': bookingId,
+          'reason': reason,
+          'isLate': isLate,
+        });
+      } else {
+        await DependencyInjection.bookings
+            .cancelBooking(bookingId, reason, isLate);
+      }
+
+      final idx = bookings.indexWhere((bk) => bk.id == bookingId);
+      if (idx != -1) {
+        bookings[idx] = bookings[idx].copyWith(
+          status:
+              isLate ? BookingStatus.cancelledLate : BookingStatus.cancelled,
+          escrowStatus: isLate ? 'resolved_partial' : 'refunded',
+          cancellationReason: reason,
+        );
         notifyListeners();
       }
     } catch (e) {
-      debugPrint("Error calling cancelBookingProcess: $e");
-      await DependencyInjection.bookings.cancelBooking(bookingId, reason, isLate);
+      debugPrint('Error cancelling booking: $e');
+      rethrow;
     }
   }
 
@@ -394,13 +490,26 @@ class BookingNotifier extends ChangeNotifier {
   }
 
   
-  Future<void> dismissReviewPrompt(List<Booking> bookings) async {
-    final batch = FirebaseFirestore.instance.batch();
-    for (var b in bookings) {
-      final doc = FirebaseFirestore.instance.collection('bookings').doc(b.id);
-      batch.update(doc, {'reviewPromptDismissed': true});
+  Future<void> dismissReviewPrompt(List<Booking> targetBookings) async {
+    if (targetBookings.isEmpty) return;
+    final ids = targetBookings.map((b) => b.id).toSet();
+    for (final tb in targetBookings) {
+      tb.reviewPromptDismissed = true;
     }
-    await batch.commit();
+    for (final b in bookings) {
+      if (ids.contains(b.id)) {
+        b.reviewPromptDismissed = true;
+      }
+    }
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final b in targetBookings) {
+        final doc = FirebaseFirestore.instance.collection('bookings').doc(b.id);
+        batch.update(doc, {'reviewPromptDismissed': true});
+      }
+      await batch.commit();
+    }
+    notifyListeners();
   }
 
   Future<void> submitReview(
@@ -498,6 +607,7 @@ class BookingNotifier extends ChangeNotifier {
   @override
   void dispose() {
     _bookingsSubscription?.cancel();
+    _completeRefresh();
     super.dispose();
   }
 }

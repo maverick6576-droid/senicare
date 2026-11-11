@@ -32,7 +32,13 @@ class _ReviewDialogState extends State<ReviewDialog> {
     super.dispose();
   }
 
-  Widget _buildCategoryRow(String label, IconData icon, double currentVal, ValueChanged<double> onChanged) {
+  Widget _buildCategoryRow(
+    String label,
+    IconData icon,
+    double currentVal,
+    ValueChanged<double> onChanged, {
+    bool seniorMode = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
@@ -40,17 +46,25 @@ class _ReviewDialogState extends State<ReviewDialog> {
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: AppTheme.primary),
+              Icon(icon, size: seniorMode ? 18 : 16, color: AppTheme.primary),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   label,
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: AppTheme.darkSlate),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: seniorMode ? 15 : 13.5,
+                    color: AppTheme.darkSlate,
+                  ),
                 ),
               ),
               Text(
                 currentVal.toStringAsFixed(0),
-                style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.amber, fontSize: 14),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.amber,
+                  fontSize: seniorMode ? 16 : 14,
+                ),
               ),
             ],
           ),
@@ -70,7 +84,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                   child: Icon(
                     index < currentVal ? Icons.star_rounded : Icons.star_border_rounded,
                     color: AppTheme.amber,
-                    size: 28,
+                    size: seniorMode ? 32 : 28,
                   ),
                 ),
               );
@@ -84,13 +98,22 @@ class _ReviewDialogState extends State<ReviewDialog> {
   @override
   Widget build(BuildContext context) {
     final overall = _overallRating;
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       title: Row(
         children: [
           const Icon(Icons.stars_rounded, color: AppTheme.amber, size: 28),
           const SizedBox(width: 8),
-          const Expanded(child: Text('Valorar Servicio', style: TextStyle(fontWeight: FontWeight.w800))),
+          Expanded(
+            child: Text(
+              'Valorar Servicio',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: seniorMode ? 20 : 18,
+              ),
+            ),
+          ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -111,7 +134,10 @@ class _ReviewDialogState extends State<ReviewDialog> {
           children: [
             Text(
               '¿Qué tal ha sido la experiencia con ${widget.bookings.first.caregiverName}?',
-              style: const TextStyle(color: AppTheme.slateMuted, fontSize: 14),
+              style: TextStyle(
+                color: AppTheme.slateMuted,
+                fontSize: seniorMode ? 15.5 : 14,
+              ),
             ),
             const SizedBox(height: 12),
             _buildCategoryRow(
@@ -119,24 +145,28 @@ class _ReviewDialogState extends State<ReviewDialog> {
               Icons.schedule_rounded,
               _punctuality,
               (v) => setState(() => _punctuality = v),
+              seniorMode: seniorMode,
             ),
             _buildCategoryRow(
               'Trato humano y empatía',
               Icons.favorite_border_rounded,
               _empathy,
               (v) => setState(() => _empathy = v),
+              seniorMode: seniorMode,
             ),
             _buildCategoryRow(
               'Comunicación con la familia',
               Icons.chat_bubble_outline_rounded,
               _communication,
               (v) => setState(() => _communication = v),
+              seniorMode: seniorMode,
             ),
             _buildCategoryRow(
               'Higiene y profesionalidad',
               Icons.verified_user_outlined,
               _hygiene,
               (v) => setState(() => _hygiene = v),
+              seniorMode: seniorMode,
             ),
             if (overall >= 4.0) ...[
               const SizedBox(height: 12),
@@ -258,7 +288,9 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     }
                   } catch (e) {
                     debugPrint('Error in submitReviewForBookings: $e');
-                    setState(() => _isSubmitting = false);
+                    if (mounted) {
+                      setState(() => _isSubmitting = false);
+                    }
                     if (context.mounted) {
                       CustomSnackBar.show(context, message: 'Error al enviar reseña.', type: SnackBarType.error);
                     }
