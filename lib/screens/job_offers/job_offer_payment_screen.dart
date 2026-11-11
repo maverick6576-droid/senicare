@@ -19,6 +19,8 @@ class JobOfferPaymentScreen extends StatefulWidget {
 
 class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
   bool _isProcessing = false;
+  bool _platformPaySupported = false;
+  ClientPaymentMethod _selectedPaymentMethod = ClientPaymentMethod.platformPay;
   int _accumulatedHours = 0;
   List<String> _customChecklist = [];
   final TextEditingController _taskCtrl = TextEditingController();
@@ -30,6 +32,14 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
     final client = auth.currentClient;
     _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
     _loadAccumulatedHours(auth.effectiveClientId);
+    _detectPlatformPay();
+  }
+
+  Future<void> _detectPlatformPay() async {
+    final supported = await StripeService.isPlatformPaySupported();
+    if (mounted) {
+      setState(() => _platformPaySupported = supported);
+    }
   }
 
   Future<void> _loadAccumulatedHours(String? clientId) async {
@@ -109,77 +119,83 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
       final fee = subtotal * widget.offer.clientFeeRate;
       final total = subtotal + fee;
 
-      // 2. Create Payment Intent
-      Map<String, dynamic>? paymentIntentData;
-      try {
-        paymentIntentData = await StripeService.createPaymentIntentOnly(
-          amountInCents: (total * 100).toInt(),
-          currency: 'eur',
-          caregiverStripeAccountId: stripeAccountId,
-        );
-      } catch (e) {
-        _safeSetState(() => _isProcessing = false);
-        _showSnackBar(scaffoldMessenger, e.toString().replaceAll('Exception: ', ''), Colors.red);
-        return;
-      }
-
-      if (paymentIntentData == null) {
-        _safeSetState(() => _isProcessing = false);
-        _showSnackBar(scaffoldMessenger, 'Error inesperado al crear el pago.', Colors.red);
-        return;
-      }
-
-      // 3. Initialize Stripe Payment Sheet
-      bool sheetInitialized = false;
-      try {
-        sheetInitialized = await StripeService.initPaymentSheet(paymentIntentData);
-      } catch (e) {
-        debugPrint('Error initializing payment sheet: $e');
-        _safeSetState(() => _isProcessing = false);
-        if (mounted) {
-          CustomDialog.showError(context, title: 'Error de inicialización', message: e.toString());
+      // 2. Create Payment Intent (para checkout en app) o preparar sesión externa (Bizum)
+      Map<String, dynamic> paymentIntentData = {
+        'transferGroup': 'offer_${widget.offer.id}_${DateTime.now().millisecondsSinceEpoch}',
+      };
+      if (!_selectedPaymentMethod.usesExternalCheckout) {
+        try {
+          final created = await StripeService.createPaymentIntentOnly(
+            amountInCents: (total * 100).round(),
+            currency: 'eur',
+            caregiverStripeAccountId: stripeAccountId,
+            preferredMethod: _selectedPaymentMethod.backendId,
+            familyId: clientId,
+            description: 'SeniCare · ${widget.offer.title}',
+          );
+          if (created == null || created['clientSecret'] == null) {
+            _safeSetState(() => _isProcessing = false);
+            _showSnackBar(scaffoldMessenger, 'Error inesperado al crear el pago.', Colors.red);
+            return;
+          }
+          paymentIntentData = created;
+        } catch (e) {
+          _safeSetState(() => _isProcessing = false);
+          _showSnackBar(scaffoldMessenger, e.toString().replaceAll('Exception: ', ''), Colors.red);
+          return;
         }
-        return;
       }
 
-      if (!sheetInitialized) {
-        _safeSetState(() => _isProcessing = false);
-        _showSnackBar(scaffoldMessenger, 'Error al preparar la pantalla de pago.', Colors.red);
-        return;
-      }
+      if (!mounted) return;
+      final customerName = auth.currentClient?.name ?? auth.currentUserDisplayName;
+      final flowResult = await executeClientStripePayment(
+        context: context,
+        method: _selectedPaymentMethod,
+        platformPaySupported: _platformPaySupported,
+        paymentIntentData: paymentIntentData,
+        totalEur: total,
+        itemLabel: '${widget.offer.title} · ${widget.application.caregiverName}',
+        customerEmail: auth.currentUserEmail,
+        customerName: customerName,
+        caregiverStripeAccountId: stripeAccountId,
+        familyId: clientId,
+      );
 
-      // 4. Present Payment Sheet
-      final paymentResult = await StripeService.presentPaymentSheet();
-      if (paymentResult == 'cancelled') {
+      if (flowResult.outcome == 'cancelled') {
         _safeSetState(() => _isProcessing = false);
         if (mounted) {
           CustomDialog.showError(
             context,
             title: 'Pago no completado',
-            message: 'Has cerrado la ventana de pago antes de finalizar. Puedes intentarlo de nuevo con tu tarjeta o en 1 toque con Apple Pay / Google Pay.',
+            message: 'Has cerrado la ventana de pago antes de finalizar. Puedes intentarlo con Apple Pay, Google Pay, Bizum, Klarna, Tarjeta o SEPA.',
           );
         }
         return;
-      } else if (paymentResult == 'error') {
+      } else if (flowResult.outcome == 'error') {
         _safeSetState(() => _isProcessing = false);
         if (mounted) {
           CustomDialog.showError(
             context,
-            title: 'Operación denegada por el banco',
-            message: 'No se ha podido completar el cargo o la verificación 3D Secure. Revisa los datos de tu tarjeta o prueba con Apple Pay / Google Pay.',
+            title: 'Operación no completada',
+            message: 'No se pudo autorizar el cobro con este método. Revisa tus datos o prueba con Apple Pay, Google Pay, Bizum o Tarjeta.',
           );
         }
         return;
       }
 
-      // 5. Payment Success -> Update DB
-      chargedPaymentIntentId = paymentIntentData['paymentIntentId'] as String?;
+      // 5. Payment Success (or SEPA processing) -> Update DB
+      chargedPaymentIntentId =
+          flowResult.paymentIntentId ?? paymentIntentData['paymentIntentId'] as String?;
+      final resolvedMethodType =
+          flowResult.paymentMethodType ?? _selectedPaymentMethod.backendId;
+      final resolvedPaymentStatus =
+          flowResult.outcome == 'processing' ? 'processing' : 'paid';
       if (!mounted) return;
       // Update application and offer statuses
       await context.read<JobOfferNotifier>().acceptApplication(widget.offer.id, widget.application.id, widget.application.caregiverId);
 
       // Create booking(s)
-      final paymentIntentId = paymentIntentData['paymentIntentId'] as String? ?? '';
+      final paymentIntentId = chargedPaymentIntentId ?? '';
       final double baseTierRate = FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
       final double effectiveCommissionRate = (baseTierRate - widget.offer.urgencyBonusRate).clamp(0.05, 0.18);
       final String generatedPin = (Random().nextInt(9000) + 1000).toString();
@@ -224,6 +240,8 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
               bookingPin: generatedPin,
               createdAt: DateTime.now(),
               paymentIntentId: paymentIntentId,
+              paymentMethodType: resolvedMethodType,
+              paymentStatus: resolvedPaymentStatus,
               clientLatitude: widget.offer.clientLatitude,
               clientLongitude: widget.offer.clientLongitude,
               careChecklist: _customChecklist
@@ -263,6 +281,8 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
           bookingPin: generatedPin,
           createdAt: DateTime.now(),
           paymentIntentId: paymentIntentId,
+          paymentMethodType: resolvedMethodType,
+          paymentStatus: resolvedPaymentStatus,
           clientLatitude: widget.offer.clientLatitude,
           clientLongitude: widget.offer.clientLongitude,
           careChecklist: _customChecklist
@@ -276,7 +296,12 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
 
       if (mounted) {
         HapticFeedback.heavyImpact();
-        await _showSuccessReceiptModal(context, total, generatedPin);
+        await _showSuccessReceiptModal(
+          context,
+          total,
+          generatedPin,
+          isProcessingBank: resolvedPaymentStatus == 'processing',
+        );
         if (mounted) {
           Navigator.popUntil(context, (route) => route.isFirst);
         }
@@ -294,7 +319,12 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
     }
   }
 
-  Future<void> _showSuccessReceiptModal(BuildContext context, double totalPaid, String pin) async {
+  Future<void> _showSuccessReceiptModal(
+    BuildContext context,
+    double totalPaid,
+    String pin, {
+    bool isProcessingBank = false,
+  }) async {
     final dateFormatted = '${widget.offer.startDate.day.toString().padLeft(2, '0')}/${widget.offer.startDate.month.toString().padLeft(2, '0')}/${widget.offer.startDate.year}';
     await showDialog(
       context: context,
@@ -321,7 +351,9 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Tu pago de ${totalPaid.toStringAsFixed(2)} € está protegido en Stripe Escrow hasta que ${widget.application.caregiverName} complete el cuidado.',
+              isProcessingBank
+                  ? 'Orden SEPA autorizada por ${totalPaid.toStringAsFixed(2)} €. Tu banco la procesará en 1-3 días hábiles bajo custodia Stripe Escrow hasta completar el cuidado con ${widget.application.caregiverName}.'
+                  : 'Tu pago de ${totalPaid.toStringAsFixed(2)} € está protegido en Stripe Escrow hasta que ${widget.application.caregiverName} complete el cuidado.',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
             ),
@@ -540,6 +572,15 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          PaymentMethodSelectorCard(
+            selectedMethod: _selectedPaymentMethod,
+            seniorMode: seniorMode,
+            platformPaySupported: _platformPaySupported,
+            onChanged: (method) {
+              setState(() => _selectedPaymentMethod = method);
+            },
+          ),
+          const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -614,21 +655,13 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
               ),
             ),
           const SizedBox(height: 24),
-          SizedBox(
-            height: seniorMode ? 56 : 50,
-            child: FilledButton(
-              onPressed: _isProcessing ? null : _processPayment,
-              child: _isProcessing
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                    )
-                  : Text(
-                      'Confirmar y Pagar ${total.toStringAsFixed(2)} €',
-                      style: TextStyle(fontSize: seniorMode ? 17 : 15.5, fontWeight: FontWeight.w700),
-                    ),
-            ),
+          PrimaryCheckoutActionBar(
+            selectedMethod: _selectedPaymentMethod,
+            platformPaySupported: _platformPaySupported,
+            isProcessing: _isProcessing,
+            seniorMode: seniorMode,
+            fallbackButtonLabel: 'Confirmar y Pagar ${total.toStringAsFixed(2)} €',
+            onPressed: _processPayment,
           ),
         ],
       ),

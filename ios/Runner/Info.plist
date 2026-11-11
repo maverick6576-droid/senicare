@@ -74,5 +74,18 @@
 		<string>Necesitamos acceso a la cámara para hacer fotos en el chat, en el diario de cuidados y verificar tu identidad.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>Necesitamos acceso a tu galería para compartir fotografías en el chat y en el diario de cuidados.</string>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>senicare</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>senicare</string>
+				</array>
+			</dict>
+		</array>
 	</dict>
 </plist>

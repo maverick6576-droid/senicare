@@ -55,6 +55,8 @@ class Booking {
   final double totalPaid;
   final String? transferGroup;
   final String? paymentIntentId;
+  final String? paymentMethodType;
+  final String? paymentStatus;
   String escrowStatus;
   final String cancellationReason;
   bool isReviewed;
@@ -196,6 +198,8 @@ class Booking {
     required this.totalPaid,
     this.transferGroup,
     this.paymentIntentId,
+    this.paymentMethodType,
+    this.paymentStatus,
     this.escrowStatus = 'held',
     this.cancellationReason = '',
     this.isReviewed = false,
@@ -252,6 +256,8 @@ class Booking {
         totalPaid: (data['totalPaid'] ?? 0).toDouble(),
         transferGroup: data['transferGroup']?.toString(),
         paymentIntentId: data['paymentIntentId']?.toString(),
+        paymentMethodType: data['paymentMethodType']?.toString(),
+        paymentStatus: data['paymentStatus']?.toString(),
         escrowStatus: data['escrowStatus']?.toString() ?? 'held',
         cancellationReason: data['cancellationReason']?.toString() ?? '',
         isReviewed: data['isReviewed'] ?? false,
@@ -318,6 +324,8 @@ class Booking {
       'totalPaid': totalPaid,
       'transferGroup': transferGroup,
       'paymentIntentId': paymentIntentId,
+      if (paymentMethodType != null) 'paymentMethodType': paymentMethodType,
+      if (paymentStatus != null) 'paymentStatus': paymentStatus,
       'escrowStatus': escrowStatus,
       'cancellationReason': cancellationReason,
       'isReviewed': isReviewed,
@@ -359,6 +367,8 @@ class Booking {
     double? totalPaid,
     String? transferGroup,
     String? paymentIntentId,
+    String? paymentMethodType,
+    String? paymentStatus,
     String? escrowStatus,
     String? cancellationReason,
     bool? isReviewed,
@@ -400,6 +410,8 @@ class Booking {
       totalPaid: totalPaid ?? this.totalPaid,
       transferGroup: transferGroup ?? this.transferGroup,
       paymentIntentId: paymentIntentId ?? this.paymentIntentId,
+      paymentMethodType: paymentMethodType ?? this.paymentMethodType,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
       escrowStatus: escrowStatus ?? this.escrowStatus,
       cancellationReason: cancellationReason ?? this.cancellationReason,
       isReviewed: isReviewed ?? this.isReviewed,

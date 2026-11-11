@@ -23,6 +23,8 @@ class PaymentScreen extends StatefulWidget {
 class _PaymentScreenState extends State<PaymentScreen> {
   bool _isLoading = true;
   bool _isProcessingPayment = false;
+  bool _platformPaySupported = false;
+  ClientPaymentMethod _selectedPaymentMethod = ClientPaymentMethod.platformPay;
   int _accumulatedHours = 0;
   bool _applyPackDiscount = false;
   List<String> _customChecklist = [];
@@ -38,6 +40,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
     _applyPackDiscount = widget.slots.length >= 4;
     _loadStats();
+    _detectPlatformPay();
+  }
+
+  Future<void> _detectPlatformPay() async {
+    final supported = await StripeService.isPlatformPaySupported();
+    if (mounted) {
+      setState(() => _platformPaySupported = supported);
+    }
   }
 
   @override
@@ -181,75 +191,62 @@ class _PaymentScreenState extends State<PaymentScreen> {
       debugPrint('Slot verification warning: $e');
     }
 
-    // ── 3. Create Payment Intent ──
-    Map<String, dynamic>? paymentIntentData;
-    try {
-      paymentIntentData = await StripeService.createPaymentIntentOnly(
-        amountInCents: (total * 100).toInt(),
-        currency: 'eur',
-        caregiverStripeAccountId: stripeAccountId,
-      );
-    } catch (e) {
-      debugPrint('Error creating payment intent: $e');
-      _safeSetState(() => _isProcessingPayment = false);
-      _showSnackBar(
+    // ── 3. Create Payment Intent / Customer session ──
+    Map<String, dynamic> paymentIntentData = {
+      'transferGroup': 'booking_${DateTime.now().millisecondsSinceEpoch}',
+    };
+    if (!_selectedPaymentMethod.usesExternalCheckout) {
+      try {
+        final created = await StripeService.createPaymentIntentOnly(
+          amountInCents: (total * 100).round(),
+          currency: 'eur',
+          caregiverStripeAccountId: stripeAccountId,
+          preferredMethod: _selectedPaymentMethod.backendId,
+          familyId: clientId,
+          description: 'SeniCare · Cuidado con ${widget.caregiver.name}',
+        );
+        if (created == null || created['clientSecret'] == null) {
+          _safeSetState(() => _isProcessingPayment = false);
+          _showSnackBar(
+            scaffoldMessenger,
+            'No se pudo inicializar el pago. Inténtalo de nuevo.',
+            Colors.red,
+          );
+          return;
+        }
+        paymentIntentData = created;
+      } catch (e) {
+        debugPrint('Error creating payment intent: $e');
+        _safeSetState(() => _isProcessingPayment = false);
+        _showSnackBar(
           scaffoldMessenger,
           'Error al conectar con el servidor de pagos. Inténtalo de nuevo.',
-          Colors.red);
-      return;
-    }
-
-    if (paymentIntentData == null || paymentIntentData['clientSecret'] == null) {
-      _safeSetState(() => _isProcessingPayment = false);
-      _showSnackBar(
-          scaffoldMessenger,
-          'No se pudo inicializar el pago. Inténtalo de nuevo.',
-          Colors.red);
-      return;
-    }
-
-    // ── 4. Initialize Stripe Payment Sheet ──
-    bool sheetInitialized = false;
-    try {
-      sheetInitialized = await StripeService.initPaymentSheet(paymentIntentData);
-    } catch (e) {
-      debugPrint('Error initializing payment sheet: $e');
-      _safeSetState(() => _isProcessingPayment = false);
-      if (mounted) {
-        CustomDialog.showError(context, title: 'Error de inicialización', message: e.toString());
+          Colors.red,
+        );
+        return;
       }
-      return;
     }
 
-    if (!sheetInitialized) {
-      _safeSetState(() => _isProcessingPayment = false);
-      _showSnackBar(
-          scaffoldMessenger,
-          'Error desconocido al preparar la pantalla.',
-          Colors.red);
-      return;
-    }
-
-    final transferGroup = paymentIntentData['transferGroup'] ??
+    final transferGroup = paymentIntentData['transferGroup']?.toString() ??
         'booking_${DateTime.now().millisecondsSinceEpoch}';
     final paymentIntentId = paymentIntentData['paymentIntentId']?.toString();
 
-    // ── 5. Create bookings in Firestore (pendingPayment) ──
+    // ── 4. Create bookings in Firestore (pendingPayment) ──
     final String generatedPin = (Random().nextInt(9000) + 1000).toString();
 
     try {
-      // 5.1 Mark all slots as unavailable in Firestore
+      // 4.1 Mark all slots as unavailable in Firestore
       for (var s in widget.slots) {
         s.isAvailable = false;
         await DependencyInjection.caregivers
             .updateTimeSlot(widget.caregiver.id, widget.dateString, s);
       }
 
-      // 5.2 Sort slots chronologically
+      // 4.2 Sort slots chronologically
       final sortedSlots = List<TimeSlot>.from(widget.slots)
         ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
 
-      // 5.3 Group contiguous slots (1 hour apart)
+      // 4.3 Group contiguous slots (1 hour apart)
       List<List<TimeSlot>> groupedSlots = [];
       List<TimeSlot> currentGroup = [];
 
@@ -259,7 +256,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
         } else {
           final lastSlot = currentGroup.last;
           final diff = s.dateTime.difference(lastSlot.dateTime);
-          // Standard slot difference is 60 minutes. Allow slight leniency if needed, but exact is fine here.
           if (diff.inMinutes == 60) {
             currentGroup.add(s);
           } else {
@@ -272,7 +268,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         groupedSlots.add(currentGroup);
       }
 
-      // 5.4 Create one Booking per group
+      // 4.4 Create one Booking per group
       for (var group in groupedSlots) {
         final startSlot = group.first;
         final endSlot = group.last;
@@ -280,9 +276,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
         final startTimeStr = '${startSlot.dateTime.hour.toString().padLeft(2, '0')}:${startSlot.dateTime.minute.toString().padLeft(2, '0')}';
         final endTimeStr = '${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
-        
-        // If it's multiple hours, create a range (e.g. 10:00-13:00). If it's a single hour, we can still use a range for consistency, or just the start time. 
-        // We will use the range universally to ensure consistent parsing downstream.
         final slotRangeStr = '$startTimeStr-$endTimeStr';
 
         final groupHours = group.length;
@@ -307,6 +300,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
           totalPaid: groupTotalPaid,
           transferGroup: transferGroup,
           paymentIntentId: paymentIntentId,
+          paymentMethodType: _selectedPaymentMethod.backendId,
+          paymentStatus: 'pending',
           clientLatitude: location.latitude,
           clientLongitude: location.longitude,
           bookingPin: generatedPin,
@@ -326,30 +321,47 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
     } catch (e) {
       debugPrint('Error creating bookings: $e');
-      // Rollback whatever was already created before showing the error
       await _rollback();
       _safeSetState(() => _isProcessingPayment = false);
       if (mounted) {
-        CustomDialog.showError(context, title: 'Error al crear la reserva', message: 'No se pudo registrar la reserva. El pago NO ha sido procesado.\n\nDetalles: $e');
+        CustomDialog.showError(
+          context,
+          title: 'Error al crear la reserva',
+          message: 'No se pudo registrar la reserva. El pago NO ha sido procesado.\n\nDetalles: $e',
+        );
       }
       return;
     }
 
-    // ── 6. Show Stripe Payment Sheet ──
+    // ── 5. Present selected Stripe payment method (Express Wallet, Bizum Checkout or PaymentSheet) ──
     _safeSetState(() => _isProcessingPayment = false);
+    if (!mounted) return;
 
-    String paymentResult;
+    CheckoutFlowResult flowResult;
     try {
-      paymentResult = await StripeService.presentPaymentSheet();
+      final customerName = auth.currentClient?.name ?? auth.currentUserDisplayName;
+      flowResult = await executeClientStripePayment(
+        context: context,
+        method: _selectedPaymentMethod,
+        platformPaySupported: _platformPaySupported,
+        paymentIntentData: paymentIntentData,
+        totalEur: total,
+        itemLabel: 'Cuidado con ${widget.caregiver.name}',
+        customerEmail: auth.currentUserEmail,
+        customerName: customerName,
+        caregiverStripeAccountId: stripeAccountId,
+        familyId: clientId,
+        bookingIds: List<String>.from(_createdBookingIds),
+      );
     } catch (e) {
-      debugPrint('Unexpected error presenting payment sheet: $e');
-      paymentResult = 'error';
+      debugPrint('Unexpected error during payment flow: $e');
+      flowResult = const CheckoutFlowResult(outcome: 'error');
     }
 
-    // ── 7. Handle result ──
-    switch (paymentResult) {
+    // ── 6. Handle result ──
+    switch (flowResult.outcome) {
       case 'success':
-        // Payment confirmed — update bookings to pending and clear rollback list
+      case 'processing':
         for (final id in _createdBookingIds) {
           try {
             await DependencyInjection.bookings.updateBookingStatus(id, 'pending');
@@ -360,35 +372,43 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _createdBookingIds.clear();
         if (mounted) {
           HapticFeedback.heavyImpact();
-          await _showBookingSuccessModal(context, total, generatedPin);
+          await _showBookingSuccessModal(
+            context,
+            total,
+            generatedPin,
+            isProcessingBank: flowResult.outcome == 'processing',
+          );
         }
         navigator.popUntil((route) => route.isFirst);
 
       case 'cancelled':
-        // User dismissed the sheet — roll back so they can try again
         await _rollback();
         if (mounted) {
           CustomDialog.showError(
             context,
             title: 'Pago no completado',
-            message: 'Has cerrado la pasarela de pago. Tu reserva no se ha cobrado. Puedes volver a intentarlo con tarjeta o en 1 toque con Apple Pay / Google Pay.',
+            message: 'Has cerrado la pasarela de pago antes de finalizar. Tu reserva no se ha cobrado. Puedes elegir cualquier otro método (Apple Pay, Google Pay, Bizum, Klarna, Tarjeta o SEPA).',
           );
         }
 
       default:
-        // Payment failed — roll back so they can retry with different card
         await _rollback();
         if (mounted) {
           CustomDialog.showError(
             context,
-            title: 'Operación denegada por el banco',
-            message: 'No se ha podido completar el cargo o la verificación 3D Secure. Revisa los datos de tu tarjeta o utiliza Apple Pay / Google Pay.',
+            title: 'Operación no completada',
+            message: 'No se pudo autorizar el pago con el método elegido. Revisa tus datos o prueba con Apple Pay, Google Pay, Bizum o Tarjeta.',
           );
         }
     }
   }
 
-  Future<void> _showBookingSuccessModal(BuildContext context, double totalPaid, String pin) async {
+  Future<void> _showBookingSuccessModal(
+    BuildContext context,
+    double totalPaid,
+    String pin, {
+    bool isProcessingBank = false,
+  }) async {
     final dateFormatted = DateFormat('dd/MM/yyyy').format(DateTime.parse(widget.dateString));
     final hoursStr = widget.slots
         .map((s) => '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
@@ -424,7 +444,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Tu pago de ${totalPaid.toStringAsFixed(2)} € está protegido en custodia bancaria (Stripe Escrow). Solo se liberará a ${widget.caregiver.name} tras realizar el cuidado.',
+              isProcessingBank
+                  ? 'Orden SEPA autorizada por ${totalPaid.toStringAsFixed(2)} €. Tu banco la procesará en 1-3 días hábiles y quedará protegida bajo Stripe Escrow para ${widget.caregiver.name}.'
+                  : 'Tu pago de ${totalPaid.toStringAsFixed(2)} € está protegido en custodia bancaria (Stripe Escrow). Solo se liberará a ${widget.caregiver.name} tras realizar el cuidado.',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
             ),
@@ -672,7 +694,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Honorarios del cuidador:'),
+                      const Expanded(
+                        child: Text('Honorarios del cuidador:'),
+                      ),
+                      const SizedBox(width: 8),
                       Text(currencyFormat.format(rawBaseCost)),
                     ],
                   ),
@@ -681,10 +706,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          '📦 Descuento Bono Familiar (-5%):',
-                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
+                        const Expanded(
+                          child: Text(
+                            '📦 Descuento Bono Familiar (-5%):',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
+                          ),
                         ),
+                        const SizedBox(width: 8),
                         Text(
                           '-${currencyFormat.format(packDiscountAmount)}',
                           style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.secondaryColor),
@@ -739,6 +767,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ),
           ),
           const SizedBox(height: 20),
+          PaymentMethodSelectorCard(
+            selectedMethod: _selectedPaymentMethod,
+            seniorMode: seniorMode,
+            platformPaySupported: _platformPaySupported,
+            onChanged: (method) {
+              setState(() => _selectedPaymentMethod = method);
+            },
+          ),
+          const SizedBox(height: 20),
           _buildCheckoutCareChecklistCard(),
           const SizedBox(height: 24),
           Container(
@@ -784,19 +821,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: ElevatedButton.icon(
-            onPressed: _isProcessingPayment ? null : _handlePayment,
-            icon: _isProcessingPayment
-                ? const SizedBox.shrink()
-                : const Icon(Icons.lock_rounded, size: 18),
-            label: _isProcessingPayment
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                        color: Colors.white, strokeWidth: 2),
-                  )
-                : const Text('Pagar con Apple Pay / Google Pay / Tarjeta'),
+          child: PrimaryCheckoutActionBar(
+            selectedMethod: _selectedPaymentMethod,
+            platformPaySupported: _platformPaySupported,
+            isProcessing: _isProcessingPayment,
+            seniorMode: seniorMode,
+            fallbackButtonLabel:
+                'Pagar ${currencyFormat.format(total)} · ${_selectedPaymentMethod.labelForPlatform(Theme.of(context).platform)}',
+            onPressed: _handlePayment,
           ),
         ),
       ),

@@ -129,6 +129,176 @@ exports.syncStripeKycStatus = functions.region("europe-west1").runWith({ secrets
 });
 
 
+const PAYMENT_PREFERENCE_METHOD_TYPES = {
+  card: ["card"],
+  card_link: ["card", "link"],
+  link: ["link", "card"],
+  klarna: ["klarna"],
+  sepa_debit: ["sepa_debit"],
+  revolut_pay: ["revolut_pay"],
+  bizum: ["bizum"],
+};
+
+async function getOrCreateStripeCustomerAndSession(stripe, auth) {
+  const uid = auth?.uid;
+  if (!uid) return {};
+  try {
+    const db = admin.firestore();
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    let customerId = userSnap.exists ? userSnap.data()?.stripeCustomerId : null;
+
+    if (!customerId) {
+      const tokenEmail = auth.token?.email || userSnap.data()?.email || undefined;
+      const tokenName = auth.token?.name || userSnap.data()?.name || undefined;
+      const customer = await stripe.customers.create({
+        email: tokenEmail,
+        name: tokenName,
+        metadata: { firebaseUid: uid },
+      });
+      customerId = customer.id;
+      await userRef.set({ stripeCustomerId: customerId }, { merge: true });
+    }
+
+    let customerSessionClientSecret = null;
+    try {
+      const customerSession = await stripe.customerSessions.create({
+        customer: customerId,
+        components: {
+          mobile_payment_element: {
+            enabled: true,
+            features: {
+              payment_method_save: "enabled",
+              payment_method_redisplay: "enabled",
+              payment_method_remove: "enabled",
+            },
+          },
+        },
+      });
+      customerSessionClientSecret = customerSession.client_secret;
+    } catch (csErr) {
+      console.warn("CustomerSession creation warning:", csErr.message);
+    }
+
+    let ephemeralKeySecret = null;
+    if (!customerSessionClientSecret) {
+      try {
+        const ephemeralKey = await stripe.ephemeralKeys.create(
+          { customer: customerId },
+          { apiVersion: "2024-06-20" }
+        );
+        ephemeralKeySecret = ephemeralKey.secret;
+      } catch (ekErr) {
+        console.warn("EphemeralKey creation warning:", ekErr.message);
+      }
+    }
+
+    return {
+      customerId,
+      customerSessionClientSecret,
+      ephemeralKeySecret,
+    };
+  } catch (e) {
+    console.warn("getOrCreateStripeCustomerAndSession skipped:", e.message);
+    return {};
+  }
+}
+
+async function createPaymentIntentWithPreference(
+  stripe,
+  {
+    amountInCents,
+    currency = "eur",
+    transferGroup,
+    preferredMethod = "auto",
+    customerId = null,
+    metadata = {},
+    description = null,
+  }
+) {
+  const normalizedMethod = String(preferredMethod || "auto").toLowerCase().trim();
+  const baseParams = {
+    amount: Math.max(50, Math.round(Number(amountInCents) || 0)),
+    currency: String(currency || "eur").toLowerCase(),
+    transfer_group: transferGroup,
+    metadata: { ...metadata, preferredMethod: normalizedMethod },
+  };
+  if (customerId) baseParams.customer = customerId;
+  if (description) baseParams.description = description;
+
+  const explicitTypes = PAYMENT_PREFERENCE_METHOD_TYPES[normalizedMethod];
+  if (explicitTypes && explicitTypes.length > 0) {
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        ...baseParams,
+        payment_method_types: explicitTypes,
+      });
+      return {
+        paymentIntent,
+        requestedMethod: normalizedMethod,
+        fallbackUsed: false,
+      };
+    } catch (explicitErr) {
+      console.warn(
+        `Preferred method '${normalizedMethod}' fallback to automatic_payment_methods:`,
+        explicitErr.message
+      );
+      const fallbackIntent = await stripe.paymentIntents.create({
+        ...baseParams,
+        automatic_payment_methods: { enabled: true },
+      });
+      return {
+        paymentIntent: fallbackIntent,
+        requestedMethod: normalizedMethod,
+        fallbackUsed: true,
+      };
+    }
+  }
+
+  const autoParams = {
+    ...baseParams,
+    automatic_payment_methods:
+      normalizedMethod === "wallet"
+        ? { enabled: true, allow_redirects: "never" }
+        : { enabled: true },
+  };
+  try {
+    const paymentIntent = await stripe.paymentIntents.create(autoParams);
+    return {
+      paymentIntent,
+      requestedMethod: normalizedMethod,
+      fallbackUsed: false,
+    };
+  } catch (autoErr) {
+    console.warn("automatic_payment_methods fallback to ['card']:", autoErr.message);
+    const cardIntent = await stripe.paymentIntents.create({
+      ...baseParams,
+      payment_method_types: ["card"],
+    });
+    return {
+      paymentIntent: cardIntent,
+      requestedMethod: normalizedMethod,
+      fallbackUsed: true,
+    };
+  }
+}
+
+function extractStripePaymentMethodType(paymentIntent) {
+  try {
+    const details = paymentIntent?.latest_charge?.payment_method_details;
+    if (details?.card?.wallet?.type) {
+      return details.card.wallet.type;
+    }
+    if (details?.type) {
+      return details.type;
+    }
+    if (Array.isArray(paymentIntent?.payment_method_types) && paymentIntent.payment_method_types.length > 0) {
+      return paymentIntent.payment_method_types[0];
+    }
+  } catch (_) {}
+  return "card";
+}
+
 exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
     const targetFamilyId = (typeof data.familyId === "string" && data.familyId.trim()) ? data.familyId.trim() : context.auth.uid;
@@ -213,24 +383,47 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
         }
         
         const amountInCents = Math.round(totalPaidOverall * 100);
-        
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: amountInCents,
-            currency: "eur",
-            payment_method_types: ["card"],
-            transfer_group: transferGroup
+        const preferredMethod =
+          typeof data.preferredMethod === "string" ? data.preferredMethod : "auto";
+        const customerInfo = await getOrCreateStripeCustomerAndSession(
+          stripe,
+          context.auth
+        );
+        const {
+          paymentIntent,
+          requestedMethod,
+          fallbackUsed,
+        } = await createPaymentIntentWithPreference(stripe, {
+          amountInCents,
+          currency: "eur",
+          transferGroup,
+          preferredMethod,
+          customerId: customerInfo.customerId,
+          metadata: {
+            familyId: targetFamilyId,
+            paidByUid: context.auth.uid,
+            caregiverId,
+          },
+          description: `SeniCare · Cuidado con ${caregiverName}`,
         });
         
         const batch = db.batch();
         for (const b of bookingsToCreate) {
             b.data.paymentIntentId = paymentIntent.id;
+            b.data.paymentMethodType = requestedMethod;
             batch.set(b.ref, b.data);
         }
         await batch.commit();
         
         return { 
             clientSecret: paymentIntent.client_secret, 
-            paymentIntentId: paymentIntent.id
+            paymentIntentId: paymentIntent.id,
+            transferGroup: transferGroup,
+            customerId: customerInfo.customerId || null,
+            customerSessionClientSecret: customerInfo.customerSessionClientSecret || null,
+            ephemeralKeySecret: customerInfo.ephemeralKeySecret || null,
+            requestedMethod,
+            fallbackUsed,
         };
     } catch (error) {
         console.error("Secure Booking Error: ", error);
@@ -240,12 +433,54 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
 
 exports.createPaymentIntent = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const amountInCents = Number(data?.amountInCents);
+  if (!Number.isFinite(amountInCents) || amountInCents < 50) {
+    throw new functions.https.HttpsError("invalid-argument", "El importe mínimo es 0,50 €.");
+  }
   const stripe = require("stripe")(stripeSecret.value());
   try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: data.amountInCents, currency: "eur", payment_method_types: ["card"], transfer_group: `booking_${Date.now()}`
+    const transferGroup = `booking_${Date.now()}`;
+    const preferredMethod =
+      typeof data?.preferredMethod === "string" ? data.preferredMethod : "auto";
+    const familyId =
+      typeof data?.familyId === "string" && data.familyId.trim()
+        ? data.familyId.trim()
+        : context.auth.uid;
+    const customerInfo = await getOrCreateStripeCustomerAndSession(
+      stripe,
+      context.auth
+    );
+    const {
+      paymentIntent,
+      requestedMethod,
+      fallbackUsed,
+    } = await createPaymentIntentWithPreference(stripe, {
+      amountInCents,
+      currency: data?.currency || "eur",
+      transferGroup,
+      preferredMethod,
+      customerId: customerInfo.customerId,
+      metadata: {
+        familyId,
+        paidByUid: context.auth.uid,
+        caregiverStripeAccountId: data?.caregiverStripeAccountId || "",
+      },
+      description:
+        typeof data?.description === "string" && data.description.trim()
+          ? data.description.trim()
+          : "SeniCare · Reserva de cuidado",
     });
-    return { clientSecret: paymentIntent.client_secret, transferGroup: paymentIntent.transfer_group, paymentIntentId: paymentIntent.id };
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      transferGroup: paymentIntent.transfer_group,
+      paymentIntentId: paymentIntent.id,
+      customerId: customerInfo.customerId || null,
+      customerSessionClientSecret: customerInfo.customerSessionClientSecret || null,
+      ephemeralKeySecret: customerInfo.ephemeralKeySecret || null,
+      requestedMethod,
+      fallbackUsed,
+    };
   } catch (error) { 
     console.error("Stripe Error Details: ", error);
     throw new functions.https.HttpsError("internal", error.message); 
@@ -1118,11 +1353,18 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
     }
   
     if (event.type === "payment_intent.succeeded") {
-      const paymentIntent = event.data.object;
-      
+      const rawIntent = event.data.object;
+      let resolvedMethodType = extractStripePaymentMethodType(rawIntent);
+      try {
+        const expanded = await stripe.paymentIntents.retrieve(rawIntent.id, {
+          expand: ["latest_charge"],
+        });
+        resolvedMethodType = extractStripePaymentMethodType(expanded);
+      } catch (_) {}
+
       try {
         const querySnapshot = await admin.firestore().collection("bookings")
-          .where("paymentIntentId", "==", paymentIntent.id).get();
+          .where("paymentIntentId", "==", rawIntent.id).get();
         
         const batch = admin.firestore().batch();
         let totalCalculatedPaid = 0;
@@ -1150,6 +1392,8 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
 
           batch.update(doc.ref, {
             status: newStatus,
+            paymentStatus: "paid",
+            paymentMethodType: resolvedMethodType,
             clientFee: trueClientFee,
             caregiverCommissionAmount: trueCommissionAmount,
             caregiverPayout: truePayout,
@@ -1159,17 +1403,73 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
         
         // Verify payment intent amount covers the bookings
         const expectedCents = Math.round(totalCalculatedPaid * 100);
-        if (paymentIntent.amount < expectedCents && querySnapshot.docs.length > 0) {
-            console.error(`Fraud detected: Paid ${paymentIntent.amount} but expected ${expectedCents}.`);
-            // We could mark them as cancelled or flag them, but for now we won't mark them pending.
+        if (rawIntent.amount < expectedCents && querySnapshot.docs.length > 0) {
+            console.error(`Fraud detected: Paid ${rawIntent.amount} but expected ${expectedCents}.`);
             return res.status(200).send("Payment amount insufficient, bookings not confirmed.");
         }
         
         await batch.commit();
-        console.log(`Updated and sanitized bookings for PaymentIntent ${paymentIntent.id}`);
+        console.log(`Updated and sanitized bookings for PaymentIntent ${rawIntent.id} (${resolvedMethodType})`);
       } catch (e) {
         console.error("Error updating bookings:", e);
         return res.status(500).send("Internal Server Error");
+      }
+    } else if (event.type === "payment_intent.processing") {
+      // Métodos bancarios diferidos como adeudo SEPA entran temporalmente en 'processing'
+      const rawIntent = event.data.object;
+      try {
+        const snap = await admin.firestore().collection("bookings")
+          .where("paymentIntentId", "==", rawIntent.id).get();
+        const batch = admin.firestore().batch();
+        for (const doc of snap.docs) {
+          batch.update(doc.ref, {
+            paymentStatus: "processing",
+            paymentMethodType: extractStripePaymentMethodType(rawIntent),
+          });
+        }
+        await batch.commit();
+      } catch (e) {
+        console.error("Error marking processing booking:", e);
+      }
+    } else if (event.type === "payment_intent.payment_failed") {
+      const rawIntent = event.data.object;
+      try {
+        const snap = await admin.firestore().collection("bookings")
+          .where("paymentIntentId", "==", rawIntent.id).get();
+        const batch = admin.firestore().batch();
+        for (const doc of snap.docs) {
+          if (doc.data()?.status === "pendingPayment") {
+            batch.update(doc.ref, { paymentStatus: "failed" });
+          }
+        }
+        await batch.commit();
+      } catch (e) {
+        console.error("Error marking failed payment:", e);
+      }
+    } else if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const piId = typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id;
+      const rawIds = session.metadata?.bookingIds;
+      if (piId && typeof rawIds === "string" && rawIds.trim()) {
+        try {
+          const ids = rawIds.split(",").map((s) => s.trim()).filter(Boolean);
+          const batch = admin.firestore().batch();
+          for (const id of ids) {
+            batch.set(
+              admin.firestore().collection("bookings").doc(id),
+              {
+                paymentIntentId: piId,
+                paymentStatus: session.payment_status === "paid" ? "paid" : "processing",
+              },
+              { merge: true }
+            );
+          }
+          await batch.commit();
+        } catch (e) {
+          console.error("Error linking checkout session bookings:", e);
+        }
       }
     }
   
@@ -1656,3 +1956,185 @@ exports.deleteUserAccountRgpd = functions.region("europe-west1").https.onCall(as
     throw new functions.https.HttpsError("internal", error.message);
   }
 });
+
+// =========================================================================
+// ALTERNATIVE CHECKOUT (BIZUM / REDIRECT WALLETS) & STATUS VERIFICATION
+// =========================================================================
+
+exports.createAlternativeCheckoutSession = functions
+  .region("europe-west1")
+  .runWith({ secrets: [stripeSecret] })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+    }
+    const amountInCents = Number(data?.amountInCents);
+    if (!Number.isFinite(amountInCents) || amountInCents < 50) {
+      throw new functions.https.HttpsError("invalid-argument", "El importe mínimo para este pago es 0,50 €.");
+    }
+
+    const stripe = require("stripe")(stripeSecret.value());
+    const preferredMethod = String(data?.preferredMethod || "bizum").toLowerCase().trim();
+    const familyId =
+      typeof data?.familyId === "string" && data.familyId.trim()
+        ? data.familyId.trim()
+        : context.auth.uid;
+    const title =
+      typeof data?.title === "string" && data.title.trim()
+        ? data.title.trim().slice(0, 120)
+        : "Servicio asistencial SeniCare";
+    const transferGroup =
+      typeof data?.transferGroup === "string" && data.transferGroup.trim()
+        ? data.transferGroup.trim()
+        : `booking_${Date.now()}`;
+    const bookingIdsStr = Array.isArray(data?.bookingIds)
+      ? data.bookingIds.map((b) => String(b)).join(",").slice(0, 450)
+      : "";
+
+    const projectId = process.env.GCLOUD_PROJECT || "senicare-3342d";
+    const returnBaseUrl = `https://europe-west1-${projectId}.cloudfunctions.net/stripeCheckoutRedirect`;
+    const customerInfo = await getOrCreateStripeCustomerAndSession(stripe, context.auth);
+
+    const sessionBase = {
+      mode: "payment",
+      locale: "es",
+      customer: customerInfo.customerId || undefined,
+      line_items: [
+        {
+          price_data: {
+            currency: String(data?.currency || "eur").toLowerCase(),
+            product_data: {
+              name: title,
+              description: "Pago protegido en custodia bancaria (Stripe Escrow) · SeniCare",
+            },
+            unit_amount: Math.round(amountInCents),
+          },
+          quantity: 1,
+        },
+      ],
+      payment_intent_data: {
+        transfer_group: transferGroup,
+        metadata: {
+          familyId,
+          paidByUid: context.auth.uid,
+          preferredMethod,
+          bookingIds: bookingIdsStr,
+          caregiverStripeAccountId: data?.caregiverStripeAccountId || "",
+        },
+      },
+      metadata: {
+        familyId,
+        paidByUid: context.auth.uid,
+        preferredMethod,
+        bookingIds: bookingIdsStr,
+      },
+      success_url: `${returnBaseUrl}?status=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${returnBaseUrl}?status=cancelled&session_id={CHECKOUT_SESSION_ID}`,
+    };
+
+    let session;
+    let fallbackUsed = false;
+    try {
+      const methodList = PAYMENT_PREFERENCE_METHOD_TYPES[preferredMethod];
+      session = await stripe.checkout.sessions.create({
+        ...sessionBase,
+        ...(methodList ? { payment_method_types: methodList } : {}),
+      });
+    } catch (explicitErr) {
+      console.warn(
+        `Checkout Session '${preferredMethod}' fallback to Dashboard dynamic methods:`,
+        explicitErr.message
+      );
+      fallbackUsed = true;
+      session = await stripe.checkout.sessions.create(sessionBase);
+    }
+
+    return {
+      sessionId: session.id,
+      url: session.url,
+      transferGroup,
+      paymentIntentId:
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id || null,
+      requestedMethod: preferredMethod,
+      fallbackUsed,
+    };
+  });
+
+exports.verifyStripePaymentStatus = functions
+  .region("europe-west1")
+  .runWith({ secrets: [stripeSecret] })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+    }
+    const stripe = require("stripe")(stripeSecret.value());
+    const sessionId = typeof data?.sessionId === "string" ? data.sessionId.trim() : "";
+    const paymentIntentId = typeof data?.paymentIntentId === "string" ? data.paymentIntentId.trim() : "";
+
+    let paymentIntent = null;
+    let sessionStatus = null;
+    let paymentStatus = null;
+
+    if (sessionId) {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ["payment_intent.latest_charge"],
+      });
+      sessionStatus = session.status;
+      paymentStatus = session.payment_status;
+      if (session.payment_intent && typeof session.payment_intent === "object") {
+        paymentIntent = session.payment_intent;
+      }
+    } else if (paymentIntentId) {
+      paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ["latest_charge"],
+      });
+    } else {
+      throw new functions.https.HttpsError("invalid-argument", "Falta sessionId o paymentIntentId.");
+    }
+
+    const piStatus = paymentIntent?.status || (paymentStatus === "paid" ? "succeeded" : "requires_payment_method");
+    return {
+      status: piStatus, // 'succeeded' | 'processing' | 'requires_payment_method' | ...
+      isPaid: piStatus === "succeeded" || paymentStatus === "paid",
+      isProcessing: piStatus === "processing",
+      sessionStatus,
+      paymentIntentId: paymentIntent?.id || null,
+      paymentMethodType: extractStripePaymentMethodType(paymentIntent),
+    };
+  });
+
+exports.stripeCheckoutRedirect = functions
+  .region("europe-west1")
+  .https.onRequest((req, res) => {
+    const status = String(req.query.status || "success") === "cancelled" ? "cancelled" : "success";
+    const sessionId = encodeURIComponent(String(req.query.session_id || ""));
+    const deepLink = `senicare://checkout-return?status=${status}&session_id=${sessionId}`;
+    const isSuccess = status === "success";
+    res.set("Content-Type", "text/html; charset=utf-8").status(200).send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SeniCare · Pago ${isSuccess ? "completado" : "cancelado"}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #F5F7FA; color: #1E293B; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; text-align: center; }
+    .card { background: #fff; border-radius: 20px; padding: 28px 22px; max-width: 380px; width: 100%; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); }
+    .icon { font-size: 48px; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { font-size: 14px; color: #64748B; line-height: 1.5; margin: 0 0 20px; }
+    a.btn { display: inline-block; background: #0D9488; color: #fff; text-decoration: none; font-weight: 700; padding: 14px 22px; border-radius: 12px; width: calc(100% - 44px); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${isSuccess ? "✅" : "↩️"}</div>
+    <h1>${isSuccess ? "Pago recibido correctamente" : "Pago cancelado"}</h1>
+    <p>${isSuccess ? "Vuelve a la app SeniCare para ver el código PIN y el resumen de tu reserva." : "Has vuelto antes de completar el pago. No se ha realizado ningún cargo."}</p>
+    <a class="btn" href="${deepLink}">Volver a SeniCare</a>
+  </div>
+  <script>setTimeout(function(){ window.location.href = "${deepLink}"; }, 250);</script>
+</body>
+</html>`);
+  });
