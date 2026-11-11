@@ -12,15 +12,44 @@ class MockClientRepository implements ClientRepository {
   @override
   Future<void> updateClient(String id, Map<String, dynamic> data) async {
     final existing = _clients[id];
+    final checklist = data.containsKey('defaultCareChecklist')
+        ? (data['defaultCareChecklist'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const <String>[]
+        : List<String>.from(existing?.defaultCareChecklist ?? const []);
+    final familyEmails = data.containsKey('authorizedFamilyEmails')
+        ? (data['authorizedFamilyEmails'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const <String>[]
+        : List<String>.from(existing?.authorizedFamilyEmails ?? const []);
+
     _clients[id] = ClientProfile(
       id: id,
-      name: data['name'] ?? existing?.name ?? '',
-      phone: data['phone'] ?? existing?.phone ?? '',
-      homeAddress: data['homeAddress'] ?? existing?.homeAddress ?? '',
-      latitude: data['latitude'] ?? existing?.latitude,
-      longitude: data['longitude'] ?? existing?.longitude,
-      patientDetails: data['patientDetails'] ?? existing?.patientDetails ?? '',
-      onboardingComplete: data['onboardingComplete'] ?? existing?.onboardingComplete ?? true,
+      name: data.containsKey('name')
+          ? (data['name']?.toString() ?? '')
+          : (existing?.name ?? ''),
+      phone: data.containsKey('phone')
+          ? (data['phone']?.toString() ?? '')
+          : (existing?.phone ?? ''),
+      homeAddress: data.containsKey('homeAddress')
+          ? (data['homeAddress']?.toString() ?? '')
+          : (existing?.homeAddress ?? ''),
+      latitude: data.containsKey('latitude')
+          ? (data['latitude'] as num?)?.toDouble()
+          : existing?.latitude,
+      longitude: data.containsKey('longitude')
+          ? (data['longitude'] as num?)?.toDouble()
+          : existing?.longitude,
+      patientDetails: data.containsKey('patientDetails')
+          ? (data['patientDetails']?.toString() ?? '')
+          : (existing?.patientDetails ?? ''),
+      onboardingComplete: data.containsKey('onboardingComplete')
+          ? (data['onboardingComplete'] as bool? ?? false)
+          : (existing?.onboardingComplete ?? true),
+      defaultCareChecklist: List<String>.unmodifiable(checklist),
+      authorizedFamilyEmails: List<String>.unmodifiable(familyEmails),
     );
   }
 }

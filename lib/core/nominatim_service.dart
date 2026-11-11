@@ -1,18 +1,20 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 class NominatimService {
   static const String _baseUrl = 'https://nominatim.openstreetmap.org';
+  static const Duration _timeout = Duration(seconds: 8);
 
   /// Convierte una dirección de texto en coordenadas GPS (Latitud, Longitud)
   static Future<LatLng?> geocodeAddress(String address) async {
     try {
       final uri = Uri.parse('$_baseUrl/search?q=${Uri.encodeComponent(address)}&format=json&limit=1');
       // Nominatim requires a User-Agent header to avoid being blocked
-      final response = await http.get(uri, headers: {
-        'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'
-      });
+      final response = await http
+          .get(uri, headers: {'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'})
+          .timeout(_timeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -26,7 +28,7 @@ class NominatimService {
       }
       return null;
     } catch (e) {
-      print('Error geocoding: $e');
+      debugPrint('Error geocoding: $e');
       return null;
     }
   }
@@ -36,9 +38,9 @@ class NominatimService {
     if (query.isEmpty) return [];
     try {
       final uri = Uri.parse('$_baseUrl/search?q=${Uri.encodeComponent(query)}&format=json&limit=5&countrycodes=es');
-      final response = await http.get(uri, headers: {
-        'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'
-      });
+      final response = await http
+          .get(uri, headers: {'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'})
+          .timeout(_timeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -46,7 +48,7 @@ class NominatimService {
       }
       return [];
     } catch (e) {
-      print('Error searching address: $e');
+      debugPrint('Error searching address: $e');
       return [];
     }
   }
@@ -55,9 +57,9 @@ class NominatimService {
   static Future<String?> reverseGeocode(double lat, double lon) async {
     try {
       final uri = Uri.parse('$_baseUrl/reverse?lat=$lat&lon=$lon&format=json');
-      final response = await http.get(uri, headers: {
-        'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'
-      });
+      final response = await http
+          .get(uri, headers: {'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'})
+          .timeout(_timeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -65,7 +67,7 @@ class NominatimService {
       }
       return null;
     } catch (e) {
-      print('Error reverse geocoding: $e');
+      debugPrint('Error reverse geocoding: $e');
       return null;
     }
   }

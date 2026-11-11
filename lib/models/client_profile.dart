@@ -60,4 +60,35 @@ class ClientProfile {
       'authorizedFamilyEmails': authorizedFamilyEmails,
     };
   }
+
+  ClientProfile copyWith({
+    String? id,
+    String? name,
+    String? phone,
+    String? homeAddress,
+    double? latitude,
+    double? longitude,
+    bool clearLocation = false,
+    String? patientDetails,
+    bool? onboardingComplete,
+    List<String>? defaultCareChecklist,
+    List<String>? authorizedFamilyEmails,
+  }) {
+    return ClientProfile(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      homeAddress: homeAddress ?? this.homeAddress,
+      latitude: clearLocation ? null : (latitude ?? this.latitude),
+      longitude: clearLocation ? null : (longitude ?? this.longitude),
+      patientDetails: patientDetails ?? this.patientDetails,
+      onboardingComplete: onboardingComplete ?? this.onboardingComplete,
+      defaultCareChecklist: defaultCareChecklist != null
+          ? List<String>.unmodifiable(defaultCareChecklist)
+          : List<String>.unmodifiable(this.defaultCareChecklist),
+      authorizedFamilyEmails: authorizedFamilyEmails != null
+          ? List<String>.unmodifiable(authorizedFamilyEmails)
+          : List<String>.unmodifiable(this.authorizedFamilyEmails),
+    );
+  }
 }
