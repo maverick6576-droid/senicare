@@ -59,45 +59,58 @@ class _GuidedMatchingWizardState extends State<GuidedMatchingWizard> {
     'Silla de ruedas / Dependencia alta',
   ];
 
+  // 'spec' maps to real CaregiverNotifier.availableSpecialties values; 'keywords' matches title/bio.
   static const List<Map<String, String>> _needsCatalog = [
-    {'label': 'Acompañamiento', 'emoji': '💛', 'spec': 'Acompañamiento'},
-    {'label': 'Control de medicación', 'emoji': '💊', 'spec': 'Control de medicación'},
-    {'label': 'Alzheimer / Demencia', 'emoji': '🧠', 'spec': 'Alzheimer'},
-    {'label': 'Movilidad reducida', 'emoji': '🦯', 'spec': 'Movilidad reducida'},
-    {'label': 'Paseos y recados', 'emoji': '🚶', 'spec': 'Acompañamiento'},
-    {'label': 'Cuidado nocturno', 'emoji': '🌙', 'spec': 'Cuidado nocturno'},
+    {'label': 'Acompañamiento', 'emoji': '💛', 'spec': 'Compañía', 'keywords': 'compañía,acompañ'},
+    {'label': 'Control de medicación', 'emoji': '💊', 'spec': 'Cocina Médica', 'keywords': 'medicación,enfermer'},
+    {'label': 'Alzheimer / Demencia', 'emoji': '🧠', 'spec': 'Alzheimer', 'keywords': 'alzheimer,demencia'},
+    {'label': 'Movilidad reducida', 'emoji': '🦯', 'spec': 'Movilidad', 'keywords': 'movilidad,rehabilit'},
+    {'label': 'Paseos y recados', 'emoji': '🚶', 'spec': 'Compañía', 'keywords': 'paseo,compañía'},
+    {'label': 'Cuidado nocturno', 'emoji': '🌙', 'spec': 'Todos', 'keywords': 'nocturn,noche'},
   ];
 
   List<MapEntry<CaregiverProfile, int>> _computeTopMatches() {
     final scored = <MapEntry<CaregiverProfile, int>>[];
-    for (final c in widget.caregivers) {
-      int score = 78;
+    for (final c in widget.caregivers.where((cg) => cg.verificationStatus == 'approved')) {
+      int score = 62;
       if (c.pricePerHour <= _maxHourlyRate) {
-        score += 8;
+        score += 12;
       } else {
-        score -= 10;
+        score -= 14;
       }
       if (c.isSuperCaregiver) {
-        score += _prioritizeSuperCaregivers ? 7 : 4;
+        score += _prioritizeSuperCaregivers ? 10 : 5;
       }
-      if (c.verified) score += 3;
+      if (c.verified) score += 5;
 
       for (final need in _selectedNeeds) {
-        final mappedSpec = _needsCatalog
-            .firstWhere((e) => e['label'] == need, orElse: () => {'spec': need})['spec']!;
-        if (c.specialties.any((s) => s.toLowerCase().contains(mappedSpec.toLowerCase())) ||
-            c.title.toLowerCase().contains(mappedSpec.toLowerCase()) ||
-            c.bio.toLowerCase().contains(mappedSpec.toLowerCase())) {
-          score += 5;
+        final item = _needsCatalog.firstWhere(
+          (e) => e['label'] == need,
+          orElse: () => {'spec': 'Todos', 'keywords': need.toLowerCase()},
+        );
+        final mappedSpec = item['spec']!;
+        final keywords = item['keywords']!
+            .split(',')
+            .map((k) => k.trim().toLowerCase())
+            .where((k) => k.isNotEmpty);
+        final combined = '${c.title} ${c.bio}'.toLowerCase();
+
+        final matchedSpec = mappedSpec != 'Todos' &&
+            c.specialties.any((s) => s.toLowerCase() == mappedSpec.toLowerCase());
+        final matchedKeyword = keywords.any(
+          (kw) => combined.contains(kw) || c.specialties.any((s) => s.toLowerCase().contains(kw)),
+        );
+        if (matchedSpec || matchedKeyword) {
+          score += 7;
         }
       }
 
-      if (_mobilityLevel.contains('Silla') &&
+      if ((_mobilityLevel.contains('Movilidad') || _mobilityLevel.contains('Silla')) &&
           c.specialties.any((s) => s.toLowerCase().contains('movilidad'))) {
-        score += 4;
+        score += 6;
       }
 
-      score = score.clamp(82, 99);
+      score = score.clamp(55, 99);
       scored.add(MapEntry(c, score));
     }
 
@@ -461,10 +474,14 @@ class _GuidedMatchingWizardState extends State<GuidedMatchingWizard> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              '3. Presupuesto máximo por hora',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            const Expanded(
+              child: Text(
+                '3. Presupuesto máximo por hora',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
             ),
+            const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -565,18 +582,25 @@ class _GuidedMatchingWizardState extends State<GuidedMatchingWizard> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(14),
-                        child: Image.network(
-                          caregiver.imageUrl,
-                          width: 64,
-                          height: 64,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
-                            width: 64,
-                            height: 64,
-                            color: Colors.grey.shade200,
-                            child: const Icon(Icons.person, size: 32),
-                          ),
-                        ),
+                        child: caregiver.imageUrl.trim().isNotEmpty
+                            ? Image.network(
+                                caregiver.imageUrl,
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  width: 64,
+                                  height: 64,
+                                  color: Colors.grey.shade200,
+                                  child: const Icon(Icons.person, size: 32),
+                                ),
+                              )
+                            : Container(
+                                width: 64,
+                                height: 64,
+                                color: Colors.grey.shade200,
+                                child: const Icon(Icons.person, size: 32),
+                              ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -680,31 +704,39 @@ class _GuidedMatchingWizardState extends State<GuidedMatchingWizard> {
             );
           }),
         const SizedBox(height: 6),
-        Row(
-          children: [
-            TextButton.icon(
-              onPressed: _prevStep,
-              icon: const Icon(Icons.tune_rounded, size: 16),
-              label: const Text('Ajustar respuestas'),
-            ),
-            const Spacer(),
-            if (widget.onApplyFilters != null)
-              TextButton(
-                onPressed: () {
-                  final mappedSpecs = <String>{};
-                  for (final need in _selectedNeeds) {
-                    final spec = _needsCatalog.firstWhere(
-                      (e) => e['label'] == need,
-                      orElse: () => {'spec': need},
-                    )['spec']!;
-                    mappedSpecs.add(spec);
-                  }
-                  Navigator.pop(context);
-                  widget.onApplyFilters!(mappedSpecs, _maxHourlyRate);
-                },
-                child: const Text('Aplicar filtros al explorador'),
+        SizedBox(
+          width: double.infinity,
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              TextButton.icon(
+                onPressed: _prevStep,
+                icon: const Icon(Icons.tune_rounded, size: 16),
+                label: const Text('Ajustar respuestas'),
               ),
-          ],
+              if (widget.onApplyFilters != null)
+                TextButton(
+                  onPressed: () {
+                    final mappedSpecs = <String>{};
+                    for (final need in _selectedNeeds) {
+                      final spec = _needsCatalog.firstWhere(
+                        (e) => e['label'] == need,
+                        orElse: () => {'spec': 'Todos'},
+                      )['spec']!;
+                      if (spec != 'Todos') {
+                        mappedSpecs.add(spec);
+                      }
+                    }
+                    Navigator.pop(context);
+                    widget.onApplyFilters!(mappedSpecs, _maxHourlyRate);
+                  },
+                  child: const Text('Aplicar filtros al explorador'),
+                ),
+            ],
+          ),
         ),
       ],
     );

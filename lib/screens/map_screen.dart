@@ -28,6 +28,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _initLocation() async {
     final auth = context.read<AuthNotifier>();
     if (auth.currentRole == 'client' && auth.currentClient?.latitude != null && auth.currentClient?.longitude != null) {
+      if (!mounted) return;
       setState(() {
         _currentUserLocation = LatLng(auth.currentClient!.latitude!, auth.currentClient!.longitude!);
       });
@@ -36,11 +37,13 @@ class _MapScreenState extends State<MapScreen> {
 
     final location = context.read<LocationNotifier>();
     if (location.latitude != null && location.longitude != null) {
+      if (!mounted) return;
       setState(() {
         _currentUserLocation = LatLng(location.latitude!, location.longitude!);
       });
     } else {
       await location.initLocation();
+      if (!mounted) return;
       if (location.latitude != null && location.longitude != null) {
         setState(() {
           _currentUserLocation = LatLng(location.latitude!, location.longitude!);
@@ -51,11 +54,12 @@ class _MapScreenState extends State<MapScreen> {
 
   void _onPositionChanged(MapCamera position, bool hasGesture) {
     if (!hasGesture) return;
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      context.read<CaregiverNotifier>().loadMoreCaregivers(
-        mapLat: position.center.latitude,
-        mapLng: position.center.longitude,
+      if (!mounted) return;
+      context.read<CaregiverNotifier>().fetchNearMapLocation(
+        position.center.latitude,
+        position.center.longitude,
       );
     });
   }
@@ -68,8 +72,12 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final center = _currentUserLocation ?? const LatLng(40.4168, -3.7038);
-    final caregivers = context.watch<CaregiverNotifier>().filteredCaregivers;
+    final center = _currentUserLocation ?? const LatLng(41.3851, 2.1734);
+    final caregiverNotifier = context.watch<CaregiverNotifier>();
+    final caregivers = caregiverNotifier.caregiversForMap;
+    final mappableCaregivers = caregivers
+        .where((c) => c.latitude != null && c.longitude != null)
+        .toList();
 
     double maxRadius = 5000.0;
     if (_currentUserLocation != null) {
@@ -126,7 +134,7 @@ class _MapScreenState extends State<MapScreen> {
                       height: 40,
                       child: const Icon(Icons.location_on, color: Colors.red, size: 40),
                     ),
-                  ...caregivers.where((c) => c.latitude != null && c.longitude != null).map((c) {
+                  ...mappableCaregivers.map((c) {
                     return Marker(
                       point: LatLng(c.latitude!, c.longitude!),
                       width: 86,
@@ -208,7 +216,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ],
           ),
-          if (context.watch<CaregiverNotifier>().isFetchingCaregivers)
+          if (caregiverNotifier.isFetchingCaregivers)
             const Positioned(
               top: 16,
               left: 0,
@@ -216,7 +224,7 @@ class _MapScreenState extends State<MapScreen> {
               child: Center(
                 child: Card(
                   child: Padding(
-                    padding: EdgeInsets.all(8.0),
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -225,6 +233,31 @@ class _MapScreenState extends State<MapScreen> {
                         Text('Buscando en esta zona...'),
                       ],
                     ),
+                  ),
+                ),
+              ),
+            )
+          else
+            Positioned(
+              left: 16,
+              right: 84,
+              bottom: 20,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.people_alt_rounded, color: AppTheme.primary, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          mappableCaregivers.isEmpty
+                              ? 'Sin cuidadores visibles en esta zona'
+                              : '${mappableCaregivers.length} ${mappableCaregivers.length == 1 ? "cuidador" : "cuidadores"} en el mapa',
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

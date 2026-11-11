@@ -73,12 +73,17 @@ class MockCaregiverRepository implements CaregiverRepository {
 
   @override
   Future<List<CaregiverProfile>> fetchCaregivers({String specialty = 'Todos', String query = '', bool refresh = false, double? mapLat, double? mapLng}) async {
+    final q = query.trim().toLowerCase();
     return _mockCaregivers.where((c) {
       if (c.verificationStatus != 'approved') return false;
-      
+
       final matchesSpecialty = specialty == 'Todos' || c.specialties.contains(specialty);
-      final matchesSearch = c.name.toLowerCase().contains(query.toLowerCase()) || 
-                            c.title.toLowerCase().contains(query.toLowerCase());
+      final matchesSearch = q.isEmpty ||
+          c.name.toLowerCase().contains(q) ||
+          c.title.toLowerCase().contains(q) ||
+          c.bio.toLowerCase().contains(q) ||
+          c.homeAddress.toLowerCase().contains(q) ||
+          c.specialties.any((s) => s.toLowerCase().contains(q));
       return matchesSpecialty && matchesSearch;
     }).toList();
   }

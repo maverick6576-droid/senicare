@@ -119,15 +119,18 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
     final theme = Theme.of(context);
     final c = widget.caregiver;
     final location = context.watch<LocationNotifier>();
-    String? authUserId;
+    AuthNotifier? auth;
     try {
-      authUserId = context.select<AuthNotifier, String?>((a) => a.currentUserId);
+      auth = context.watch<AuthNotifier>();
     } catch (_) {}
+    final authUserId = auth?.currentUserId;
     final isOwnProfile = widget.isPreview || (authUserId != null && authUserId == c.id);
-    
+
+    final effectiveLat = auth?.currentClient?.latitude ?? location.latitude;
+    final effectiveLng = auth?.currentClient?.longitude ?? location.longitude;
     String distanceText = c.distance;
-    if (c.latitude != null && c.longitude != null && location.latitude != null && location.longitude != null) {
-      double dist = calculateDistance(location.latitude!, location.longitude!, c.latitude!, c.longitude!);
+    if (c.latitude != null && c.longitude != null && effectiveLat != null && effectiveLng != null) {
+      double dist = calculateDistance(effectiveLat, effectiveLng, c.latitude!, c.longitude!);
       distanceText = 'A ${dist.toStringAsFixed(1)} km de ti';
     }
 

@@ -57,10 +57,14 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
         caregivers = caregivers.where((c) => c.specialties.contains(specialty)).toList();
       }
       
-      if (query.isNotEmpty) {
-        final q = query.toLowerCase();
+      if (query.trim().isNotEmpty) {
+        final q = query.trim().toLowerCase();
         caregivers = caregivers.where((c) {
-          return c.name.toLowerCase().contains(q) || c.title.toLowerCase().contains(q);
+          return c.name.toLowerCase().contains(q) ||
+              c.title.toLowerCase().contains(q) ||
+              c.bio.toLowerCase().contains(q) ||
+              c.homeAddress.toLowerCase().contains(q) ||
+              c.specialties.any((s) => s.toLowerCase().contains(q));
         }).toList();
       }
 
