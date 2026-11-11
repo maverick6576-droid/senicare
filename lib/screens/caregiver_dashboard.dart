@@ -113,23 +113,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     }
   }
 
-  double _calculateCaregiverNet(Booking b) {
-    if (b.escrowStatus == 'resolved_partial' && b.caregiverPayout > 0) {
-      return b.caregiverPayout;
-    }
-    if (b.escrowStatus == 'resolved_partial' && b.disputeAmount != null) {
-      final remaining = (b.cost - b.disputeAmount!).clamp(0.0, b.cost);
-      final rate = b.caregiverCommissionRate > 0 ? b.caregiverCommissionRate : 0.18;
-      return remaining * (1.0 - rate);
-    }
-    if (b.caregiverPayout > 0) return b.caregiverPayout;
-    if (b.cost <= 0) return 0.0;
-    if (b.caregiverCommissionAmount > 0) {
-      return (b.cost - b.caregiverCommissionAmount).clamp(0.0, b.cost);
-    }
-    final rate = b.caregiverCommissionRate > 0 ? b.caregiverCommissionRate : 0.18;
-    return b.cost * (1.0 - rate);
-  }
+  double _calculateCaregiverNet(Booking b) => b.netPayoutForCaregiver;
 
   int _compareBookingsChronologically(Booking a, Booking b) {
     final dtA = a.scheduledStartTime ?? a.createdAt;

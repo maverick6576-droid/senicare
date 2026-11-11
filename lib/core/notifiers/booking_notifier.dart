@@ -13,22 +13,32 @@ class BookingNotifier extends ChangeNotifier {
   String? _currentUserId;
   String? _currentRole;
   int _limit = 15;
+  bool _isLoadingMore = false;
+
+  int get currentLimit => _limit;
+  bool get hasMore => bookings.length >= _limit;
+  bool get isLoadingMore => _isLoadingMore;
 
   void updateAuth(String? userId, String? role) {
     if (_currentUserId != userId || _currentRole != role) {
       _currentUserId = userId;
       _currentRole = role;
+      _limit = 15;
+      _isLoadingMore = false;
       _subscribeToBookings();
     }
   }
 
   Future<void> refreshBookings() async {
-    _subscribeToBookings();
-    // Allow a small delay to simulate async action for RefreshIndicator UI
-    await Future.delayed(const Duration(milliseconds: 500));
+    _isLoadingMore = false;
+    _subscribeToBookings(clearBookings: false);
+    // Keep existing items rendered while the fresh snapshot arrives.
+    await Future.delayed(const Duration(milliseconds: 350));
   }
 
   void loadMoreBookings() {
+    if (!hasMore || _isLoadingMore) return;
+    _isLoadingMore = true;
     _limit += 15;
     _subscribeToBookings(clearBookings: false);
   }
@@ -38,28 +48,25 @@ class BookingNotifier extends ChangeNotifier {
     if (clearBookings) bookings.clear();
 
     if (_currentUserId == null || _currentRole == null || _currentRole == 'admin') {
+      _isLoadingMore = false;
       notifyListeners();
       return;
     }
 
-    String effectiveUserId = _currentUserId!;
-    // MVP: For caregivers without a real profile (testing logic from AppState)
-    if (_currentRole == 'caregiver') {
-      // In a real app we would check if they have a caregiver profile.
-      // We will assume they do or fallback.
-    }
-
-    if (_currentRole == 'client') {
-      _bookingsSubscription = DependencyInjection.bookings.streamBookings(effectiveUserId, 'client', limit: _limit).listen((data) {
+    final roleToStream = _currentRole == 'client' ? 'client' : 'caregiver';
+    _bookingsSubscription = DependencyInjection.bookings
+        .streamBookings(_currentUserId!, roleToStream, limit: _limit)
+        .listen(
+      (data) {
         bookings = data;
+        _isLoadingMore = false;
         notifyListeners();
-      });
-    } else {
-      _bookingsSubscription = DependencyInjection.bookings.streamBookings(effectiveUserId, 'caregiver', limit: _limit).listen((data) {
-        bookings = data;
+      },
+      onError: (_) {
+        _isLoadingMore = false;
         notifyListeners();
-      });
-    }
+      },
+    );
   }
 
   Future<String> addBooking(Booking booking) async {

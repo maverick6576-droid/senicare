@@ -22,12 +22,15 @@ class _BookingsScreenState extends State<BookingsScreen> {
   final ScrollController _scrollActive = ScrollController();
   final ScrollController _scrollHistory = ScrollController();
   final Map<String, Future<ClientProfile?>> _clientFutures = {};
+  final Set<String> _busyBookingIds = {};
+  String _caregiverFilter = 'all'; // 'all', 'pending', 'today'
 
   Future<ClientProfile?> _getClientProfile(String clientId) {
-    if (!_clientFutures.containsKey(clientId)) {
-      _clientFutures[clientId] = DependencyInjection.clients.getClient(clientId);
-    }
-    return _clientFutures[clientId]!;
+    if (clientId.isEmpty) return Future.value(null);
+    return _clientFutures.putIfAbsent(
+      clientId,
+      () => DependencyInjection.clients.getClient(clientId),
+    );
   }
 
   String _formatDay(String d) {
@@ -38,6 +41,120 @@ class _BookingsScreenState extends State<BookingsScreen> {
     return d;
   }
 
+  bool _isScheduledToday(Booking b) {
+    final start = b.scheduledStartTime;
+    if (start == null) return false;
+    final now = DateTime.now();
+    return start.year == now.year && start.month == now.month && start.day == now.day;
+  }
+
+  String _formatFriendlyDay(Booking b) {
+    final start = b.scheduledStartTime;
+    if (start == null) return _formatDay(b.day);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(start.year, start.month, start.day);
+    final diffDays = target.difference(today).inDays;
+    final shortDate =
+        '${start.day.toString().padLeft(2, '0')}/${start.month.toString().padLeft(2, '0')}';
+    if (diffDays == 0) return 'Hoy ($shortDate)';
+    if (diffDays == 1) return 'Mañana ($shortDate)';
+    if (diffDays == -1) return 'Ayer ($shortDate)';
+    const weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    final wd = weekdays[(start.weekday - 1).clamp(0, 6)];
+    return '$wd $shortDate/${start.year}';
+  }
+
+  ({String label, String initials}) _extractFamilyDisplay(String? rawName) {
+    final clean = (rawName ?? '').trim();
+    if (clean.isEmpty) return (label: 'Familia', initials: 'F');
+    final parts = clean.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return (label: 'Familia', initials: 'F');
+    if (parts.length == 1) {
+      return (label: 'Familia ${parts.first}', initials: parts.first[0].toUpperCase());
+    }
+    final surname = parts.sublist(1).join(' ');
+    final initials = parts.length > 2
+        ? '${parts[1][0]}${parts[2][0]}'.toUpperCase()
+        : parts[1][0].toUpperCase();
+    return (label: 'Familia $surname', initials: initials);
+  }
+
+  Future<void> _handleRefresh(BookingNotifier state) async {
+    _clientFutures.clear();
+    await state.refreshBookings();
+  }
+
+  Future<void> _runBookingAction(
+    String bookingId,
+    Future<void> Function() action, {
+    String? successMessage,
+    SnackBarType successType = SnackBarType.success,
+  }) async {
+    if (_busyBookingIds.contains(bookingId)) return;
+    setState(() => _busyBookingIds.add(bookingId));
+    try {
+      await action();
+      if (mounted && successMessage != null) {
+        CustomSnackBar.show(context, message: successMessage, type: successType);
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo completar la acción: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busyBookingIds.remove(bookingId));
+      }
+    }
+  }
+
+  Future<void> _openMapsForBooking(Booking b, ClientProfile? profile) async {
+    final double? lat = b.clientLatitude ?? profile?.latitude;
+    final double? lng = b.clientLongitude ?? profile?.longitude;
+    final String address = profile?.homeAddress.trim() ?? '';
+    Uri? uri;
+    if (lat != null && lng != null && (lat != 0 || lng != 0)) {
+      uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    } else if (address.isNotEmpty) {
+      uri = Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}',
+      );
+    }
+    if (uri == null) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'La familia aún no ha indicado una dirección exacta.',
+          type: SnackBarType.info,
+        );
+      }
+      return;
+    }
+    try {
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo abrir la aplicación de mapas.',
+          type: SnackBarType.error,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo abrir la aplicación de mapas.',
+          type: SnackBarType.error,
+        );
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -46,11 +163,14 @@ class _BookingsScreenState extends State<BookingsScreen> {
   }
 
   void _onScroll() {
-    if (_scrollActive.hasClients && _scrollActive.position.pixels >= _scrollActive.position.maxScrollExtent - 200) {
-      context.read<BookingNotifier>().loadMoreBookings();
-    }
-    if (_scrollHistory.hasClients && _scrollHistory.position.pixels >= _scrollHistory.position.maxScrollExtent - 200) {
-      context.read<BookingNotifier>().loadMoreBookings();
+    final notifier = context.read<BookingNotifier>();
+    if (!notifier.hasMore || notifier.isLoadingMore) return;
+    final nearBottomActive = _scrollActive.hasClients &&
+        _scrollActive.position.pixels >= _scrollActive.position.maxScrollExtent - 200;
+    final nearBottomHistory = _scrollHistory.hasClients &&
+        _scrollHistory.position.pixels >= _scrollHistory.position.maxScrollExtent - 200;
+    if (nearBottomActive || nearBottomHistory) {
+      notifier.loadMoreBookings();
     }
   }
 
@@ -121,40 +241,82 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   bool isBookingExpired(Booking b) => b.isExpired;
 
+  bool _belongsToActiveTab(Booking b, bool isClient) {
+    if (!isClient && b.status == BookingStatus.pendingPayment) {
+      return false;
+    }
+    if (b.isInProgressAwaitingCheckOut || b.isOpenDisputePendingAction) {
+      return true;
+    }
+    if (isClient &&
+        b.status == BookingStatus.pendingPayment &&
+        !b.isEscrowSettled &&
+        !b.isExpired) {
+      return true;
+    }
+    return b.isActive;
+  }
+
+  int _caregiverActivePriority(Booking b) {
+    if (b.isInProgressAwaitingCheckOut) return 0;
+    if (b.isOpenDisputePendingAction) return 1;
+    if (b.status == BookingStatus.pending) return 2;
+    return 3;
+  }
+
+  int _compareBySchedule(Booking a, Booking b, {bool descending = false}) {
+    final dtA = a.scheduledStartTime ?? a.createdAt;
+    final dtB = b.scheduledStartTime ?? b.createdAt;
+    final cmp = descending ? dtB.compareTo(dtA) : dtA.compareTo(dtB);
+    return cmp != 0 ? cmp : a.createdAt.compareTo(b.createdAt);
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthNotifier>();
     final bookingState = context.watch<BookingNotifier>();
     final isClient = auth.currentRole == 'client';
-    final bookings = List<Booking>.from(bookingState.bookings);
-    bookings.sort((a, b) => b.createdAt.compareTo(a.createdAt)); 
-    bookings.sort((a, b) => a.day.compareTo(b.day) != 0 ? a.day.compareTo(b.day) : a.slot.compareTo(b.slot));
-    
-    final activeBookings = bookings.where((b) => 
-      b.status != BookingStatus.cancelled && 
-      b.status != BookingStatus.cancelledLate && 
-      b.status != BookingStatus.completed &&
-      b.escrowStatus != 'released' && 
-      b.escrowStatus != 'resolved_partial' &&
-      !isBookingExpired(b)
-    ).toList();
+    final bookings = bookingState.bookings
+        .where((b) => isClient || b.status != BookingStatus.pendingPayment)
+        .toList();
 
-    final historyBookings = bookings.where((b) => 
-      b.status == BookingStatus.cancelled || 
-      b.status == BookingStatus.cancelledLate || 
-      b.status == BookingStatus.completed ||
-      b.escrowStatus == 'released' || 
-      b.escrowStatus == 'resolved_partial' ||
-      isBookingExpired(b)
-    ).toList();
-    
-    historyBookings.sort((a, b) => b.day.compareTo(a.day) != 0 ? b.day.compareTo(a.day) : b.slot.compareTo(a.slot));
+    final activeBookings =
+        bookings.where((b) => _belongsToActiveTab(b, isClient)).toList();
+    final historyBookings =
+        bookings.where((b) => !_belongsToActiveTab(b, isClient)).toList();
+
+    activeBookings.sort((a, b) {
+      if (!isClient) {
+        final pCmp =
+            _caregiverActivePriority(a).compareTo(_caregiverActivePriority(b));
+        if (pCmp != 0) return pCmp;
+      }
+      return _compareBySchedule(a, b, descending: false);
+    });
+    historyBookings.sort((a, b) => _compareBySchedule(a, b, descending: true));
 
     if (isClient) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _checkPendingReviews(bookings);
       });
     }
+
+    final int caregiverPendingCount =
+        activeBookings.where((b) => b.status == BookingStatus.pending).length;
+    final int caregiverTodayCount =
+        activeBookings.where(_isScheduledToday).length;
+
+    final List<Booking> filteredActiveBookings = isClient
+        ? activeBookings
+        : activeBookings.where((b) {
+            if (_caregiverFilter == 'pending') {
+              return b.status == BookingStatus.pending;
+            }
+            if (_caregiverFilter == 'today') {
+              return _isScheduledToday(b);
+            }
+            return true;
+          }).toList();
 
     return DefaultTabController(
       length: 2,
@@ -166,23 +328,43 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
               ),
-              child: const TabBar(
+              child: TabBar(
                 labelColor: AppTheme.primary,
                 unselectedLabelColor: AppTheme.slateMuted,
                 indicatorColor: AppTheme.primary,
                 indicatorWeight: 3,
-                labelStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                labelStyle:
+                    const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                 tabs: [
-                  Tab(text: 'Reservas Activas'),
-                  Tab(text: 'Historial'),
+                  Tab(text: 'Activas (${activeBookings.length})'),
+                  Tab(text: 'Historial (${historyBookings.length})'),
                 ],
               ),
             ),
             Expanded(
               child: TabBarView(
                 children: [
-                  _buildBookingsList(context, activeBookings, isClient, auth, bookingState, isActiveTab: true, controller: _scrollActive),
-                  _buildBookingsList(context, historyBookings, isClient, auth, bookingState, isActiveTab: false, controller: _scrollHistory),
+                  _buildBookingsList(
+                    context,
+                    filteredActiveBookings,
+                    isClient,
+                    auth,
+                    bookingState,
+                    isActiveTab: true,
+                    controller: _scrollActive,
+                    caregiverTotalActiveCount: activeBookings.length,
+                    caregiverPendingCount: caregiverPendingCount,
+                    caregiverTodayCount: caregiverTodayCount,
+                  ),
+                  _buildBookingsList(
+                    context,
+                    historyBookings,
+                    isClient,
+                    auth,
+                    bookingState,
+                    isActiveTab: false,
+                    controller: _scrollHistory,
+                  ),
                 ],
               ),
             ),
@@ -192,458 +374,872 @@ class _BookingsScreenState extends State<BookingsScreen> {
     );
   }
 
-  Widget _buildBookingsList(BuildContext context, List<Booking> bookings, bool isClient, AuthNotifier auth, BookingNotifier state, {required bool isActiveTab, required ScrollController controller}) {
-    return RefreshIndicator(
-      onRefresh: state.refreshBookings,
-      child: bookings.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
+  Widget _buildCaregiverFilterChip({
+    required String value,
+    required String label,
+    Color? dotColor,
+  }) {
+    final selected = _caregiverFilter == value;
+    return ChoiceChip(
+      selected: selected,
+      onSelected: (_) => setState(() => _caregiverFilter = value),
+      showCheckmark: false,
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dotColor != null && !selected) ...[
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Text(label),
+        ],
+      ),
+      labelStyle: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        color: selected ? Colors.white : AppTheme.darkSlate,
+      ),
+      selectedColor: AppTheme.primary,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: selected ? AppTheme.primary : AppTheme.borderSubtle,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    );
+  }
+
+  Widget _buildCaregiverActivasHeader({
+    required int totalActive,
+    required int pendingCount,
+    required int todayCount,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Tus turnos y solicitudes',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.slateMuted,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const CaregiverCalendarScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                label: const Text(
+                  'Mi horario',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
               children: [
-                Container(
-                  height: MediaQuery.of(context).size.height * 0.58,
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  alignment: Alignment.center,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                _buildCaregiverFilterChip(
+                  value: 'all',
+                  label: 'Todas ($totalActive)',
+                ),
+                const SizedBox(width: 8),
+                _buildCaregiverFilterChip(
+                  value: 'pending',
+                  label: 'Por aceptar ($pendingCount)',
+                  dotColor: pendingCount > 0 ? Colors.amber.shade700 : null,
+                ),
+                const SizedBox(width: 8),
+                _buildCaregiverFilterChip(
+                  value: 'today',
+                  label: 'Hoy ($todayCount)',
+                  dotColor: todayCount > 0 ? AppTheme.secondaryColor : null,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingsList(
+    BuildContext context,
+    List<Booking> bookings,
+    bool isClient,
+    AuthNotifier auth,
+    BookingNotifier state, {
+    required bool isActiveTab,
+    required ScrollController controller,
+    int caregiverTotalActiveCount = 0,
+    int caregiverPendingCount = 0,
+    int caregiverTodayCount = 0,
+  }) {
+    final bool showCaregiverToolbar = !isClient && isActiveTab;
+    final bool isFilteredEmpty = showCaregiverToolbar &&
+        bookings.isEmpty &&
+        caregiverTotalActiveCount > 0 &&
+        _caregiverFilter != 'all';
+
+    return Column(
+      children: [
+        if (showCaregiverToolbar)
+          _buildCaregiverActivasHeader(
+            totalActive: caregiverTotalActiveCount,
+            pendingCount: caregiverPendingCount,
+            todayCount: caregiverTodayCount,
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () => _handleRefresh(state),
+            child: bookings.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(22),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primarySurface,
-                          shape: BoxShape.circle,
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(22),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primarySurface,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                isFilteredEmpty
+                                    ? Icons.filter_alt_off_rounded
+                                    : (isActiveTab
+                                        ? Icons.favorite_border_rounded
+                                        : Icons.history_edu_rounded),
+                                size: 50,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            Text(
+                              isFilteredEmpty
+                                  ? (_caregiverFilter == 'pending'
+                                      ? 'No tienes solicitudes pendientes'
+                                      : 'No tienes servicios programados hoy')
+                                  : (isActiveTab
+                                      ? 'Aún no tienes cuidados activos'
+                                      : 'Tu historial de cuidados está vacío'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.darkSlate,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              isFilteredEmpty
+                                  ? 'Puedes ver el resto de tus servicios confirmados pulsando en "Todas".'
+                                  : (isActiveTab
+                                      ? (isClient
+                                          ? 'Reserva un cuidador verificado o publica una oferta personalizada para tu familiar.'
+                                          : 'Revisa el tablón de ofertas cercanas o mantén tu horario actualizado para recibir solicitudes.')
+                                      : 'Aquí aparecerán todas las visitas finalizadas con su Diario del Cuidado y resumen de pagos.'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                color: AppTheme.slateMuted,
+                                height: 1.4,
+                              ),
+                            ),
+                            if (isFilteredEmpty) ...[
+                              const SizedBox(height: 16),
+                              OutlinedButton(
+                                onPressed: () =>
+                                    setState(() => _caregiverFilter = 'all'),
+                                child: const Text('Ver todas las reservas'),
+                              ),
+                            ],
+                          ],
                         ),
-                        child: Icon(
-                          isActiveTab ? Icons.favorite_border_rounded : Icons.history_edu_rounded,
-                          size: 52,
-                          color: AppTheme.primary,
-                        ),
+                      )
+                    ],
+                  )
+                : ListView.builder(
+                    controller: controller,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: bookings.length + (state.hasMore ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index >= bookings.length) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2.5),
+                            ),
+                          ),
+                        );
+                      }
+                      final b = bookings[index];
+                      if (isClient) {
+                        return _buildBookingCard(
+                          context,
+                          b,
+                          isClient: true,
+                          state: state,
+                          allBookings: bookings,
+                          isActiveTab: isActiveTab,
+                        );
+                      }
+                      return FutureBuilder<ClientProfile?>(
+                        future: _getClientProfile(b.clientId),
+                        builder: (context, snapshot) {
+                          return _buildBookingCard(
+                            context,
+                            b,
+                            isClient: false,
+                            state: state,
+                            allBookings: bookings,
+                            isActiveTab: isActiveTab,
+                            clientProfile: snapshot.data,
+                            isLoadingClient: snapshot.connectionState ==
+                                ConnectionState.waiting,
+                          );
+                        },
+                      );
+                    },
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBookingCard(
+    BuildContext context,
+    Booking b, {
+    required bool isClient,
+    required BookingNotifier state,
+    required List<Booking> allBookings,
+    required bool isActiveTab,
+    ClientProfile? clientProfile,
+    bool isLoadingClient = false,
+  }) {
+    final badge = _resolveStatusBadge(b);
+    final familyInfo =
+        isClient ? null : _extractFamilyDisplay(clientProfile?.name);
+    final bool hasUrgentBorder = !isClient &&
+        isActiveTab &&
+        (b.isInProgressAwaitingCheckOut || b.status == BookingStatus.pending);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: hasUrgentBorder
+              ? badge.color.withValues(alpha: 0.45)
+              : AppTheme.borderSubtle,
+          width: hasUrgentBorder ? 1.5 : 1,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                isClient
+                    ? const CircleAvatar(child: Icon(Icons.person))
+                    : CircleAvatar(
+                        backgroundColor: Colors.blue.shade50,
+                        foregroundColor: Colors.blue.shade900,
+                        child: isLoadingClient && clientProfile == null
+                            ? const Icon(Icons.person, color: Colors.blue)
+                            : Text(
+                                familyInfo!.initials,
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
                       ),
-                      const SizedBox(height: 18),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        isActiveTab
-                            ? 'Aún no tienes cuidados activos'
-                            : 'Tu historial de cuidados está vacío',
-                        textAlign: TextAlign.center,
+                        isClient
+                            ? b.caregiverName
+                            : (isLoadingClient && clientProfile == null
+                                ? 'Familia...'
+                                : familyInfo!.label),
                         style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16.5,
                           color: AppTheme.darkSlate,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
-                        isActiveTab
-                            ? (isClient
-                                ? 'Reserva un cuidador verificado o publica una oferta personalizada para tu familiar.'
-                                : 'Revisa el tablón de ofertas cercanas o mantén tu calendario actualizado para recibir solicitudes.')
-                            : 'Aquí aparecerán todas las visitas finalizadas con su Diario del Cuidado y valoraciones.',
-                        textAlign: TextAlign.center,
+                        '${_formatFriendlyDay(b)} · ${b.slot}',
                         style: const TextStyle(
-                          fontSize: 13.5,
                           color: AppTheme.slateMuted,
-                          height: 1.4,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13.5,
                         ),
                       ),
                     ],
                   ),
-                )
+                ),
               ],
-            )
-          : ListView.builder(
-              controller: controller,
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              itemCount: bookings.length,
-              itemBuilder: (context, index) {
-                final b = bookings[index];
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: () => _showStatusExplanation(context, b),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: badge.color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: badge.color.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.info_outline_rounded, size: 15, color: badge.color),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        badge.label,
+                        style: TextStyle(
+                          color: badge.color,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 22),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isClient
+                            ? 'Cuidados a domicilio'
+                            : (b.isEscrowSettled || b.status == BookingStatus.completed
+                                ? 'Tu ingreso neto'
+                                : 'Tu ganancia estimada'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.darkSlate,
+                        ),
+                      ),
+                      if (!isClient)
+                        Text(
+                          b.escrowStatus == 'refunded'
+                              ? 'Reserva reembolsada'
+                              : 'Neto tras comisión Senicare',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: AppTheme.slateMuted,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isClient
+                      ? '${b.totalPaid.toStringAsFixed(2)} €'
+                      : (b.escrowStatus == 'refunded'
+                          ? '0.00 €'
+                          : '+${b.netPayoutForCaregiver.toStringAsFixed(2)} €'),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                    color: (!isClient && b.escrowStatus != 'refunded')
+                        ? Colors.green.shade700
+                        : AppTheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            if (b.tipAmount > 0) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('☕', style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Propina de agradecimiento: +${b.tipAmount.toStringAsFixed(0)} € (100% íntegra)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.amber.shade900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (!isClient &&
+                isActiveTab &&
+                b.status == BookingStatus.confirmed &&
+                clientProfile != null &&
+                (clientProfile.patientDetails.isNotEmpty ||
+                    clientProfile.homeAddress.isNotEmpty)) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            isClient ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const CircleAvatar(
-                                  child: Icon(Icons.person),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(b.caregiverName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                      const SizedBox(height: 4),
-                                      Text('${_formatDay(b.day)} a las ${b.slot}', style: const TextStyle(color: Colors.grey)),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ) : FutureBuilder<ClientProfile?>(
-                                future: _getClientProfile(b.clientId),
-                                builder: (context, snapshot) {
-                                  final isLoading = snapshot.connectionState == ConnectionState.waiting;
-                                  final clientName = snapshot.data?.name ?? 'Desconocida';
-                                  final nameParts = clientName.trim().split(RegExp(r'\s+'));
-                                  final surname = nameParts.length > 1 ? nameParts[1] : clientName;
-                                  
-                                  String avatarText = '';
-                                  if (nameParts.length > 1 && nameParts[1].isNotEmpty) {
-                                    avatarText += nameParts[1][0].toUpperCase();
-                                    if (nameParts.length > 2 && nameParts[2].isNotEmpty) {
-                                      avatarText += nameParts[2][0].toUpperCase();
-                                    }
-                                  } else if (nameParts.isNotEmpty && nameParts[0].isNotEmpty) {
-                                    avatarText = nameParts[0][0].toUpperCase();
-                                  }
-
-                                  return Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      CircleAvatar(
-                                        backgroundColor: Colors.blue.shade100,
-                                        foregroundColor: Colors.blue.shade900,
-                                        child: isLoading || avatarText.isEmpty
-                                            ? const Icon(Icons.person, color: Colors.blue)
-                                            : Text(avatarText, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text('Familia: ${isLoading ? "..." : surname}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                            const SizedBox(height: 4),
-                                            Text('${_formatDay(b.day)} a las ${b.slot}', style: const TextStyle(color: Colors.grey)),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                            ),
-                            const SizedBox(height: 12),
-                            InkWell(
-                              onTap: () => _showStatusExplanation(context, b),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: _getStatusColor(b.status).withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: _getStatusColor(b.status).withValues(alpha: 0.3)),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.info_outline, size: 14, color: _getStatusColor(b.status)),
-                                    const SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(
-                                        _getStatusText(b),
-                                        style: TextStyle(color: _getStatusColor(b.status), fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          ],
+                        Icon(
+                          Icons.medical_information_rounded,
+                          size: 17,
+                          color: Colors.amber.shade900,
                         ),
-                        const Divider(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Expanded(child: Text('Cuidados a domicilio')),
-                            const SizedBox(width: 8),
-                            Text('${b.totalPaid.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primary)),
-                          ],
-                        ),
-                        if (b.tipAmount > 0) ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.shade50,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.amber.shade300),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text('☕', style: TextStyle(fontSize: 14)),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Propina de agradecimiento: +${b.tipAmount.toStringAsFixed(0)} € (100% íntegra)',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.amber.shade900,
-                                  ),
-                                ),
-                              ],
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Ficha del domicilio y paciente',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.amber.shade900,
                             ),
                           ),
-                        ],
-                        if (!isClient && isActiveTab && b.status == BookingStatus.confirmed)
-                          FutureBuilder<ClientProfile?>(
-                            future: _getClientProfile(b.clientId),
-                            builder: (context, snap) {
-                              final profile = snap.data;
-                              if (profile == null || (profile.patientDetails.isEmpty && profile.homeAddress.isEmpty)) {
-                                return const SizedBox.shrink();
-                              }
-                              return Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(top: 12),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.amber.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.amber.shade300),
+                        ),
+                        if (clientProfile.homeAddress.isNotEmpty ||
+                            b.clientLatitude != null ||
+                            clientProfile.latitude != null)
+                          TextButton.icon(
+                            onPressed: () =>
+                                _openMapsForBooking(b, clientProfile),
+                            icon: const Icon(Icons.directions_rounded, size: 17),
+                            label: const Text(
+                              'Cómo llegar',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppTheme.primary,
+                              backgroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              minimumSize: const Size(0, 32),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                side: BorderSide(
+                                  color: AppTheme.primary.withValues(alpha: 0.3),
                                 ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Icon(Icons.medical_information_rounded, size: 17, color: Colors.amber.shade900),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '🩺 Ficha Rápida del Paciente',
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w800,
-                                            color: Colors.amber.shade900,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    if (profile.homeAddress.isNotEmpty) ...[
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        '📍 Domicilio: ${profile.homeAddress}',
-                                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.darkSlate),
-                                      ),
-                                    ],
-                                    if (profile.patientDetails.isNotEmpty) ...[
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '📋 Indicaciones: ${profile.patientDetails}',
-                                        style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              );
-                            },
+                              ),
+                            ),
                           ),
-
-                        if (b.status == BookingStatus.confirmed || b.status == BookingStatus.completed) ...[
-                          const SizedBox(height: 14),
-                          _buildLiveStatusStepper(b),
-                          const SizedBox(height: 14),
-                          _buildCareJournalSection(context, b, isClient, state, isActiveTab: isActiveTab),
-                        ],
-
-                        // Disputa activa (si existe)
-                        if (b.escrowStatus == 'disputed') ...[
-                          const SizedBox(height: 12),
-                          _buildDisputeBanner(context, b, isClient, state),
-                        ],
-
-                        // Aviso de Incomparecencia / No-Show si transcurrió sin check-in
-                        if (isClient && isBookingExpired(b) && b.checkInTime == null && b.escrowStatus != 'refunded') ...[
-                          const SizedBox(height: 12),
-                          _buildNoShowBanner(context, b),
-                        ],
-
-                        // Botón de Acción Principal (Contextual, Grande y Tranquilizador)
-                        Builder(
-                          builder: (context) {
-                            final primaryBtn = _buildPrimaryActionButton(context, b, isClient, state, bookings);
-                            if (primaryBtn == null) return const SizedBox.shrink();
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 14.0),
-                              child: primaryBtn,
-                            );
-                          },
-                        ),
-
-                        // Fila Secundaria Siempre Limpia: Chat + Más opciones
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(context, MaterialPageRoute(
-                                    builder: (_) => ChatScreen(
-                                      clientId: b.clientId, 
-                                      caregiverId: b.caregiverId, 
-                                      caregiverName: b.caregiverName
-                                    )
-                                  ));
-                                },
-                                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-                                label: Text(
-                                  isClient
-                                      ? 'Chat con ${b.caregiverName.split(" ").first}'
-                                      : 'Chat con Familia',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              onPressed: () => _showBookingMoreOptionsModal(context, b, isClient, state),
-                              style: IconButton.styleFrom(
-                                backgroundColor: AppTheme.backgroundNeutral,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  side: const BorderSide(color: AppTheme.borderSubtle),
-                                ),
-                                padding: const EdgeInsets.all(12),
-                              ),
-                              tooltip: 'Más opciones de la reserva',
-                              icon: const Icon(Icons.more_horiz_rounded, color: AppTheme.darkSlate),
-                            ),
-                          ],
-                        ),
                       ],
                     ),
-                  ),
+                    if (clientProfile.homeAddress.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '📍 ${clientProfile.homeAddress}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.darkSlate,
+                        ),
+                      ),
+                    ],
+                    if (clientProfile.patientDetails.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '📋 ${clientProfile.patientDetails}',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppTheme.darkSlate,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            if (!isClient &&
+                isActiveTab &&
+                b.status == BookingStatus.confirmed &&
+                b.checkInTime == null &&
+                b.liveStatus == 'on_the_way' &&
+                !isBookingExpired(b)) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle_rounded,
+                        size: 17, color: Colors.orange.shade800),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        b.onTheWayAt != null
+                            ? 'Aviso "En camino" enviado a las ${DateFormat("HH:mm").format(b.onTheWayAt!)}. Ficha al llegar.'
+                            : 'Aviso "En camino" enviado a la familia. Recuerda fichar al llegar.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (b.status == BookingStatus.confirmed ||
+                b.status == BookingStatus.completed) ...[
+              if (isActiveTab && b.status == BookingStatus.confirmed) ...[
+                const SizedBox(height: 14),
+                _buildLiveStatusStepper(b),
+              ],
+              const SizedBox(height: 12),
+              _buildCareJournalSection(
+                context,
+                b,
+                isClient,
+                state,
+                isActiveTab: isActiveTab,
+              ),
+            ],
+            if (b.escrowStatus == 'disputed') ...[
+              const SizedBox(height: 12),
+              _buildDisputeBanner(context, b, isClient, state),
+            ],
+            if (isClient &&
+                isBookingExpired(b) &&
+                b.checkInTime == null &&
+                b.status == BookingStatus.confirmed &&
+                b.escrowStatus != 'refunded') ...[
+              const SizedBox(height: 12),
+              _buildNoShowBanner(context, b),
+            ],
+            Builder(
+              builder: (context) {
+                final primaryBtn = _buildPrimaryActionButton(
+                  context,
+                  b,
+                  isClient,
+                  state,
+                  allBookings,
+                );
+                if (primaryBtn == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 14.0),
+                  child: primaryBtn,
                 );
               },
             ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatScreen(
+                            clientId: b.clientId,
+                            caregiverId: b.caregiverId,
+                            caregiverName: b.caregiverName,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                    label: Text(
+                      isClient
+                          ? 'Chat con ${b.caregiverName.split(" ").first}'
+                          : 'Chat con Familia',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () => _showBookingMoreOptionsModal(
+                    context,
+                    b,
+                    isClient,
+                    state,
+                    clientProfile: clientProfile,
+                  ),
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppTheme.backgroundNeutral,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: AppTheme.borderSubtle),
+                    ),
+                    padding: const EdgeInsets.all(12),
+                  ),
+                  tooltip: 'Más opciones de la reserva',
+                  icon: const Icon(Icons.more_horiz_rounded,
+                      color: AppTheme.darkSlate),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  void _showStatusExplanation(BuildContext context, Booking b) {
-    final statusText = _getStatusText(b);
-    String explanation = '';
-    
-    switch (statusText) {
-      case 'Completado (Pagado)':
-        explanation = 'El servicio se ha realizado correctamente y el pago ha sido liberado al cuidador (se completaron las 24h tras el fin del servicio o se liberó manualmente).';
-        break;
-      case 'Cancelado (Reembolsado)':
-        explanation = 'El servicio fue cancelado o hubo una incidencia mayor (como un No-Show) y se ha devuelto el importe íntegro al cliente.';
-        break;
-      case 'Cancelado (Reembolso parcial)':
-        explanation = 'La reserva fue cancelada fuera de plazo (con penalización) y se reembolsó la parte correspondiente al cliente.';
-        break;
-      case 'Acuerdo Resuelto (Pago ajustado)':
-        explanation = 'Ambas partes alcanzaron un acuerdo satisfactorio para resolver la incidencia y los pagos se han ajustado según lo pactado.';
-        break;
-      case 'Disputa Abierta':
-        explanation = 'Hay una incidencia en curso entre la familia y el cuidador. Los fondos permanecen en custodia hasta que se alcance un acuerdo o transcurran 24h.';
-        break;
-      case 'Disputa en Mediación':
-        explanation = 'La incidencia ha sido escalada al equipo de Administración y Mediación de Senicare para su arbitraje definitivo.';
-        break;
-      case '✅ Visita Finalizada (Custodia 24h)':
-        explanation = 'El cuidador ha finalizado el servicio y registrado su salida. El dinero se mantiene en custodia protegida durante 24 horas por si surge alguna duda o puedes liberarlo de inmediato.';
-        break;
-      case '✅ Visita Realizada (Custodia 24h)':
-        explanation = 'El servicio ha finalizado según el horario previsto y el dinero se mantiene en custodia durante el periodo de garantía de 24 horas.';
-        break;
-      case '🟢 En domicilio (Cuidado en curso)':
-        explanation = 'El cuidador ha registrado su llegada presencial (Check-in con QR/PIN) y se encuentra atendiendo al familiar en el domicilio.';
-        break;
-      case '🚗 Cuidador en camino':
-        explanation = 'El cuidador ha avisado de que se encuentra desplazándose hacia el domicilio para iniciar el servicio.';
-        break;
-      case 'Caducada / No-Show':
-        explanation = 'La hora del servicio ha pasado y el cuidador no llegó a fichar la entrada mediante el código QR o PIN. Se procesará la cancelación automáticamente.';
-        break;
-      case 'Procesando pago...':
-        explanation = 'Se está validando la retención de la tarjeta del cliente a través de la pasarela de pago segura.';
-        break;
-      case 'Pendiente':
-      case 'Pendiente de aceptación':
-        explanation = 'El pago está asegurado pero el cuidador todavía tiene que aceptar la solicitud de servicio para confirmarla.';
-        break;
-      case 'Confirmada':
-        explanation = 'El cuidador ha aceptado el servicio. Ahora solo queda esperar al día y hora acordados para realizar el fichaje presencial (Check-in).';
-        break;
-      case 'Cancelada':
-        explanation = 'El servicio ha sido cancelado antes de tiempo sin penalización.';
-        break;
-      case 'Cancelada (Tarde)':
-        explanation = 'El servicio ha sido cancelado fuera de plazo (con menos de 24h de antelación), lo cual acarrea una penalización.';
-        break;
-      case 'Completada':
-        explanation = 'El servicio ha terminado y todo el flujo de pagos ha concluido correctamente.';
-        break;
-      default:
-        explanation = 'Este es el estado actual de la reserva.';
+  ({String label, String explanation, Color color}) _resolveStatusBadge(Booking b) {
+    if (b.escrowStatus == 'released' ||
+        b.escrowStatus == 'released_manual' ||
+        b.escrowStatus == 'released_auto') {
+      return (
+        label: 'Completado (Pagado)',
+        explanation:
+            'El servicio se ha realizado correctamente y el pago ha sido liberado al cuidador (se completaron las 24h tras el fin del servicio o se liberó manualmente).',
+        color: Colors.green.shade700,
+      );
     }
+    if (b.escrowStatus == 'refunded') {
+      return (
+        label: 'Cancelado (Reembolsado)',
+        explanation:
+            'El servicio fue cancelado o hubo una incidencia mayor (como un No-Show) y se ha devuelto el importe íntegro al cliente.',
+        color: Colors.red.shade700,
+      );
+    }
+    if (b.escrowStatus == 'resolved_partial') {
+      final isComp = b.status == BookingStatus.completed;
+      return (
+        label: isComp
+            ? 'Acuerdo Resuelto (Pago ajustado)'
+            : 'Cancelado (Reembolso parcial)',
+        explanation: isComp
+            ? 'Ambas partes alcanzaron un acuerdo satisfactorio para resolver la incidencia y los pagos se han ajustado según lo pactado.'
+            : 'La reserva fue cancelada fuera de plazo (con penalización) y se reembolsó la parte correspondiente al cliente.',
+        color: isComp ? Colors.teal.shade700 : Colors.orange.shade800,
+      );
+    }
+    if (b.escrowStatus == 'disputed') {
+      final escalated = b.disputeEscalated == true;
+      return (
+        label: escalated ? 'Disputa en Mediación' : 'Disputa Abierta',
+        explanation: escalated
+            ? 'La incidencia ha sido escalada al equipo de Administración y Mediación de Senicare para su arbitraje definitivo.'
+            : 'Hay una incidencia en curso entre la familia y el cuidador. Los fondos permanecen en custodia hasta que se alcance un acuerdo o transcurran 24h.',
+        color: Colors.deepOrange.shade700,
+      );
+    }
+    if (b.isInProgressAwaitingCheckOut) {
+      if (isBookingExpired(b)) {
+        return (
+          label: '⏳ Turno cumplido (Falta fichar salida)',
+          explanation:
+              'La hora prevista de fin ya ha pasado, pero el turno sigue abierto porque aún falta registrar la salida con el botón "Finalizar Servicio y Salir".',
+          color: Colors.orange.shade800,
+        );
+      }
+      return (
+        label: '🟢 En domicilio (Cuidado en curso)',
+        explanation:
+            'El cuidador ha registrado su llegada presencial (Check-in con QR/PIN) y se encuentra atendiendo al familiar en el domicilio.',
+        color: AppTheme.secondaryColor,
+      );
+    }
+    if (b.liveStatus == 'completed' || b.status == BookingStatus.completed) {
+      return (
+        label: '✅ Visita Finalizada (Custodia 24h)',
+        explanation:
+            'El cuidador ha finalizado el servicio y registrado su salida. El dinero se mantiene en custodia protegida durante 24 horas por si surge alguna duda o puede liberarse antes.',
+        color: Colors.blue.shade700,
+      );
+    }
+    if (b.checkInTime != null && b.status == BookingStatus.confirmed) {
+      return (
+        label: '✅ Visita Realizada (Custodia 24h)',
+        explanation:
+            'El servicio ha finalizado según el horario previsto y el dinero se mantiene en custodia durante el periodo de garantía de 24 horas.',
+        color: Colors.blue.shade700,
+      );
+    }
+    if (b.liveStatus == 'on_the_way' &&
+        b.checkInTime == null &&
+        !isBookingExpired(b) &&
+        b.status == BookingStatus.confirmed) {
+      return (
+        label: '🚗 Cuidador en camino',
+        explanation:
+            'El cuidador ha avisado de que se encuentra desplazándose hacia el domicilio para iniciar el servicio.',
+        color: Colors.orange.shade800,
+      );
+    }
+    if (isBookingExpired(b) &&
+        b.checkInTime == null &&
+        b.status == BookingStatus.confirmed) {
+      return (
+        label: 'Caducada / No-Show',
+        explanation:
+            'La hora del servicio ha pasado y no se llegó a fichar la entrada mediante el código QR o PIN.',
+        color: Colors.red.shade700,
+      );
+    }
+    if (isBookingExpired(b) && b.status == BookingStatus.pending) {
+      return (
+        label: 'Solicitud caducada (Sin respuesta)',
+        explanation:
+            'Pasó la fecha y hora de la solicitud antes de que fuera confirmada.',
+        color: AppTheme.slateMuted,
+      );
+    }
+
+    switch (b.status) {
+      case BookingStatus.pendingPayment:
+        return (
+          label: 'Procesando pago...',
+          explanation:
+              'Se está validando la retención de la tarjeta del cliente a través de la pasarela de pago segura.',
+          color: Colors.orange.shade700,
+        );
+      case BookingStatus.pending:
+        return (
+          label: 'Pendiente de aceptación',
+          explanation:
+              'El pago está asegurado, pero el cuidador todavía tiene que aceptar la solicitud de servicio para confirmarla.',
+          color: Colors.amber.shade800,
+        );
+      case BookingStatus.confirmed:
+        return (
+          label: 'Confirmada',
+          explanation:
+              'El cuidador ha aceptado el servicio. Solo queda esperar al día y hora acordados para realizar el fichaje presencial (Check-in).',
+          color: Colors.green.shade700,
+        );
+      case BookingStatus.cancelled:
+        return (
+          label: 'Cancelada',
+          explanation:
+              'El servicio ha sido cancelado antes de tiempo sin penalización.',
+          color: Colors.red.shade700,
+        );
+      case BookingStatus.cancelledLate:
+        return (
+          label: 'Cancelada (Tarde)',
+          explanation:
+              'El servicio ha sido cancelado fuera de plazo (con menos de 24h de antelación), lo cual acarrea una penalización.',
+          color: Colors.red.shade800,
+        );
+      case BookingStatus.completed:
+        return (
+          label: 'Completada',
+          explanation:
+              'El servicio ha terminado y todo el flujo de pagos ha concluido correctamente.',
+          color: Colors.blue.shade700,
+        );
+    }
+  }
+
+  void _showStatusExplanation(BuildContext context, Booking b) {
+    final badge = _resolveStatusBadge(b);
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(
           children: [
-            const Icon(Icons.info_outline, color: AppTheme.primary),
+            Icon(Icons.info_outline, color: badge.color),
             const SizedBox(width: 8),
-            Expanded(child: Text(statusText, style: const TextStyle(fontSize: 18))),
+            Expanded(
+              child: Text(badge.label, style: const TextStyle(fontSize: 18)),
+            ),
           ],
         ),
-        content: Text(explanation),
+        content: Text(badge.explanation),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendido')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendido'),
+          ),
         ],
       ),
     );
   }
 
-  String _getStatusText(Booking b) {
-    if (b.escrowStatus == 'released' || b.escrowStatus == 'released_manual' || b.escrowStatus == 'released_auto') return 'Completado (Pagado)';
-    if (b.escrowStatus == 'refunded') return 'Cancelado (Reembolsado)';
-    if (b.escrowStatus == 'resolved_partial') {
-      return b.status == BookingStatus.completed ? 'Acuerdo Resuelto (Pago ajustado)' : 'Cancelado (Reembolso parcial)';
-    }
-    if (b.escrowStatus == 'disputed') {
-      return b.disputeEscalated == true ? 'Disputa en Mediación' : 'Disputa Abierta';
-    }
-    
-    if (b.liveStatus == 'completed' || b.status == BookingStatus.completed) return '✅ Visita Finalizada (Custodia 24h)';
-    if (b.checkInTime != null && !isBookingExpired(b) && b.status == BookingStatus.confirmed) return '🟢 En domicilio (Cuidado en curso)';
-    if (b.checkInTime != null && b.status == BookingStatus.confirmed) return '✅ Visita Realizada (Custodia 24h)';
-    if (b.liveStatus == 'on_the_way' && b.checkInTime == null && !isBookingExpired(b) && b.status == BookingStatus.confirmed) return '🚗 Cuidador en camino';
-    if (isBookingExpired(b) && b.checkInTime == null && b.status == BookingStatus.confirmed) return 'Caducada / No-Show';
-
-    switch (b.status) {
-      case BookingStatus.pendingPayment: return 'Procesando pago...';
-      case BookingStatus.pending: return 'Pendiente de aceptación';
-      case BookingStatus.confirmed: return 'Confirmada';
-      case BookingStatus.cancelled: return 'Cancelada';
-      case BookingStatus.cancelledLate: return 'Cancelada (Tarde)';
-      case BookingStatus.completed: return 'Completada';
-    }
-  }
-
-  Color _getStatusColor(BookingStatus status) {
-    switch (status) {
-      case BookingStatus.pendingPayment: return Colors.orange;
-      case BookingStatus.pending: return Colors.amber.shade800;
-      case BookingStatus.confirmed: return Colors.green;
-      case BookingStatus.cancelled: return Colors.red;
-      case BookingStatus.cancelledLate: return Colors.red.shade800;
-      case BookingStatus.completed: return Colors.blue;
-    }
-  }
+  String _getStatusText(Booking b) => _resolveStatusBadge(b).label;
 
   Widget _buildLiveStatusStepper(Booking b) {
-    final bool step1 = true;
+    const bool step1 = true;
     final bool step2 = b.liveStatus == 'on_the_way' ||
         b.checkInTime != null ||
         b.status == BookingStatus.completed;
@@ -651,7 +1247,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
         b.liveStatus == 'in_progress' ||
         b.status == BookingStatus.completed;
     final bool step4 = b.status == BookingStatus.completed ||
-        (b.checkInTime != null && isBookingExpired(b)) ||
+        b.checkOutTime != null ||
         b.liveStatus == 'completed' ||
         b.escrowStatus == 'released' ||
         b.escrowStatus == 'released_manual' ||
@@ -1237,29 +1833,35 @@ class _BookingsScreenState extends State<BookingsScreen> {
     }
 
     // Acciones para el cuidador
-    if (b.status == BookingStatus.pending) {
+    final bool isBusy = _busyBookingIds.contains(b.id);
+    if (b.status == BookingStatus.pending && !isBookingExpired(b)) {
       return Row(
         children: [
           Expanded(
             child: OutlinedButton(
-              onPressed: () async {
-                final confirm = await CustomDialog.showConfirmation(
-                  context,
-                  title: 'Rechazar Solicitud',
-                  message: '¿Seguro que no puedes atender este servicio? La reserva se cancelará y los fondos se liberarán para la familia.',
-                  confirmText: 'Rechazar',
-                  isDestructive: true,
-                );
-                if (confirm == true) {
-                  await state.rejectBooking(b.id);
-                  if (context.mounted) {
-                    CustomSnackBar.show(context, message: 'Solicitud rechazada.', type: SnackBarType.info);
-                  }
-                }
-              },
+              onPressed: isBusy
+                  ? null
+                  : () async {
+                      final confirm = await CustomDialog.showConfirmation(
+                        context,
+                        title: 'Rechazar Solicitud',
+                        message:
+                            '¿Seguro que no puedes atender este servicio? La reserva se cancelará y los fondos se liberarán para la familia.',
+                        confirmText: 'Rechazar',
+                        isDestructive: true,
+                      );
+                      if (confirm == true) {
+                        await _runBookingAction(
+                          b.id,
+                          () => state.rejectBooking(b.id),
+                          successMessage: 'Solicitud rechazada.',
+                          successType: SnackBarType.info,
+                        );
+                      }
+                    },
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 13),
               ),
               child: const Text('Rechazar'),
             ),
@@ -1267,47 +1869,72 @@ class _BookingsScreenState extends State<BookingsScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: FilledButton(
-              onPressed: () async {
-                HapticFeedback.mediumImpact();
-                await state.confirmBooking(b.id);
-                if (context.mounted) {
-                  CustomSnackBar.show(context, message: '✅ ¡Servicio aceptado! Recuerda registrar tu llegada.', type: SnackBarType.success);
-                }
-              },
+              onPressed: isBusy
+                  ? null
+                  : () async {
+                      HapticFeedback.mediumImpact();
+                      await _runBookingAction(
+                        b.id,
+                        () => state.confirmBooking(b.id),
+                        successMessage:
+                            '✅ ¡Servicio aceptado! Recuerda registrar tu llegada.',
+                      );
+                    },
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.green.shade700,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 13),
               ),
-              child: const Text('Aceptar', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: isBusy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Aceptar',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ],
       );
     }
-    if (b.status == BookingStatus.confirmed && b.checkInTime == null && !isBookingExpired(b)) {
+    if (b.status == BookingStatus.confirmed &&
+        b.checkInTime == null &&
+        !isBookingExpired(b)) {
       return Column(
         children: [
           if (b.liveStatus != 'on_the_way') ...[
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () async {
-                  HapticFeedback.mediumImpact();
-                  await state.markOnTheWay(b.id);
-                  if (context.mounted) {
-                    CustomSnackBar.show(
-                      context,
-                      message: '🚗 Familia avisada de que estás en camino al domicilio.',
-                      type: SnackBarType.success,
-                    );
-                  }
-                },
+                onPressed: isBusy
+                    ? null
+                    : () async {
+                        HapticFeedback.mediumImpact();
+                        await _runBookingAction(
+                          b.id,
+                          () => state.markOnTheWay(b.id),
+                          successMessage:
+                              '🚗 Familia avisada de que estás en camino al domicilio.',
+                        );
+                      },
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.orange.shade800,
                   side: BorderSide(color: Colors.orange.shade400, width: 1.5),
-                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
-                icon: const Icon(Icons.directions_car_rounded, size: 18),
+                icon: isBusy
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.orange.shade800,
+                        ),
+                      )
+                    : const Icon(Icons.directions_car_rounded, size: 18),
                 label: const Text('🚗 Avisar a familia: Estoy en camino'),
               ),
             ),
@@ -1316,57 +1943,88 @@ class _BookingsScreenState extends State<BookingsScreen> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () {
-                Navigator.push(context, MaterialPageRoute(
-                  builder: (_) => ScannerScreen(booking: b),
-                ));
-              },
+              onPressed: isBusy
+                  ? null
+                  : () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ScannerScreen(booking: b),
+                        ),
+                      );
+                    },
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.primary,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 13),
               ),
               icon: const Icon(Icons.qr_code_scanner, size: 18),
-              label: const Text('Fichar Llegada (QR o PIN)', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text(
+                'Fichar Llegada (QR o PIN)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ),
         ],
       );
     }
-    if (b.status == BookingStatus.confirmed && b.checkInTime != null && b.liveStatus != 'completed') {
+    if (b.status == BookingStatus.confirmed &&
+        b.checkInTime != null &&
+        b.liveStatus != 'completed') {
       return SizedBox(
         width: double.infinity,
         child: FilledButton.icon(
-          onPressed: () async {
-            final confirm = await CustomDialog.showConfirmation(
-              context,
-              title: 'Finalizar Servicio',
-              message: '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
-              confirmText: 'Finalizar y Salir',
-              cancelText: 'Continuar turno',
-            );
-            if (confirm == true && context.mounted) {
-              HapticFeedback.heavyImpact();
-              await state.completeService(b.id);
-              if (context.mounted) {
-                CustomSnackBar.show(context, message: '🎉 ¡Servicio finalizado con éxito! Buen descanso.', type: SnackBarType.success);
-              }
-            }
-          },
+          onPressed: isBusy
+              ? null
+              : () async {
+                  final confirm = await CustomDialog.showConfirmation(
+                    context,
+                    title: 'Finalizar Servicio',
+                    message:
+                        '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
+                    confirmText: 'Finalizar y Salir',
+                    cancelText: 'Continuar turno',
+                  );
+                  if (confirm == true && context.mounted) {
+                    HapticFeedback.heavyImpact();
+                    await _runBookingAction(
+                      b.id,
+                      () => state.completeService(b.id),
+                      successMessage:
+                          '🎉 ¡Servicio finalizado con éxito! Buen descanso.',
+                    );
+                  }
+                },
           style: FilledButton.styleFrom(
             backgroundColor: Colors.green.shade700,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 13),
           ),
-          icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
-          label: const Text('🏁 Finalizar Servicio y Salir', style: TextStyle(fontWeight: FontWeight.bold)),
+          icon: isBusy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.check_circle_outline_rounded, size: 18),
+          label: const Text(
+            '🏁 Finalizar Servicio y Salir',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
       );
     }
     return null;
   }
 
-  Widget _buildDisputeBanner(BuildContext context, Booking b, bool isClient, BookingNotifier state) {
+  Widget _buildDisputeBanner(
+      BuildContext context, Booking b, bool isClient, BookingNotifier state) {
+    final bool isBusy = _busyBookingIds.contains(b.id);
     if (!isClient && b.disputeEscalated != true) {
+      final double proposedRefund = b.disputeAmount ?? 0.0;
+      final double estimatedNet = b.estimateNetAfterDispute(proposedRefund);
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -1378,27 +2036,39 @@ class _BookingsScreenState extends State<BookingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'El cliente ha propuesto un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nTu pago restante será de ${(b.cost - (b.disputeAmount ?? 0)).toStringAsFixed(2)} €.',
-              style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600, fontSize: 12.5),
+              'El cliente ha propuesto un reembolso de ${proposedRefund.toStringAsFixed(2)} €.\nTu ingreso neto estimado restante será de ${estimatedNet.toStringAsFixed(2)} €.',
+              style: const TextStyle(
+                color: Colors.deepOrange,
+                fontWeight: FontWeight.w600,
+                fontSize: 12.5,
+              ),
             ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () async {
-                      bool? confirm = await CustomDialog.showConfirmation(
-                        context,
-                        title: 'Rechazar Propuesta',
-                        message: 'Si rechazas, el caso se escalará al equipo de Administración para su arbitraje. ¿Continuar?',
-                        confirmText: 'Escalar',
-                        isDestructive: true,
-                      );
-                      if (confirm == true) {
-                        await state.escalateDispute(b.id);
-                        if (context.mounted) CustomSnackBar.show(context, message: 'Disputa escalada a Administración.', type: SnackBarType.info);
-                      }
-                    },
+                    onPressed: isBusy
+                        ? null
+                        : () async {
+                            bool? confirm = await CustomDialog.showConfirmation(
+                              context,
+                              title: 'Rechazar Propuesta',
+                              message:
+                                  'Si rechazas, el caso se escalará al equipo de Administración para su arbitraje. ¿Continuar?',
+                              confirmText: 'Escalar',
+                              isDestructive: true,
+                            );
+                            if (confirm == true) {
+                              await _runBookingAction(
+                                b.id,
+                                () => state.escalateDispute(b.id),
+                                successMessage:
+                                    'Disputa escalada a Administración.',
+                                successType: SnackBarType.info,
+                              );
+                            }
+                          },
                     style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                     child: const Text('Rechazar (Escalar)'),
                   ),
@@ -1406,24 +2076,36 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: FilledButton(
-                    onPressed: () async {
-                      bool? confirm = await CustomDialog.showConfirmation(
-                        context,
-                        title: 'Aceptar Propuesta',
-                        message: 'Al aceptar, se aplicarán los pagos acordados y la reserva quedará resuelta definitivamente. ¿Continuar?',
-                        confirmText: 'Aceptar',
-                      );
-                      if (confirm == true) {
-                        try {
-                          await state.acceptDisputeProposal(b.id);
-                          if (context.mounted) CustomSnackBar.show(context, message: 'Propuesta aceptada, pago en proceso.', type: SnackBarType.success);
-                        } catch (e) {
-                          if (context.mounted) CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.error);
-                        }
-                      }
-                    },
+                    onPressed: isBusy
+                        ? null
+                        : () async {
+                            bool? confirm = await CustomDialog.showConfirmation(
+                              context,
+                              title: 'Aceptar Propuesta',
+                              message:
+                                  'Al aceptar, se aplicarán los pagos acordados y la reserva quedará resuelta definitivamente. ¿Continuar?',
+                              confirmText: 'Aceptar',
+                            );
+                            if (confirm == true) {
+                              await _runBookingAction(
+                                b.id,
+                                () => state.acceptDisputeProposal(b.id),
+                                successMessage:
+                                    'Propuesta aceptada, pago en proceso.',
+                              );
+                            }
+                          },
                     style: FilledButton.styleFrom(backgroundColor: Colors.green),
-                    child: const Text('Aceptar Propuesta'),
+                    child: isBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Aceptar Propuesta'),
                   ),
                 ),
               ],
@@ -1634,8 +2316,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
     BuildContext context,
     Booking b,
     bool isClient,
-    BookingNotifier state,
-  ) {
+    BookingNotifier state, {
+    ClientProfile? clientProfile,
+  }) {
     HapticFeedback.mediumImpact();
     final bool canCancel = isClient &&
         (b.status == BookingStatus.pending || b.status == BookingStatus.confirmed) &&
@@ -1646,6 +2329,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final bool canTip = isClient && b.tipAmount == 0 && (b.status == BookingStatus.completed || b.isReviewed);
     final bool canRepeat = isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate;
     final bool canEscrowRelease = isClient && b.escrowStatus == 'held' && b.checkInTime != null;
+    final bool canOpenMaps = !isClient &&
+        b.status == BookingStatus.confirmed &&
+        ((b.clientLatitude != null && b.clientLongitude != null) ||
+            (clientProfile != null &&
+                (clientProfile.homeAddress.trim().isNotEmpty ||
+                    clientProfile.latitude != null)));
 
     showModalBottomSheet(
       context: context,
@@ -1685,6 +2374,16 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 ),
               ),
               const Divider(height: 18),
+              if (canOpenMaps)
+                ListTile(
+                  leading: const Icon(Icons.directions_rounded, color: AppTheme.primary),
+                  title: const Text('Cómo llegar al domicilio', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('Abrir ruta en Google Maps'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openMapsForBooking(b, clientProfile);
+                  },
+                ),
               if (b.status == BookingStatus.confirmed)
                 ListTile(
                   leading: const Icon(Icons.event_available_rounded, color: AppTheme.primary),
@@ -1870,37 +2569,18 @@ class _BookingsScreenState extends State<BookingsScreen> {
     Booking b,
     BookingNotifier state,
   ) async {
-    final ctrl = TextEditingController();
-    await showDialog(
+    final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Añadir tarea para el cuidador'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Ej. Pastilla tensión a las 13:00, regar plantas...',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (ctrl.text.trim().isNotEmpty) {
-                HapticFeedback.mediumImpact();
-                state.addChecklistTask(b.id, ctrl.text.trim());
-              }
-              Navigator.pop(ctx);
-            },
-            child: const Text('Añadir a la Checklist'),
-          ),
-        ],
+      builder: (_) => const _BookingTextPromptDialog(
+        title: 'Añadir tarea para el cuidador',
+        hintText: 'Ej. Pastilla tensión a las 13:00, regar plantas...',
+        confirmLabel: 'Añadir a la Checklist',
       ),
     );
+    if (result != null && result.isNotEmpty) {
+      HapticFeedback.mediumImpact();
+      await state.addChecklistTask(b.id, result);
+    }
   }
 
   Future<void> _showEditCareNotesDialog(
@@ -1908,41 +2588,29 @@ class _BookingsScreenState extends State<BookingsScreen> {
     Booking b,
     BookingNotifier state,
   ) async {
-    final ctrl = TextEditingController(text: b.careNotes);
-    await showDialog(
+    final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('📝 Resumen del Cuidado'),
-        content: TextField(
-          controller: ctrl,
-          maxLines: 4,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Escribe cómo se encuentra el familiar hoy, qué ha comido, estado de ánimo...',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              HapticFeedback.mediumImpact();
-              state.updateCareNotes(b.id, ctrl.text.trim());
-              Navigator.pop(ctx);
-              CustomSnackBar.show(
-                context,
-                message: 'Resumen guardado en el Diario del Cuidado.',
-                type: SnackBarType.success,
-              );
-            },
-            child: const Text('Guardar Nota'),
-          ),
-        ],
+      builder: (_) => _BookingTextPromptDialog(
+        title: '📝 Resumen del Cuidado',
+        initialValue: b.careNotes,
+        hintText:
+            'Escribe cómo se encuentra el familiar hoy, qué ha comido, estado de ánimo...',
+        confirmLabel: 'Guardar Nota',
+        maxLines: 4,
+        allowEmptySubmit: true,
       ),
     );
+    if (result != null) {
+      HapticFeedback.mediumImpact();
+      await state.updateCareNotes(b.id, result);
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Resumen guardado en el Diario del Cuidado.',
+          type: SnackBarType.success,
+        );
+      }
+    }
   }
 
   Future<void> _uploadCarePhoto(
@@ -1950,9 +2618,47 @@ class _BookingsScreenState extends State<BookingsScreen> {
     Booking b,
     BookingNotifier state,
   ) async {
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Text(
+                  'Subir foto al Diario del Cuidado',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_rounded,
+                    color: AppTheme.primary),
+                title: const Text('Hacer foto ahora con la cámara'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded,
+                    color: AppTheme.primary),
+                title: const Text('Elegir de la galería'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (source == null) return;
+
     try {
       final picker = ImagePicker();
-      final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+      final picked = await picker.pickImage(source: source, imageQuality: 75);
       if (picked == null) return;
 
       final bytes = await picked.readAsBytes();
@@ -2194,7 +2900,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
       final details = Uri.encodeComponent(
         'Servicio confirmado en SeniCare.\n'
         'Horario: ${b.slot}\n'
-        '${b.bookingPin != null ? "PIN de entrada: ${b.bookingPin}\n" : ""}'
+        '${isClient && b.bookingPin != null ? "PIN de entrada: ${b.bookingPin}\n" : ""}'
         'Checklist familiar: ${b.careChecklist.map((t) => t.title).join(", ")}',
       );
       final url = Uri.parse(
@@ -2951,6 +3657,77 @@ class _BookingsScreenState extends State<BookingsScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _BookingTextPromptDialog extends StatefulWidget {
+  final String title;
+  final String hintText;
+  final String confirmLabel;
+  final String initialValue;
+  final int maxLines;
+  final bool allowEmptySubmit;
+
+  const _BookingTextPromptDialog({
+    required this.title,
+    required this.hintText,
+    required this.confirmLabel,
+    this.initialValue = '',
+    this.maxLines = 1,
+    this.allowEmptySubmit = false,
+  });
+
+  @override
+  State<_BookingTextPromptDialog> createState() =>
+      _BookingTextPromptDialogState();
+}
+
+class _BookingTextPromptDialogState extends State<_BookingTextPromptDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _ctrl,
+        maxLines: widget.maxLines,
+        autofocus: true,
+        decoration: InputDecoration(
+          hintText: widget.hintText,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final text = _ctrl.text.trim();
+            if (!widget.allowEmptySubmit && text.isEmpty) {
+              Navigator.pop(context);
+              return;
+            }
+            Navigator.pop(context, text);
+          },
+          child: Text(widget.confirmLabel),
+        ),
+      ],
     );
   }
 }

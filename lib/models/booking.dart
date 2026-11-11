@@ -118,13 +118,64 @@ class Booking {
     return end.isBefore(DateTime.now());
   }
 
-  bool get isActive =>
-      (status == BookingStatus.pending || status == BookingStatus.confirmed) &&
-      status != BookingStatus.cancelled &&
-      status != BookingStatus.cancelledLate &&
-      escrowStatus != 'released' &&
-      escrowStatus != 'resolved_partial' &&
-      !isExpired;
+  bool get isEscrowSettled => const {
+        'released',
+        'released_manual',
+        'released_auto',
+        'resolved_partial',
+        'refunded',
+        'cancelled',
+      }.contains(escrowStatus);
+
+  bool get isInProgressAwaitingCheckOut =>
+      status == BookingStatus.confirmed &&
+      checkInTime != null &&
+      liveStatus != 'completed' &&
+      checkOutTime == null &&
+      !isEscrowSettled &&
+      escrowStatus != 'disputed';
+
+  bool get isOpenDisputePendingAction =>
+      escrowStatus == 'disputed' && !isEscrowSettled;
+
+  bool get isActive {
+    if (status != BookingStatus.pending && status != BookingStatus.confirmed) {
+      return false;
+    }
+    if (isEscrowSettled) return false;
+    if (isOpenDisputePendingAction) return true;
+    if (isInProgressAwaitingCheckOut) return true;
+    return !isExpired;
+  }
+
+  /// Estimated caregiver net earnings for the service (excluding voluntary tips).
+  double get netPayoutForCaregiver {
+    if (escrowStatus == 'resolved_partial' && caregiverPayout > 0) {
+      return caregiverPayout;
+    }
+    if (escrowStatus == 'resolved_partial' && disputeAmount != null) {
+      return estimateNetAfterDispute(disputeAmount!);
+    }
+    if (caregiverPayout > 0) return caregiverPayout;
+    if (cost <= 0) return 0.0;
+    if (caregiverCommissionAmount > 0) {
+      return (cost - caregiverCommissionAmount).clamp(0.0, cost);
+    }
+    final rate = caregiverCommissionRate > 0 ? caregiverCommissionRate : 0.18;
+    return cost * (1.0 - rate);
+  }
+
+  /// Estimated caregiver net payout if [refundAmount] is deducted from [cost].
+  double estimateNetAfterDispute(double refundAmount) {
+    if (cost <= 0) return 0.0;
+    final remaining = (cost - refundAmount).clamp(0.0, cost);
+    final rate = caregiverCommissionRate > 0
+        ? caregiverCommissionRate
+        : (caregiverCommissionAmount > 0
+            ? (caregiverCommissionAmount / cost).clamp(0.0, 0.99)
+            : 0.18);
+    return remaining * (1.0 - rate);
+  }
 
   Booking({
     required this.id,
