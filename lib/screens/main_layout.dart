@@ -26,7 +26,6 @@ class _MainLayoutState extends State<MainLayout> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthNotifier>();
-    final config = context.watch<ConfigNotifier>();
     final isClient = auth.currentRole == 'client';
 
     final currentScreens = isClient
@@ -106,72 +105,31 @@ class _MainLayoutState extends State<MainLayout> {
           ],
         ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => config.toggleSeniorMode(!config.seniorMode),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: config.seniorMode ? AppTheme.primary : AppTheme.backgroundNeutral,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: config.seniorMode ? AppTheme.primary : AppTheme.borderSubtle,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.text_fields_rounded,
-                      size: 16,
-                      color: config.seniorMode ? Colors.white : AppTheme.darkSlate,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      config.seniorMode ? 'Letra Grande ✓' : 'Letra Grande',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: config.seniorMode ? Colors.white : AppTheme.darkSlate,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: AppTheme.darkSlate),
+            tooltip: 'Ajustes y Cuenta',
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+            },
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.tune_rounded, color: AppTheme.darkSlate),
-            tooltip: 'Opciones y Cuenta',
+            icon: const Icon(Icons.more_vert_rounded, color: AppTheme.darkSlate),
+            tooltip: 'Más opciones',
             onSelected: (action) {
               if (action == 'logout') {
                 DependencyInjection.auth.signOut();
               } else if (action == 'settings') {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              } else if (action == 'senior') {
-                config.toggleSeniorMode(!config.seniorMode);
               }
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'senior',
-                child: Row(
-                  children: [
-                    Icon(Icons.text_increase_rounded, size: 18, color: config.seniorMode ? AppTheme.primary : AppTheme.darkSlate),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(config.seniorMode ? 'Desactivar Letra Grande' : 'Activar Letra Grande')),
-                  ],
-                ),
-              ),
               const PopupMenuItem(
                 value: 'settings',
                 child: Row(
                   children: [
                     Icon(Icons.shield_outlined, size: 18, color: AppTheme.darkSlate),
                     SizedBox(width: 8),
-                    Expanded(child: Text('Ajustes, Seguro RC y Privacidad')),
+                    Expanded(child: Text('Ajustes y Modo Accesible')),
                   ],
                 ),
               ),
@@ -186,7 +144,7 @@ class _MainLayoutState extends State<MainLayout> {
                 ),
               ),
             ],
-          )
+          ),
         ],
       ),
       body: currentScreens[_currentIndex],

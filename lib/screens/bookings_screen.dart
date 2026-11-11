@@ -256,22 +256,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
               itemCount: bookings.length,
               itemBuilder: (context, index) {
                 final b = bookings[index];
-                
-                final dateFormat = DateFormat('yyyy-MM-dd');
-                DateTime? slotDateTime;
-                try {
-                  final dayDate = dateFormat.parse(b.day);
-                  if (b.slot.contains('-')) {
-                    final startStr = b.slot.split('-')[0];
-                    final timeParts = startStr.split(':');
-                    slotDateTime = DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
-                  } else {
-                    final timeParts = b.slot.split(':');
-                    slotDateTime = DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
-                  }
-                } catch (e) {
-                  // Ignore
-                }
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 16),
@@ -467,704 +451,72 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           const SizedBox(height: 14),
                           _buildCareJournalSection(context, b, isClient, state, isActiveTab: isActiveTab),
                         ],
-                        
-                        if (isActiveTab) ...[
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () {
-                                    Navigator.push(context, MaterialPageRoute(
-                                      builder: (_) => ChatScreen(
-                                        clientId: b.clientId, 
-                                        caregiverId: b.caregiverId, 
-                                        caregiverName: b.caregiverName
-                                      )
-                                    ));
-                                  },
-                                  icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                                  label: const Text('Chat'),
-                                ),
-                              ),
-                              if (isClient && b.status == BookingStatus.confirmed) ...[
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _shareLiveTrackingWithFamily(context, b),
-                                    icon: const Icon(Icons.share_rounded, size: 18, color: AppTheme.primary),
-                                    label: const Text('Compartir', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
-                                  ),
-                                ),
-                              ],
-                              if (b.status == BookingStatus.confirmed) ...[
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  onPressed: () => _addToGoogleCalendar(context, b, isClient),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: AppTheme.primarySurface,
-                                    foregroundColor: AppTheme.primary,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
-                                    ),
-                                  ),
-                                  tooltip: 'Añadir a Google Calendar / Agenda',
-                                  icon: const Icon(Icons.event_available_rounded, size: 20),
-                                ),
-                                const SizedBox(width: 6),
-                                IconButton(
-                                  onPressed: () => _showSosQuickContactModal(context, b, isClient),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.red.shade50,
-                                    foregroundColor: Colors.red.shade700,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      side: BorderSide(color: Colors.red.shade200),
-                                    ),
-                                  ),
-                                  tooltip: 'SOS / Contacto Rápido',
-                                  icon: const Icon(Icons.sos_rounded, size: 22),
-                                ),
-                              ],
-                            ],
-                          ),
-                          if (isClient && b.status == BookingStatus.confirmed && b.checkInTime == null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primarySurface,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
-                              ),
-                              child: const Row(
-                                children: [
-                                  Icon(Icons.verified_user_outlined, size: 18, color: AppTheme.primary),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Cuando el cuidador llegue a tu domicilio, enséñale el Código PIN de 4 números o el QR para registrar su entrada.',
-                                      style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate, fontWeight: FontWeight.w600),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () {
-                                      showDialog(context: context, builder: (_) => AlertDialog(
-                                        title: const Text('Código QR de Entrada'),
-                                          content: SizedBox(
-                                            width: 220,
-                                            height: 240,
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                const Text(
-                                                  'El cuidador debe escanear este cuadro desde su móvil al llegar:',
-                                                  style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
-                                                  textAlign: TextAlign.center,
-                                                ),
-                                                const SizedBox(height: 12),
-                                                Center(
-                                                  child: QrImageView(
-                                                    data: b.id,
-                                                    version: QrVersions.auto,
-                                                    size: 180.0,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        actions: [
-                                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))
-                                        ],
-                                      ));
-                                    },
-                                    icon: const Icon(Icons.qr_code, size: 18),
-                                    label: const Text('Código QR'),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () {
-                                      showDialog(context: context, builder: (_) => AlertDialog(
-                                        title: const Text('Código PIN de Entrada'),
-                                          content: SizedBox(
-                                            width: 220,
-                                            height: 130,
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                const Text(
-                                                  'Dile estos 4 números al cuidador cuando llegue a casa:',
-                                                  style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
-                                                  textAlign: TextAlign.center,
-                                                ),
-                                                const SizedBox(height: 12),
-                                                Text(
-                                                  b.bookingPin ?? "Sin PIN", 
-                                                  style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold, letterSpacing: 6, color: AppTheme.primary),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        actions: [
-                                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))
-                                        ],
-                                      ));
-                                    },
-                                    icon: const Icon(Icons.pin, size: 18),
-                                    label: const Text('Código PIN'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: AppTheme.darkSlate,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
+
+                        // Disputa activa (si existe)
+                        if (b.escrowStatus == 'disputed') ...[
+                          const SizedBox(height: 12),
+                          _buildDisputeBanner(context, b, isClient, state),
+                        ],
+
+                        // Aviso de Incomparecencia / No-Show si transcurrió sin check-in
+                        if (isClient && isBookingExpired(b) && b.checkInTime == null && b.escrowStatus != 'refunded') ...[
+                          const SizedBox(height: 12),
+                          _buildNoShowBanner(context, b),
+                        ],
+
+                        // Botón de Acción Principal (Contextual, Grande y Tranquilizador)
+                        Builder(
+                          builder: (context) {
+                            final primaryBtn = _buildPrimaryActionButton(context, b, isClient, state, bookings);
+                            if (primaryBtn == null) return const SizedBox.shrink();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 14.0),
+                              child: primaryBtn,
+                            );
+                          },
+                        ),
+
+                        // Fila Secundaria Siempre Limpia: Chat + Más opciones
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () => _showFridgeSheetModal(context, b),
-                                icon: const Icon(Icons.kitchen_rounded, size: 18, color: AppTheme.primary),
-                                label: const Text(
-                                  '📄 Ficha para la Nevera (Imprimir / WhatsApp)',
-                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primary),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: AppTheme.primary, width: 1.2),
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                onPressed: () {
+                                  Navigator.push(context, MaterialPageRoute(
+                                    builder: (_) => ChatScreen(
+                                      clientId: b.clientId, 
+                                      caregiverId: b.caregiverId, 
+                                      caregiverName: b.caregiverName
+                                    )
+                                  ));
+                                },
+                                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                                label: Text(
+                                  isClient
+                                      ? 'Chat con ${b.caregiverName.split(" ").first}'
+                                      : 'Chat con Familia',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
                                 ),
                               ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              onPressed: () => _showBookingMoreOptionsModal(context, b, isClient, state),
+                              style: IconButton.styleFrom(
+                                backgroundColor: AppTheme.backgroundNeutral,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: const BorderSide(color: AppTheme.borderSubtle),
+                                ),
+                                padding: const EdgeInsets.all(12),
+                              ),
+                              tooltip: 'Más opciones de la reserva',
+                              icon: const Icon(Icons.more_horiz_rounded, color: AppTheme.darkSlate),
                             ),
                           ],
-
-                          if (isClient && b.status == BookingStatus.pendingPayment)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12.0),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.orange.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.orange.shade300),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Row(
-                                      children: [
-                                        Icon(Icons.hourglass_top_rounded, size: 16, color: Colors.deepOrange),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          'Pago no completado',
-                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.deepOrange),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      'Si cancelaste o abandonaste la pasarela de pago, puedes descartar este intento para liberar las horas.',
-                                      style: TextStyle(fontSize: 12, color: AppTheme.darkSlate),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton(
-                                        onPressed: () async {
-                                          final confirm = await CustomDialog.showConfirmation(
-                                            context,
-                                            title: 'Descartar Intento',
-                                            message: '¿Deseas descartar este intento de reserva no pagado?',
-                                            confirmText: 'Descartar',
-                                            isDestructive: true,
-                                          );
-                                          if (confirm == true) {
-                                            state.cancelBooking(b.id, 'Intento descartado por el cliente', false);
-                                          }
-                                        },
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.red.shade700,
-                                          side: BorderSide(color: Colors.red.shade300),
-                                        ),
-                                        child: const Text('Descartar intento de reserva'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          
-                          if (isClient && (b.status == BookingStatus.pending || b.status == BookingStatus.confirmed) && b.checkInTime == null && !isBookingExpired(b))
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8.0),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: TextButton(
-                                  onPressed: () async {
-                                    final now = DateTime.now();
-                                    bool isLate = false;
-                                    if (slotDateTime != null) {
-                                      final diffHours = slotDateTime.difference(now).inHours;
-                                      if (diffHours < 24) isLate = true;
-                                    }
-                                    
-                                    bool? confirm = await CustomDialog.showConfirmation(
-                                      context,
-                                      title: 'Cancelar Reserva',
-                                      message: isLate 
-                                          ? 'Al cancelar con menos de 24h de antelación, se aplicará una penalización: se te reembolsará el 45% del importe y el resto cubrirá la compensación del cuidador y los gastos de gestión.'
-                                          : 'Cancelación gratuita (>24h de antelación): Se te reembolsará el 100% del importe íntegramente a tu método de pago original sin ninguna penalización.',
-                                      cancelText: 'Mantener',
-                                      confirmText: 'Cancelar Reserva',
-                                      isDestructive: true,
-                                    );
-
-                                    if (confirm == true) {
-                                      state.cancelBooking(b.id, 'Cancelado por el cliente', isLate);
-                                      if (context.mounted) {
-                                        CustomSnackBar.show(context, message: 'Reserva cancelada', type: SnackBarType.info);
-                                      }
-                                    }
-                                  },
-                                  child: const Text('Cancelar Reserva', style: TextStyle(color: Colors.red)),
-                                ),
-                              ),
-                            ),
-                          
-                          if (!isClient && b.status == BookingStatus.pending)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16.0),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () async {
-                                        final confirm = await CustomDialog.showConfirmation(
-                                          context,
-                                          title: 'Rechazar Solicitud',
-                                          message: '¿Seguro que no puedes atender este servicio? La reserva se cancelará y los fondos se liberarán para la familia.',
-                                          confirmText: 'Rechazar',
-                                          isDestructive: true,
-                                        );
-                                        if (confirm == true) {
-                                          await state.rejectBooking(b.id);
-                                          if (context.mounted) {
-                                            CustomSnackBar.show(context, message: 'Solicitud rechazada.', type: SnackBarType.info);
-                                          }
-                                        }
-                                      },
-                                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                      child: const Text('Rechazar'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: FilledButton(
-                                      onPressed: () async {
-                                        HapticFeedback.mediumImpact();
-                                        await state.confirmBooking(b.id);
-                                        if (context.mounted) {
-                                          CustomSnackBar.show(context, message: '✅ ¡Servicio aceptado! Recuerda registrar tu llegada al domicilio.', type: SnackBarType.success);
-                                        }
-                                      },
-                                      child: const Text('Aceptar'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          
-                          if (!isClient && b.status == BookingStatus.confirmed && b.checkInTime == null && !isBookingExpired(b))
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16.0),
-                              child: Column(
-                                children: [
-                                  if (b.liveStatus != 'on_the_way') ...[
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        onPressed: () async {
-                                          HapticFeedback.mediumImpact();
-                                          await state.markOnTheWay(b.id);
-                                          if (context.mounted) {
-                                            CustomSnackBar.show(
-                                              context,
-                                              message: '🚗 Familia avisada de que estás en camino al domicilio.',
-                                              type: SnackBarType.success,
-                                            );
-                                          }
-                                        },
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.orange.shade800,
-                                          side: BorderSide(color: Colors.orange.shade400, width: 1.5),
-                                        ),
-                                        icon: const Icon(Icons.directions_car_rounded),
-                                        label: const Text('🚗 Avisar a la familia: Estoy en camino'),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                  ],
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: FilledButton.icon(
-                                      onPressed: () {
-                                        Navigator.push(context, MaterialPageRoute(
-                                          builder: (_) => ScannerScreen(booking: b)
-                                        ));
-                                      },
-                                      icon: const Icon(Icons.qr_code_scanner),
-                                      label: const Text('Fichar Llegada (QR / PIN)'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                          if (!isClient && b.status == BookingStatus.confirmed && b.checkInTime != null && b.liveStatus != 'completed')
-                            Padding(
-                              padding: const EdgeInsets.only(top: 14.0),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: FilledButton.icon(
-                                  onPressed: () async {
-                                    final confirm = await CustomDialog.showConfirmation(
-                                      context,
-                                      title: 'Finalizar Servicio',
-                                      message: '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
-                                      confirmText: 'Finalizar y Salir',
-                                      cancelText: 'Continuar turno',
-                                    );
-                                    if (confirm == true && context.mounted) {
-                                      HapticFeedback.heavyImpact();
-                                      await state.completeService(b.id);
-                                      if (context.mounted) {
-                                        CustomSnackBar.show(context, message: '🎉 ¡Servicio finalizado con éxito! Buen descanso.', type: SnackBarType.success);
-                                      }
-                                    }
-                                  },
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: Colors.green.shade700,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                  ),
-                                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
-                                  label: const Text('🏁 Finalizar Servicio y Salir', style: TextStyle(fontWeight: FontWeight.bold)),
-                                ),
-                              ),
-                            ),
-                        ],
-                        
-                        if (!isActiveTab) ...[
-                          if (isClient && b.escrowStatus == 'held' && b.checkInTime != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 14.0),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.blue.shade200),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Icon(Icons.shield_outlined, size: 18, color: Colors.blue.shade800),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Pago Protegido en Custodia (24h)',
-                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blue.shade900),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'El importe (${b.totalPaid.toStringAsFixed(2)} €) está retenido de forma segura. Se transferirá al cuidador automáticamente en 24h o puedes liberarlo ya si todo fue excelente.',
-                                      style: TextStyle(fontSize: 12, color: Colors.blue.shade900, height: 1.3),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: FilledButton.icon(
-                                            onPressed: () async {
-                                              final confirm = await CustomDialog.showConfirmation(
-                                                context,
-                                                title: 'Liberar Pago al Cuidador',
-                                                message: '¿Confirmas que el servicio fue satisfactorio? Se transferirán inmediatamente los fondos al cuidador (${b.caregiverPayout > 0 ? b.caregiverPayout.toStringAsFixed(2) : b.cost.toStringAsFixed(2)} €).',
-                                                confirmText: 'Liberar Ahora',
-                                              );
-                                              if (confirm == true) {
-                                                await state.releaseEscrow(b.id);
-                                                if (context.mounted) {
-                                                  CustomSnackBar.show(context, message: '🎉 ¡Pago liberado al cuidador con éxito! Gracias por tu confirmación.', type: SnackBarType.success);
-                                                }
-                                              }
-                                            },
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor: Colors.green.shade700,
-                                              padding: const EdgeInsets.symmetric(vertical: 10),
-                                            ),
-                                            icon: const Icon(Icons.check_circle_outline, size: 16),
-                                            label: const Text('Liberar Pago Ahora', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        OutlinedButton.icon(
-                                          onPressed: () {
-                                            showDialog(context: context, builder: (_) => DisputeDialog(booking: b));
-                                          },
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: Colors.deepOrange.shade800,
-                                            side: BorderSide(color: Colors.deepOrange.shade300),
-                                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-                                          ),
-                                          icon: const Icon(Icons.warning_amber_rounded, size: 16),
-                                          label: const Text('Incidencia', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-
-                          if (isClient && isBookingExpired(b) && b.checkInTime == null && b.escrowStatus != 'refunded')
-                            Padding(
-                              padding: const EdgeInsets.only(top: 14.0),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.red.shade200),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Icon(Icons.person_off_outlined, size: 18, color: Colors.red.shade800),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Incomparecencia / Sin Check-in',
-                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red.shade900),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'El cuidador no registró su llegada presencial. Tu importe (${b.totalPaid.toStringAsFixed(2)} €) está asegurado y el reembolso total se tramita automáticamente sin costes.',
-                                      style: TextStyle(fontSize: 12, color: Colors.red.shade900, height: 1.3),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        onPressed: () => _findUrgentSubstitute(context),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.red.shade900,
-                                          side: BorderSide(color: Colors.red.shade300),
-                                        ),
-                                        icon: const Icon(Icons.flash_on_rounded, size: 16),
-                                        label: const Text('🚨 Buscar un cuidador de sustitución hoy', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            if ((b.status == BookingStatus.completed || (b.status == BookingStatus.confirmed && b.checkInTime != null && isBookingExpired(b))) && isClient && !b.isReviewed)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16.0),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: FilledButton.icon(
-                                  onPressed: () {
-                                    final group = bookings.where((bk) => bk.caregiverId == b.caregiverId && bk.day == b.day && !bk.isReviewed && bk.status != BookingStatus.cancelled && bk.status != BookingStatus.cancelledLate).toList();
-                                    showDialog(
-                                      context: context,
-                                      builder: (ctx) => ReviewDialog(bookings: group.isNotEmpty ? group : [b])
-                                    );
-                                  },
-                                  icon: const Icon(Icons.star),
-                                  label: const Text('Dejar una Reseña'),
-                                ),
-                              ),
-                            ),
-                            if (isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate) ...[
-                              Padding(
-                                padding: const EdgeInsets.only(top: 10.0),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: () => _repeatBookingNextWeek(context, b),
-                                        icon: const Icon(Icons.repeat_rounded, size: 17, color: AppTheme.primary),
-                                        label: const Text(
-                                          '🔄 Repetir semana',
-                                          style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 12.5),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: () => _showLegalReceiptDialog(context, b),
-                                        icon: const Icon(Icons.receipt_long_rounded, size: 17, color: AppTheme.darkSlate),
-                                        label: const Text(
-                                          '🧾 Justificante Legal',
-                                          style: TextStyle(color: AppTheme.darkSlate, fontWeight: FontWeight.bold, fontSize: 12.5),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (b.tipAmount == 0 && b.isReviewed)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8.0),
-                                  child: SizedBox(
-                                    width: double.infinity,
-                                    child: TextButton.icon(
-                                      onPressed: () => _showQuickTipDialog(context, b, state),
-                                      icon: const Text('☕', style: TextStyle(fontSize: 16)),
-                                      label: const Text(
-                                        'Enviar propina de agradecimiento (100% para el cuidador)',
-                                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                            if (isClient && (b.status == BookingStatus.cancelled || b.status == BookingStatus.cancelledLate))
-                              Padding(
-                                padding: const EdgeInsets.only(top: 10.0),
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _findUrgentSubstitute(context),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.orange.shade900,
-                                      side: BorderSide(color: Colors.orange.shade400),
-                                    ),
-                                    icon: const Icon(Icons.flash_on_rounded, size: 18),
-                                    label: const Text(
-                                      '🚨 Buscar sustituto urgente disponible hoy',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          
-                          if (b.escrowStatus == 'disputed' && !isClient && b.disputeEscalated != true)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                                    child: Text(
-                                      'El cliente ha abierto una disputa proponiendo un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nTu pago restante será de ${(b.cost - (b.disputeAmount ?? 0)).toStringAsFixed(2)} € (menos comisiones).',
-                                      style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: OutlinedButton(
-                                          onPressed: () async {
-                                            bool? confirm = await CustomDialog.showConfirmation(
-                                              context,
-                                              title: 'Rechazar Propuesta',
-                                              message: 'Si rechazas, el caso se escalará al equipo de Administración y ellos decidirán el resultado final. ¿Continuar?',
-                                              confirmText: 'Escalar',
-                                              isDestructive: true,
-                                            );
-                                            if (confirm == true) {
-                                              await state.escalateDispute(b.id);
-                                              if (context.mounted) CustomSnackBar.show(context, message: 'Disputa escalada', type: SnackBarType.info);
-                                            }
-                                          },
-                                          style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                          child: const Text('Rechazar (Escalar)'),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: FilledButton(
-                                          onPressed: () async {
-                                            bool? confirm = await CustomDialog.showConfirmation(
-                                              context,
-                                              title: 'Aceptar Propuesta',
-                                              message: 'Al aceptar, se aplicarán los pagos acordados y la reserva quedará resuelta definitivamente. ¿Continuar?',
-                                              confirmText: 'Aceptar',
-                                            );
-                                            if (confirm == true) {
-                                              try {
-                                                await state.acceptDisputeProposal(b.id);
-                                                if (context.mounted) CustomSnackBar.show(context, message: 'Propuesta aceptada, pago en proceso.', type: SnackBarType.success);
-                                              } catch (e) {
-                                                if (context.mounted) CustomSnackBar.show(context, message: 'Error al procesar acuerdo: $e', type: SnackBarType.error);
-                                              }
-                                            }
-                                          },
-                                          style: FilledButton.styleFrom(backgroundColor: Colors.green),
-                                          child: const Text('Aceptar Propuesta'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            
-                          if (b.escrowStatus == 'disputed' && isClient && b.disputeEscalated != true)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16.0),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                width: double.infinity,
-                                decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                                child: Text(
-                                  'Has propuesto un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nEsperando la respuesta del cuidador (máx 24h).',
-                                  style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                            
-                          if (b.escrowStatus == 'disputed' && b.disputeEscalated == true)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16.0),
-                              child: Container(
-                                padding: const EdgeInsets.all(12),
-                                width: double.infinity,
-                                decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                                child: const Text(
-                                  'Disputa escalada al equipo de Administración. Te contactaremos pronto.',
-                                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            )
-                        ]
+                        ),
                       ],
                     ),
                   ),
@@ -1379,58 +731,65 @@ class _BookingsScreenState extends State<BookingsScreen> {
     ];
 
     return Container(
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.primarySurface.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.22)),
+        color: AppTheme.primarySurface.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.assignment_turned_in_rounded, color: AppTheme.primary, size: 20),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Diario del Cuidado y Checklist Familiar',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
-                    color: AppTheme.darkSlate,
-                  ),
-                ),
-              ),
-              if (totalCount > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: completedCount == totalCount
-                        ? AppTheme.secondaryColor.withValues(alpha: 0.16)
-                        : AppTheme.primary.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '$completedCount/$totalCount hechas',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: completedCount == totalCount
-                          ? AppTheme.secondaryColor
-                          : AppTheme.primary,
-                    ),
-                  ),
-                ),
-            ],
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          shape: const Border(),
+          collapsedShape: const Border(),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          leading: const Icon(Icons.assignment_turned_in_rounded, color: AppTheme.primary, size: 22),
+          title: const Text(
+            'Diario y Pautas del Cuidado',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 13.5,
+              color: AppTheme.darkSlate,
+            ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            isClient
-                ? 'Personaliza las tareas que necesita tu familiar. El cuidador las irá marcando en tiempo real.'
-                : 'Toca cada tarea creada por la familia cuando la completes para registrar la hora exacta.',
+          subtitle: Text(
+            totalCount > 0
+                ? '$completedCount de $totalCount tareas completadas'
+                : (isClient ? 'Toca para ver o añadir tareas' : 'Sin tareas asignadas aún'),
             style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted),
           ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (b.carePhotoUrls.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  child: Text(
+                    '📸 ${b.carePhotoUrls.length}',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.darkSlate),
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
+              const Icon(Icons.expand_more_rounded, size: 20, color: AppTheme.slateMuted),
+            ],
+          ),
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Divider(height: 12),
+                Text(
+                  isClient
+                      ? 'Personaliza las tareas que necesita tu familiar. El cuidador las irá marcando en tiempo real.'
+                      : 'Toca cada tarea creada por la familia cuando la completes para registrar la hora exacta.',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted),
+                ),
           if (b.onTheWayAt != null || b.checkInTime != null || completedCount > 0 || b.careNotes.isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(
@@ -1732,6 +1091,776 @@ class _BookingsScreenState extends State<BookingsScreen> {
             ),
           ],
         ],
+      ),
+    ],
+    ),
+    ),
+    );
+  }
+
+  Widget? _buildPrimaryActionButton(
+    BuildContext context,
+    Booking b,
+    bool isClient,
+    BookingNotifier state,
+    List<Booking> bookings,
+  ) {
+    if (isClient) {
+      if (b.status == BookingStatus.confirmed && b.checkInTime == null && !isBookingExpired(b)) {
+        return SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () => _showAccessCodeAndFridgeSheetModal(context, b),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            icon: const Icon(Icons.key_rounded, size: 20),
+            label: Text(
+              '🔑 Código de Entrada: ${b.bookingPin ?? "Ver PIN"}',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+            ),
+          ),
+        );
+      }
+      if (b.status == BookingStatus.confirmed && b.checkInTime != null && b.liveStatus != 'completed') {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+          decoration: BoxDecoration(
+            color: AppTheme.secondaryColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.secondaryColor.withValues(alpha: 0.3)),
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.home_rounded, color: AppTheme.secondaryColor, size: 20),
+              SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '🟢 Cuidador en casa · Cuidado en curso',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: AppTheme.secondaryColor, fontSize: 13.5),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      if ((b.status == BookingStatus.completed ||
+              (b.status == BookingStatus.confirmed && b.checkInTime != null && isBookingExpired(b))) &&
+          !b.isReviewed) {
+        return SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () {
+              final group = bookings
+                  .where((bk) =>
+                      bk.caregiverId == b.caregiverId &&
+                      bk.day == b.day &&
+                      !bk.isReviewed &&
+                      bk.status != BookingStatus.cancelled &&
+                      bk.status != BookingStatus.cancelledLate)
+                  .toList();
+              showDialog(
+                context: context,
+                builder: (ctx) => ReviewDialog(bookings: group.isNotEmpty ? group : [b]),
+              );
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.amber,
+              foregroundColor: Colors.black87,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: const Icon(Icons.star_rounded, size: 20),
+            label: Text('⭐ Valorar a ${b.caregiverName}',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+          ),
+        );
+      }
+      if (b.status == BookingStatus.pendingPayment) {
+        return SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () async {
+              final confirm = await CustomDialog.showConfirmation(
+                context,
+                title: 'Descartar Intento',
+                message: '¿Deseas descartar este intento de reserva no pagado?',
+                confirmText: 'Descartar',
+                isDestructive: true,
+              );
+              if (confirm == true) {
+                state.cancelBooking(b.id, 'Intento descartado por el cliente', false);
+              }
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.deepOrange.shade800,
+              side: BorderSide(color: Colors.deepOrange.shade300),
+              padding: const EdgeInsets.symmetric(vertical: 11),
+            ),
+            icon: const Icon(Icons.delete_outline_rounded, size: 18),
+            label: const Text('Descartar intento no pagado'),
+          ),
+        );
+      }
+      if (b.status == BookingStatus.pending) {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.amber.shade200),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.hourglass_top_rounded, color: Colors.amber.shade800, size: 18),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'Esperando confirmación de ${b.caregiverName}',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: Colors.amber.shade900, fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      return null;
+    }
+
+    // Acciones para el cuidador
+    if (b.status == BookingStatus.pending) {
+      return Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () async {
+                final confirm = await CustomDialog.showConfirmation(
+                  context,
+                  title: 'Rechazar Solicitud',
+                  message: '¿Seguro que no puedes atender este servicio? La reserva se cancelará y los fondos se liberarán para la familia.',
+                  confirmText: 'Rechazar',
+                  isDestructive: true,
+                );
+                if (confirm == true) {
+                  await state.rejectBooking(b.id);
+                  if (context.mounted) {
+                    CustomSnackBar.show(context, message: 'Solicitud rechazada.', type: SnackBarType.info);
+                  }
+                }
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Rechazar'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FilledButton(
+              onPressed: () async {
+                HapticFeedback.mediumImpact();
+                await state.confirmBooking(b.id);
+                if (context.mounted) {
+                  CustomSnackBar.show(context, message: '✅ ¡Servicio aceptado! Recuerda registrar tu llegada.', type: SnackBarType.success);
+                }
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Aceptar', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      );
+    }
+    if (b.status == BookingStatus.confirmed && b.checkInTime == null && !isBookingExpired(b)) {
+      return Column(
+        children: [
+          if (b.liveStatus != 'on_the_way') ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  HapticFeedback.mediumImpact();
+                  await state.markOnTheWay(b.id);
+                  if (context.mounted) {
+                    CustomSnackBar.show(
+                      context,
+                      message: '🚗 Familia avisada de que estás en camino al domicilio.',
+                      type: SnackBarType.success,
+                    );
+                  }
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.orange.shade800,
+                  side: BorderSide(color: Colors.orange.shade400, width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                ),
+                icon: const Icon(Icons.directions_car_rounded, size: 18),
+                label: const Text('🚗 Avisar a familia: Estoy en camino'),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => ScannerScreen(booking: b),
+                ));
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              icon: const Icon(Icons.qr_code_scanner, size: 18),
+              label: const Text('Fichar Llegada (QR o PIN)', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      );
+    }
+    if (b.status == BookingStatus.confirmed && b.checkInTime != null && b.liveStatus != 'completed') {
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: () async {
+            final confirm = await CustomDialog.showConfirmation(
+              context,
+              title: 'Finalizar Servicio',
+              message: '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
+              confirmText: 'Finalizar y Salir',
+              cancelText: 'Continuar turno',
+            );
+            if (confirm == true && context.mounted) {
+              HapticFeedback.heavyImpact();
+              await state.completeService(b.id);
+              if (context.mounted) {
+                CustomSnackBar.show(context, message: '🎉 ¡Servicio finalizado con éxito! Buen descanso.', type: SnackBarType.success);
+              }
+            }
+          },
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.green.shade700,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+          label: const Text('🏁 Finalizar Servicio y Salir', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      );
+    }
+    return null;
+  }
+
+  Widget _buildDisputeBanner(BuildContext context, Booking b, bool isClient, BookingNotifier state) {
+    if (!isClient && b.disputeEscalated != true) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.orange.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade300),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'El cliente ha propuesto un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nTu pago restante será de ${(b.cost - (b.disputeAmount ?? 0)).toStringAsFixed(2)} €.',
+              style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600, fontSize: 12.5),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      bool? confirm = await CustomDialog.showConfirmation(
+                        context,
+                        title: 'Rechazar Propuesta',
+                        message: 'Si rechazas, el caso se escalará al equipo de Administración para su arbitraje. ¿Continuar?',
+                        confirmText: 'Escalar',
+                        isDestructive: true,
+                      );
+                      if (confirm == true) {
+                        await state.escalateDispute(b.id);
+                        if (context.mounted) CustomSnackBar.show(context, message: 'Disputa escalada a Administración.', type: SnackBarType.info);
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                    child: const Text('Rechazar (Escalar)'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () async {
+                      bool? confirm = await CustomDialog.showConfirmation(
+                        context,
+                        title: 'Aceptar Propuesta',
+                        message: 'Al aceptar, se aplicarán los pagos acordados y la reserva quedará resuelta definitivamente. ¿Continuar?',
+                        confirmText: 'Aceptar',
+                      );
+                      if (confirm == true) {
+                        try {
+                          await state.acceptDisputeProposal(b.id);
+                          if (context.mounted) CustomSnackBar.show(context, message: 'Propuesta aceptada, pago en proceso.', type: SnackBarType.success);
+                        } catch (e) {
+                          if (context.mounted) CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.error);
+                        }
+                      }
+                    },
+                    style: FilledButton.styleFrom(backgroundColor: Colors.green),
+                    child: const Text('Aceptar Propuesta'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isClient && b.disputeEscalated != true) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.orange.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade300),
+        ),
+        child: Text(
+          'Has propuesto un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nEsperando respuesta del cuidador (máx 24h).',
+          style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600, fontSize: 12.5),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade300),
+      ),
+      child: const Text(
+        'Disputa escalada al equipo de Administración. Te contactaremos pronto.',
+        style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 12.5),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  Widget _buildNoShowBanner(BuildContext context, Booking b) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.person_off_outlined, size: 18, color: Colors.red.shade800),
+              const SizedBox(width: 6),
+              Text(
+                'Incomparecencia / Sin Check-in',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red.shade900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'El cuidador no registró su llegada presencial. Tu importe (${b.totalPaid.toStringAsFixed(2)} €) está asegurado y el reembolso total se tramita automáticamente.',
+            style: TextStyle(fontSize: 12, color: Colors.red.shade900, height: 1.3),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _findUrgentSubstitute(context),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red.shade900,
+                side: BorderSide(color: Colors.red.shade300),
+              ),
+              icon: const Icon(Icons.flash_on_rounded, size: 16),
+              label: const Text('🚨 Buscar un cuidador de sustitución hoy', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAccessCodeAndFridgeSheetModal(BuildContext context, Booking b) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '🔑 Acceso al Domicilio',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Enséñale estos datos a ${b.caregiverName} cuando llegue a casa para validar su entrada:',
+                style: const TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'CÓDIGO PIN DE ENTRADA',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.primary, letterSpacing: 1),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      b.bookingPin ?? "----",
+                      style: const TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 10,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Díctale estos 4 números en persona al llegar',
+                      style: TextStyle(fontSize: 12, color: AppTheme.darkSlate),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  child: QrImageView(
+                    data: b.id,
+                    version: QrVersions.auto,
+                    size: 145.0,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'O también puede escanear este código QR con su móvil',
+                style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _showFridgeSheetModal(context, b);
+                  },
+                  icon: const Icon(Icons.kitchen_rounded, size: 18, color: AppTheme.primary),
+                  label: const Text(
+                    '📄 Ver Ficha para la Nevera / Enviar WhatsApp',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primary),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppTheme.primary, width: 1.2),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cerrar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBookingMoreOptionsModal(
+    BuildContext context,
+    Booking b,
+    bool isClient,
+    BookingNotifier state,
+  ) {
+    HapticFeedback.mediumImpact();
+    final bool canCancel = isClient &&
+        (b.status == BookingStatus.pending || b.status == BookingStatus.confirmed) &&
+        b.checkInTime == null &&
+        !isBookingExpired(b);
+
+    final bool canDiscard = isClient && b.status == BookingStatus.pendingPayment;
+    final bool canTip = isClient && b.tipAmount == 0 && (b.status == BookingStatus.completed || b.isReviewed);
+    final bool canRepeat = isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate;
+    final bool canEscrowRelease = isClient && b.escrowStatus == 'held' && b.checkInTime != null;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.tune_rounded, color: AppTheme.primary, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Opciones del servicio',
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.darkSlate),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 18),
+              if (b.status == BookingStatus.confirmed)
+                ListTile(
+                  leading: const Icon(Icons.event_available_rounded, color: AppTheme.primary),
+                  title: const Text('Añadir a Google Calendar / Agenda', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('Guarda un recordatorio en tu calendario personal'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _addToGoogleCalendar(context, b, isClient);
+                  },
+                ),
+              if (isClient && b.status == BookingStatus.confirmed) ...[
+                ListTile(
+                  leading: const Icon(Icons.share_rounded, color: AppTheme.primary),
+                  title: const Text('Compartir enlace familiar', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('Envía el seguimiento del turno a otros familiares'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _shareLiveTrackingWithFamily(context, b);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.kitchen_rounded, color: AppTheme.primary),
+                  title: const Text('Ficha para la Nevera', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('Resumen con teléfonos y PIN para imprimir o WhatsApp'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showFridgeSheetModal(context, b);
+                  },
+                ),
+              ],
+              if (canRepeat)
+                ListTile(
+                  leading: const Icon(Icons.repeat_rounded, color: AppTheme.primary),
+                  title: const Text('Repetir servicio la próxima semana', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('Reserva el mismo horario con el mismo cuidador'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _repeatBookingNextWeek(context, b);
+                  },
+                ),
+              if (isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate)
+                ListTile(
+                  leading: const Icon(Icons.receipt_long_rounded, color: AppTheme.darkSlate),
+                  title: const Text('Descargar Justificante Legal', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('Documento oficial con seguro RC y horas prestadas'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showLegalReceiptDialog(context, b);
+                  },
+                ),
+              if (canTip)
+                ListTile(
+                  leading: const Text('☕', style: TextStyle(fontSize: 20)),
+                  title: const Text('Enviar propina de agradecimiento', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.secondaryColor)),
+                  subtitle: const Text('100% íntegra para el cuidador sin comisiones'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showQuickTipDialog(context, b, state);
+                  },
+                ),
+              if (canEscrowRelease) ...[
+                ListTile(
+                  leading: const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
+                  title: const Text('Liberar Pago al Cuidador Ahora', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Colors.green)),
+                  subtitle: const Text('Confirmar satisfacción para no esperar las 24h de custodia'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final confirm = await CustomDialog.showConfirmation(
+                      context,
+                      title: 'Liberar Pago al Cuidador',
+                      message: '¿Confirmas que el servicio fue satisfactorio? Se transferirán inmediatamente los fondos al cuidador (${b.caregiverPayout > 0 ? b.caregiverPayout.toStringAsFixed(2) : b.cost.toStringAsFixed(2)} €).',
+                      confirmText: 'Liberar Ahora',
+                    );
+                    if (confirm == true) {
+                      await state.releaseEscrow(b.id);
+                      if (context.mounted) {
+                        CustomSnackBar.show(context, message: '🎉 ¡Pago liberado al cuidador con éxito! Gracias por tu confirmación.', type: SnackBarType.success);
+                      }
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.warning_amber_rounded, color: Colors.deepOrange),
+                  title: const Text('Tengo un problema / Abrir Incidencia', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.deepOrange)),
+                  subtitle: const Text('Detener liberación automática y abrir acuerdo de resolución'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    showDialog(context: context, builder: (_) => DisputeDialog(booking: b));
+                  },
+                ),
+              ],
+              if (isClient && (b.status == BookingStatus.cancelled || b.status == BookingStatus.cancelledLate))
+                ListTile(
+                  leading: const Icon(Icons.flash_on_rounded, color: Colors.orange),
+                  title: const Text('Buscar cuidador sustituto urgente', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.orange)),
+                  subtitle: const Text('Encuentra profesionales disponibles hoy cerca de tu casa'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _findUrgentSubstitute(context);
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.sos_rounded, color: Colors.red),
+                title: const Text('Contacto de Emergencia / SOS', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.red)),
+                subtitle: const Text('Llamada rápida al 112 o teléfono de contacto familiar'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showSosQuickContactModal(context, b, isClient);
+                },
+              ),
+              if (canDiscard) ...[
+                const Divider(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                  title: const Text('Descartar intento de reserva', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.red)),
+                  subtitle: const Text('Libera el horario si no vas a completar el pago'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final confirm = await CustomDialog.showConfirmation(
+                      context,
+                      title: 'Descartar Intento',
+                      message: '¿Deseas descartar este intento de reserva no pagado?',
+                      confirmText: 'Descartar',
+                      isDestructive: true,
+                    );
+                    if (confirm == true) {
+                      state.cancelBooking(b.id, 'Intento descartado por el cliente', false);
+                    }
+                  },
+                ),
+              ],
+              if (canCancel) ...[
+                const Divider(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.cancel_outlined, color: Colors.red),
+                  title: const Text('Cancelar Reserva', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Colors.red)),
+                  subtitle: const Text('Reembolso gratuito si faltan más de 24h'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final now = DateTime.now();
+                    bool isLate = false;
+                    DateTime? slotDt;
+                    try {
+                      final dp = b.day.split('-');
+                      final tp = b.slot.split('-')[0].split(':');
+                      slotDt = DateTime(int.parse(dp[0]), int.parse(dp[1]), int.parse(dp[2]), int.parse(tp[0]), int.parse(tp[1]));
+                    } catch (_) {}
+
+                    if (slotDt != null) {
+                      final diffHours = slotDt.difference(now).inHours;
+                      if (diffHours < 24) isLate = true;
+                    }
+
+                    bool? confirm = await CustomDialog.showConfirmation(
+                      context,
+                      title: 'Cancelar Reserva',
+                      message: isLate
+                          ? 'Al cancelar con menos de 24h de antelación, se aplicará una penalización: se te reembolsará el 45% del importe y el resto cubrirá la compensación del cuidador y los gastos de gestión.'
+                          : 'Cancelación gratuita (>24h de antelación): Se te reembolsará el 100% del importe íntegramente a tu método de pago original sin ninguna penalización.',
+                      cancelText: 'Mantener',
+                      confirmText: 'Cancelar Reserva',
+                      isDestructive: true,
+                    );
+
+                    if (confirm == true) {
+                      state.cancelBooking(b.id, 'Cancelado por el cliente', isLate);
+                      if (context.mounted) {
+                        CustomSnackBar.show(context, message: 'Reserva cancelada', type: SnackBarType.info);
+                      }
+                    }
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

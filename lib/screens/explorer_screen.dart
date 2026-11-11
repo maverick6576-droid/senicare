@@ -172,24 +172,24 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                         padding: const EdgeInsets.only(right: 8.0),
                         child: ActionChip(
                           avatar: Icon(
-                            Icons.flash_on_rounded,
+                            Icons.near_me_rounded,
                             size: 16,
                             color: caregiverState.sortOption == CaregiverSortOption.distanceAsc
                                 ? Colors.white
-                                : Colors.orange.shade800,
+                                : AppTheme.primary,
                           ),
                           backgroundColor: caregiverState.sortOption == CaregiverSortOption.distanceAsc
-                              ? Colors.orange.shade800
-                              : Colors.orange.shade50,
-                          side: BorderSide(color: Colors.orange.shade300),
+                              ? AppTheme.primary
+                              : AppTheme.primarySurface,
+                          side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
                           label: Text(
-                            '🚨 Sustituto urgente hoy',
+                            'Más cercanos hoy',
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: caregiverState.sortOption == CaregiverSortOption.distanceAsc
                                   ? Colors.white
-                                  : Colors.orange.shade900,
+                                  : AppTheme.primary,
                             ),
                           ),
                           onPressed: () {
@@ -201,7 +201,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                               caregiverState.setSortOption(CaregiverSortOption.distanceAsc);
                               CustomSnackBar.show(
                                 context,
-                                message: '🚨 Mostrando cuidadores verificados más cercanos disponibles hoy.',
+                                message: 'Mostrando cuidadores verificados más cercanos disponibles.',
                                 type: SnackBarType.info,
                               );
                             }
@@ -231,65 +231,9 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 10),
-                InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () {
-                    GuidedMatchingWizard.show(
-                      context,
-                      caregivers: caregiverState.caregivers,
-                      onSelectCaregiver: (selected) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => CaregiverDetailScreen(caregiver: selected),
-                          ),
-                        );
-                      },
-                      onApplyFilters: (specs, maxRate) {
-                        caregiverState.setMaxPriceFilter(maxRate);
-                        if (specs.isNotEmpty) {
-                          caregiverState.setSpecialty(specs.first);
-                        }
-                      },
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          AppTheme.primary.withValues(alpha: 0.12),
-                          AppTheme.secondaryColor.withValues(alpha: 0.12),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.primary.withValues(alpha: 0.28)),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.auto_awesome_rounded, color: AppTheme.primary, size: 20),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            '¿No sabes a quién elegir? Encuentra tu cuidador ideal en 3 pasos',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.darkSlate,
-                            ),
-                          ),
-                        ),
-                        Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppTheme.primary),
-                      ],
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
-          if (activeClientBookings.isNotEmpty)
-            _buildWeeklyCareSummaryBanner(context, activeClientBookings),
           Expanded(
             child: RefreshIndicator(
               onRefresh: caregiverState.refreshCaregivers,
@@ -378,9 +322,71 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                           physics: const AlwaysScrollableScrollPhysics(),
                           controller: _scrollController,
                           padding: const EdgeInsets.all(16),
-                          itemCount: caregiverState.filteredCaregivers.length + (caregiverState.isFetchingCaregivers ? 1 : 0),
+                          itemCount: 1 + caregiverState.filteredCaregivers.length + (caregiverState.isFetchingCaregivers ? 1 : 0),
                           itemBuilder: (context, index) {
-                            if (index == caregiverState.filteredCaregivers.length) {
+                            if (index == 0) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (activeClientBookings.isNotEmpty)
+                                    _buildWeeklyCareSummaryBanner(context, activeClientBookings),
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 14),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(14),
+                                      onTap: () {
+                                        GuidedMatchingWizard.show(
+                                          context,
+                                          caregivers: caregiverState.caregivers,
+                                          onSelectCaregiver: (selected) {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) => CaregiverDetailScreen(caregiver: selected),
+                                              ),
+                                            );
+                                          },
+                                          onApplyFilters: (specs, maxRate) {
+                                            caregiverState.setMaxPriceFilter(maxRate);
+                                            if (specs.isNotEmpty) {
+                                              caregiverState.setSpecialty(specs.first);
+                                            }
+                                          },
+                                        );
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primarySurface.withValues(alpha: 0.7),
+                                          borderRadius: BorderRadius.circular(14),
+                                          border: Border.all(color: AppTheme.primary.withValues(alpha: 0.22)),
+                                        ),
+                                        child: const Row(
+                                          children: [
+                                            Icon(Icons.auto_awesome_rounded, color: AppTheme.primary, size: 20),
+                                            SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                '¿Necesitas ayuda? Encuentra tu cuidador ideal en 3 pasos',
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppTheme.darkSlate,
+                                                ),
+                                              ),
+                                            ),
+                                            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppTheme.primary),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }
+
+                            final cgIndex = index - 1;
+                            if (cgIndex == caregiverState.filteredCaregivers.length) {
                               return const Center(
                                 child: Padding(
                                   padding: EdgeInsets.all(16.0),
@@ -388,9 +394,8 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                 ),
                               );
                             }
-                            final c = caregiverState.filteredCaregivers[index];
+                            final c = caregiverState.filteredCaregivers[cgIndex];
                             final displayedSpecs = c.specialties.take(3).toList();
-                            final extraSpecsCount = c.specialties.length - displayedSpecs.length;
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 14),
@@ -456,7 +461,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                                           border: Border.all(color: Colors.amber.shade400),
                                                         ),
                                                         child: const Text(
-                                                          '🏆 Supercuidador',
+                                                          '🏆 Top',
                                                           style: TextStyle(
                                                             fontSize: 10,
                                                             fontWeight: FontWeight.w800,
@@ -467,128 +472,120 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                                                     ],
                                                   ],
                                                 ),
-                                                const SizedBox(height: 2),
+                                                const SizedBox(height: 3),
                                                 Text(
                                                   c.title,
-                                                  style: const TextStyle(color: AppTheme.slateMuted, fontSize: 14, fontWeight: FontWeight.w500),
+                                                  style: const TextStyle(color: AppTheme.slateMuted, fontSize: 13.5, fontWeight: FontWeight.w500),
                                                   maxLines: 1,
                                                   overflow: TextOverflow.ellipsis,
                                                 ),
                                                 const SizedBox(height: 6),
-                                                Wrap(
-                                                  spacing: 10,
-                                                  runSpacing: 4,
-                                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                                  children: [
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                      decoration: BoxDecoration(
-                                                        color: AppTheme.amber.withValues(alpha: 0.14),
-                                                        borderRadius: BorderRadius.circular(8),
-                                                      ),
-                                                      child: Row(
-                                                        mainAxisSize: MainAxisSize.min,
-                                                        children: [
-                                                          const Icon(Icons.star_rounded, color: AppTheme.amber, size: 16),
-                                                          const SizedBox(width: 3),
-                                                          Text(
-                                                            '${c.rating.toStringAsFixed(1)} (${c.reviewsCount})',
-                                                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                                      decoration: BoxDecoration(
-                                                        color: AppTheme.secondaryColor.withValues(alpha: 0.1),
-                                                        borderRadius: BorderRadius.circular(8),
-                                                      ),
-                                                      child: Text(
-                                                        '🔄 ${c.retentionRate}% familias repiten',
-                                                        style: const TextStyle(
-                                                          fontSize: 11,
-                                                          fontWeight: FontWeight.w700,
-                                                          color: AppTheme.secondaryColor,
+                                                Builder(
+                                                  builder: (context) {
+                                                    String distanceText = c.distance;
+                                                    final effectiveLat = auth.currentClient?.latitude ?? locationState.latitude;
+                                                    final effectiveLng = auth.currentClient?.longitude ?? locationState.longitude;
+                                                    if (c.latitude != null && c.longitude != null && effectiveLat != null && effectiveLng != null) {
+                                                      double dist = calculateDistance(effectiveLat, effectiveLng, c.latitude!, c.longitude!);
+                                                      distanceText = 'A ${dist.toStringAsFixed(1)} km';
+                                                    }
+                                                    return Row(
+                                                      children: [
+                                                        const Icon(Icons.star_rounded, color: AppTheme.amber, size: 17),
+                                                        const SizedBox(width: 3),
+                                                        Text(
+                                                          '${c.rating.toStringAsFixed(1)} (${c.reviewsCount})',
+                                                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
                                                         ),
-                                                      ),
-                                                    ),
-                                                    if (c.hasOfficialCertification)
-                                                      Container(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                                        decoration: BoxDecoration(
-                                                          color: Colors.indigo.withValues(alpha: 0.1),
-                                                          borderRadius: BorderRadius.circular(8),
-                                                          border: Border.all(color: Colors.indigo.withValues(alpha: 0.3)),
+                                                        const SizedBox(width: 8),
+                                                        const Text('•', style: TextStyle(color: AppTheme.slateMuted)),
+                                                        const SizedBox(width: 8),
+                                                        const Icon(Icons.near_me_rounded, size: 13, color: AppTheme.primary),
+                                                        const SizedBox(width: 3),
+                                                        Text(
+                                                          distanceText,
+                                                          style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted, fontWeight: FontWeight.w600),
                                                         ),
-                                                        child: Text(
-                                                          '🎓 Certificación Sociosanitaria',
-                                                          style: TextStyle(
-                                                            fontSize: 11,
-                                                            fontWeight: FontWeight.w700,
-                                                            color: Colors.indigo.shade700,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    Builder(
-                                                      builder: (context) {
-                                                        String distanceText = c.distance;
-                                                        final effectiveLat = auth.currentClient?.latitude ?? locationState.latitude;
-                                                        final effectiveLng = auth.currentClient?.longitude ?? locationState.longitude;
-                                                        if (c.latitude != null && c.longitude != null && effectiveLat != null && effectiveLng != null) {
-                                                          double dist = calculateDistance(effectiveLat, effectiveLng, c.latitude!, c.longitude!);
-                                                          distanceText = 'A ${dist.toStringAsFixed(1)} km';
-                                                        }
-                                                        return Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            const Icon(Icons.near_me_rounded, size: 14, color: AppTheme.primary),
-                                                            const SizedBox(width: 4),
-                                                            Text(
-                                                              distanceText,
-                                                              style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted, fontWeight: FontWeight.w600),
-                                                            ),
-                                                          ],
-                                                        );
-                                                      },
-                                                    ),
-                                                  ],
+                                                      ],
+                                                    );
+                                                  },
                                                 ),
+                                                if (c.hasOfficialCertification || c.retentionRate >= 90) ...[
+                                                  const SizedBox(height: 6),
+                                                  Row(
+                                                    children: [
+                                                      if (c.hasOfficialCertification)
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.indigo.shade50,
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: Text(
+                                                            '🎓 Certificación Oficial',
+                                                            style: TextStyle(
+                                                              fontSize: 10.5,
+                                                              fontWeight: FontWeight.w700,
+                                                              color: Colors.indigo.shade800,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      if (c.hasOfficialCertification && c.retentionRate >= 90)
+                                                        const SizedBox(width: 6),
+                                                      if (c.retentionRate >= 90)
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                                          decoration: BoxDecoration(
+                                                            color: AppTheme.secondaryColor.withValues(alpha: 0.1),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: Text(
+                                                            '🔄 ${c.retentionRate}% repiten',
+                                                            style: const TextStyle(
+                                                              fontSize: 10.5,
+                                                              fontWeight: FontWeight.w700,
+                                                              color: AppTheme.secondaryColor,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ],
                                               ],
                                             ),
                                           ),
                                         ],
                                       ),
                                       if (displayedSpecs.isNotEmpty) ...[
-                                        const SizedBox(height: 12),
+                                        const SizedBox(height: 10),
                                         Wrap(
                                           spacing: 6,
                                           runSpacing: 6,
                                           children: [
-                                            ...displayedSpecs.map(
+                                            ...displayedSpecs.take(2).map(
                                               (s) => Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                                                 decoration: BoxDecoration(
                                                   color: AppTheme.backgroundNeutral,
-                                                  borderRadius: BorderRadius.circular(10),
+                                                  borderRadius: BorderRadius.circular(8),
                                                   border: Border.all(color: AppTheme.borderSubtle),
                                                 ),
                                                 child: Text(
                                                   s,
-                                                  style: const TextStyle(fontSize: 12, color: AppTheme.darkSlate, fontWeight: FontWeight.w600),
+                                                  style: const TextStyle(fontSize: 11.5, color: AppTheme.darkSlate, fontWeight: FontWeight.w600),
                                                 ),
                                               ),
                                             ),
-                                            if (extraSpecsCount > 0)
+                                            if (c.specialties.length > 2)
                                               Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                                                 decoration: BoxDecoration(
                                                   color: AppTheme.primarySurface,
-                                                  borderRadius: BorderRadius.circular(10),
+                                                  borderRadius: BorderRadius.circular(8),
                                                 ),
                                                 child: Text(
-                                                  '+$extraSpecsCount más',
-                                                  style: const TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.w700),
+                                                  '+${c.specialties.length - 2} más',
+                                                  style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.w700),
                                                 ),
                                               ),
                                           ],
@@ -659,7 +656,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     }
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: statusColor.withValues(alpha: 0.08),
@@ -725,82 +722,21 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (totalTasks > 0) ...[
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
-                      '📋 Checklist familiar: $completedTasks/$totalTasks tareas completadas',
+                      '📋 $completedTasks de $totalTasks tareas completadas',
                       style: const TextStyle(
                         fontSize: 12,
                         color: AppTheme.slateMuted,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ),
-                  ],
-                  if (nextBooking.onTheWayAt != null || nextBooking.checkInTime != null || completedTasks > 0) ...[
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        if (nextBooking.onTheWayAt != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '🚗 Salida ${nextBooking.onTheWayAt!.hour.toString().padLeft(2, '0')}:${nextBooking.onTheWayAt!.minute.toString().padLeft(2, '0')}',
-                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.orange.shade900),
-                            ),
-                          ),
-                        if (nextBooking.checkInTime != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppTheme.secondaryColor.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '📍 Llegada ${nextBooking.checkInTime!.hour.toString().padLeft(2, '0')}:${nextBooking.checkInTime!.minute.toString().padLeft(2, '0')}',
-                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
-                            ),
-                          ),
-                        ...nextBooking.careChecklist.where((t) => t.completed).take(2).map(
-                          (t) => Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.85),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: AppTheme.borderSubtle),
-                            ),
-                            child: Text(
-                              '✓ ${t.title}',
-                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.darkSlate),
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: statusColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'Ver Diario',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+            Icon(Icons.arrow_forward_ios_rounded, size: 15, color: statusColor),
           ],
         ),
       ),
