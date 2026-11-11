@@ -180,6 +180,19 @@ class StripeService {
     await launchOnboarding(accountId, mode: 'dashboard');
   }
 
+  /// Synchronizes the connected Stripe account KYC status with Firestore.
+  static Future<bool> syncStripeKycStatus() async {
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('syncStripeKycStatus');
+      final response = await callable.call();
+      return response.data['isVerified'] == true;
+    } catch (e) {
+      debugPrint('Error sincronizando estado KYC de Stripe: $e');
+      rethrow;
+    }
+  }
+
   static Future<bool> releaseEscrowPayment({
     required String bookingId,
   }) async {

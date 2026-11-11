@@ -10,7 +10,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 class CaregiverDetailScreen extends StatefulWidget {
   final CaregiverProfile caregiver;
-  const CaregiverDetailScreen({super.key, required this.caregiver});
+  final bool isPreview;
+
+  const CaregiverDetailScreen({
+    super.key,
+    required this.caregiver,
+    this.isPreview = false,
+  });
 
   @override
   State<CaregiverDetailScreen> createState() => _CaregiverDetailScreenState();
@@ -113,6 +119,11 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
     final theme = Theme.of(context);
     final c = widget.caregiver;
     final location = context.watch<LocationNotifier>();
+    String? authUserId;
+    try {
+      authUserId = context.select<AuthNotifier, String?>((a) => a.currentUserId);
+    } catch (_) {}
+    final isOwnProfile = widget.isPreview || (authUserId != null && authUserId == c.id);
     
     String distanceText = c.distance;
     if (c.latitude != null && c.longitude != null && location.latitude != null && location.longitude != null) {
@@ -124,6 +135,28 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
       appBar: AppBar(title: Text(c.name)),
       body: ListView(
         children: [
+          if (isOwnProfile)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: AppTheme.primarySurface,
+              child: const Row(
+                children: [
+                  Icon(Icons.visibility_rounded, size: 18, color: AppTheme.primary),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Vista previa pública: así ven tu perfil las familias en SeniCare.',
+                      style: TextStyle(
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Container(
             height: 220,
             width: double.infinity,
@@ -587,19 +620,21 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
           )
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          final auth = context.read<AuthNotifier>();
-          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
-            clientId: auth.currentUserId ?? 'unknown',
-            caregiverId: c.id,
-            caregiverName: c.name,
-          )));
-        },
-        label: const Text('Contactar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        icon: const Icon(Icons.chat, color: Colors.white),
-        backgroundColor: AppTheme.primary,
-      ),
+      floatingActionButton: isOwnProfile
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () {
+                final auth = context.read<AuthNotifier>();
+                Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
+                  clientId: auth.currentUserId ?? 'unknown',
+                  caregiverId: c.id,
+                  caregiverName: c.name,
+                )));
+              },
+              label: const Text('Contactar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              icon: const Icon(Icons.chat, color: Colors.white),
+              backgroundColor: AppTheme.primary,
+            ),
     );
   }
 

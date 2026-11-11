@@ -108,7 +108,7 @@ class MockCaregiverRepository implements CaregiverRepository {
       _mockCaregivers[index] = CaregiverProfile(
         id: old.id,
         name: data['name'] ?? old.name,
-        title: old.title,
+        title: data['title'] ?? old.title,
         bio: data['bio'] ?? old.bio,
         pricePerHour: (data['pricePerHour'] ?? old.pricePerHour).toDouble(),
         rating: old.rating,
@@ -121,7 +121,11 @@ class MockCaregiverRepository implements CaregiverRepository {
         verified: data['isVerified'] ?? data['verified'] ?? old.verified,
         maxDistanceRadius: (data['maxDistanceRadius'] ?? old.maxDistanceRadius).toDouble(),
         homeAddress: data['homeAddress'] ?? old.homeAddress,
-        availableSlots: old.availableSlots,
+        availableSlots: data['availableSlots'] != null
+            ? (data['availableSlots'] as Map<String, dynamic>).map(
+                (k, v) => MapEntry(k, List<String>.from(v as List)),
+              )
+            : old.availableSlots,
         dniUrl: data['dniUrl'] ?? old.dniUrl,
         criminalRecordUrl: data['criminalRecordUrl'] ?? old.criminalRecordUrl,
         verificationStatus: data['verificationStatus'] ?? old.verificationStatus,
@@ -133,12 +137,14 @@ class MockCaregiverRepository implements CaregiverRepository {
       _mockCaregivers.add(CaregiverProfile(
         id: id,
         name: data['name'] ?? 'Sin nombre',
-        title: 'Cuidador',
+        title: data['title'] ?? 'Cuidador',
         bio: data['bio'] ?? '',
         pricePerHour: (data['pricePerHour'] ?? 15.0).toDouble(),
         rating: 0.0,
         reviewsCount: 0,
         distance: 'A calcular',
+        latitude: (data['latitude'] as num?)?.toDouble(),
+        longitude: (data['longitude'] as num?)?.toDouble(),
         imageUrl: data['imageUrl'] ?? '',
         specialties: data['specialties'] != null ? List<String>.from(data['specialties']) : [],
         verified: data['isVerified'] ?? data['verified'] ?? false,
