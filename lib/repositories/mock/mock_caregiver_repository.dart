@@ -132,6 +132,8 @@ class MockCaregiverRepository implements CaregiverRepository {
         stripeAccountId: data['stripeAccountId'] ?? old.stripeAccountId,
         onboardingComplete: data['onboardingComplete'] ?? old.onboardingComplete,
         isKycVerified: data['isKycVerified'] ?? old.isKycVerified,
+        hasSeenCaregiverTutorial:
+            data['caregiverTutorialSeen'] ?? old.hasSeenCaregiverTutorial,
       );
     } else {
       _mockCaregivers.add(CaregiverProfile(
@@ -157,6 +159,7 @@ class MockCaregiverRepository implements CaregiverRepository {
         stripeAccountId: data['stripeAccountId'],
         onboardingComplete: data['onboardingComplete'] ?? false,
         isKycVerified: data['isKycVerified'] ?? false,
+        hasSeenCaregiverTutorial: data['caregiverTutorialSeen'] == true,
       ));
     }
   }

@@ -1033,6 +1033,7 @@ class _CaregiverProfileEditScreenState
     final isApproved =
         profile.verified || profile.verificationStatus == 'approved';
     final isRejected = profile.verificationStatus == 'rejected';
+    final tutorialTargets = TutorialScope.maybeOf(context);
     final displayedSpecialties = {
       ..._allSpecialties,
       ..._selectedSpecialties,
@@ -1117,23 +1118,38 @@ class _CaregiverProfileEditScreenState
           children: [
             _buildHeaderCard(profile, fontMult, isSenior),
             const SizedBox(height: 14),
-            _buildStatusCard(
-              profile: profile,
-              missingItems: missingItems,
-              isApproved: isApproved,
-              isRejected: isRejected,
-              fontMult: fontMult,
-            ),
-            const SizedBox(height: 16),
             if (!_isEditing) ...[
-              _buildQuickActionsRow(profile, fontMult, isSenior),
+              Column(
+                key: tutorialTargets?.profileStatusKey,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildStatusCard(
+                    profile: profile,
+                    missingItems: missingItems,
+                    isApproved: isApproved,
+                    isRejected: isRejected,
+                    fontMult: fontMult,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildQuickActionsRow(profile, fontMult, isSenior),
+                ],
+              ),
               const SizedBox(height: 16),
               _buildReadOnlySections(
                 profile,
                 fontMult,
                 isSenior,
+                docsKey: tutorialTargets?.profileDocsKey,
               ),
             ] else ...[
+              _buildStatusCard(
+                profile: profile,
+                missingItems: missingItems,
+                isApproved: isApproved,
+                isRejected: isRejected,
+                fontMult: fontMult,
+              ),
+              const SizedBox(height: 16),
               _buildEditingSections(
                 profile,
                 displayedSpecialties,
@@ -1557,8 +1573,9 @@ class _CaregiverProfileEditScreenState
   Widget _buildReadOnlySections(
     CaregiverProfile profile,
     double fontMult,
-    bool isSenior,
-  ) {
+    bool isSenior, {
+    Key? docsKey,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1641,6 +1658,7 @@ class _CaregiverProfileEditScreenState
         ),
         const SizedBox(height: 14),
         _SectionCard(
+          key: docsKey,
           title: 'Documentos y Cuenta Bancaria',
           icon: Icons.verified_user_rounded,
           fontMult: fontMult,
@@ -2162,6 +2180,7 @@ class _SectionCard extends StatelessWidget {
   final Widget child;
 
   const _SectionCard({
+    super.key,
     required this.title,
     required this.icon,
     required this.fontMult,

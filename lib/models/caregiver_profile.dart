@@ -24,6 +24,7 @@ class CaregiverProfile {
   final String? stripeAccountId;
   final bool onboardingComplete;
   final bool isKycVerified;
+  final bool hasSeenCaregiverTutorial;
   final int noShowsCount;
 
   bool get hasStripeAccount => stripeAccountId != null && stripeAccountId!.isNotEmpty;
@@ -67,6 +68,7 @@ class CaregiverProfile {
     this.stripeAccountId,
     this.onboardingComplete = false,
     this.isKycVerified = false,
+    this.hasSeenCaregiverTutorial = false,
     this.noShowsCount = 0,
     this.incidentDates = const [],
     this.blockedUntil,
@@ -101,6 +103,7 @@ class CaregiverProfile {
         stripeAccountId: data['stripeAccountId']?.toString(),
         onboardingComplete: data['onboardingComplete'] ?? false,
         isKycVerified: data['isKycVerified'] ?? false,
+        hasSeenCaregiverTutorial: data['caregiverTutorialSeen'] == true,
         noShowsCount: data['noShowsCount'] ?? 0,
         incidentDates: (data['incidentDates'] as List<dynamic>?)?.map((d) => (d as Timestamp).toDate()).toList() ?? [],
         blockedUntil: (data['blockedUntil'] as Timestamp?)?.toDate(),
@@ -159,6 +162,7 @@ class CaregiverProfile {
       'stripeAccountId': stripeAccountId,
       'onboardingComplete': onboardingComplete,
       'isKycVerified': isKycVerified,
+      'caregiverTutorialSeen': hasSeenCaregiverTutorial,
       'noShowsCount': noShowsCount,
       'incidentDates': incidentDates.map((d) => Timestamp.fromDate(d)).toList(),
       if (blockedUntil != null) 'blockedUntil': Timestamp.fromDate(blockedUntil!),

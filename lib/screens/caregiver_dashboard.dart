@@ -126,6 +126,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     final auth = Provider.of<AuthNotifier>(context);
     final bookingState = Provider.of<BookingNotifier>(context);
     final user = auth.currentCaregiver;
+    final tutorialTargets = TutorialScope.maybeOf(context);
 
     final firstName = (user?.name ?? '').trim().split(RegExp(r'\s+')).firstOrNull ?? '';
     final greetingName = (firstName.isNotEmpty && firstName != 'Sin') ? firstName : 'Cuidador';
@@ -163,6 +164,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
 
           // Acceso rápido a Disponibilidad Horaria (compacto y limpio)
           Container(
+            key: tutorialTargets?.dashboardAvailabilityKey,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             margin: const EdgeInsets.only(bottom: 20),
             decoration: AppTheme.modernCardDecoration(
@@ -317,6 +319,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    key: tutorialTargets?.dashboardStatsKey,
                     children: [
                       Expanded(
                         child: StatCard(
@@ -351,44 +354,50 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                   ],
 
                   const SizedBox(height: 24),
-                  if (activeService != null) ...[
-                    Row(
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green),
-                        ),
-                        const SizedBox(width: 8),
-                        const Text('Servicio en Curso', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _buildActiveServiceCard(context, activeService, bookingState),
-                  ] else ...[
-                    const Text('Próximo Servicio', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
-                    const SizedBox(height: 12),
-                    if (nextService == null)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(18),
-                        decoration: AppTheme.modernCardDecoration(radius: 16),
-                        child: const Row(
+                  Column(
+                    key: tutorialTargets?.dashboardServiceFlowKey,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (activeService != null) ...[
+                        Row(
                           children: [
-                            Icon(Icons.event_available_rounded, color: AppTheme.slateMuted, size: 22),
-                            SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'No tienes servicios programados próximamente.',
-                                style: TextStyle(color: AppTheme.slateMuted, fontSize: 13.5),
-                              ),
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green),
                             ),
+                            const SizedBox(width: 8),
+                            const Text('Servicio en Curso', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
                           ],
                         ),
-                      )
-                    else
-                      _buildNextServiceCard(context, nextService, bookingState),
-                  ],
+                        const SizedBox(height: 12),
+                        _buildActiveServiceCard(context, activeService, bookingState),
+                      ] else ...[
+                        const Text('Próximo Servicio', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+                        const SizedBox(height: 12),
+                        if (nextService == null)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(18),
+                            decoration: AppTheme.modernCardDecoration(radius: 16),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.event_available_rounded, color: AppTheme.slateMuted, size: 22),
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'No tienes servicios programados próximamente.',
+                                    style: TextStyle(color: AppTheme.slateMuted, fontSize: 13.5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          _buildNextServiceCard(context, nextService, bookingState),
+                      ],
+                    ],
+                  ),
                 ],
               );
             },
@@ -396,6 +405,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
 
           const SizedBox(height: 24),
           Row(
+            key: tutorialTargets?.dashboardCommissionsKey,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Expanded(

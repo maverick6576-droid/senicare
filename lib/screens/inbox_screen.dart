@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/screens/screens.dart';
+import 'package:senicare/widgets/widgets.dart';
 
 class InboxScreen extends StatefulWidget {
   const InboxScreen({super.key});
@@ -246,6 +247,7 @@ class _InboxScreenState extends State<InboxScreen> {
     final auth = context.watch<AuthNotifier>();
     final isClient = auth.currentRole == 'client';
     final String userId = auth.currentUserId ?? '';
+    final tutorialTargets = TutorialScope.maybeOf(context);
 
     if (userId.isEmpty) {
       return const Center(child: Text('No tienes conversaciones activas.'));
@@ -254,6 +256,7 @@ class _InboxScreenState extends State<InboxScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       floatingActionButton: FloatingActionButton(
+        key: tutorialTargets?.inboxNewChatFabKey,
         heroTag: 'inbox_new_chat_fab',
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
@@ -330,65 +333,71 @@ class _InboxScreenState extends State<InboxScreen> {
 
           return Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (val) => setState(() => _searchQuery = val),
-                  decoration: InputDecoration(
-                    hintText: 'Buscar chat o mensaje...',
-                    prefixIcon: const Icon(
-                      Icons.search_rounded,
-                      color: AppTheme.slateMuted,
-                    ),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.close_rounded, size: 20),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: const Color(0xFFF1F5F9),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
+              Column(
+                key: tutorialTargets?.inboxToolbarKey,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (val) => setState(() => _searchQuery = val),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar chat o mensaje...',
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: AppTheme.slateMuted,
+                        ),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 20),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: const Color(0xFFF1F5F9),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Row(
-                  children: [
-                    ChoiceChip(
-                      label: Text('Todos (${allChats.length})'),
-                      selected: !_onlyUnread,
-                      selectedColor: AppTheme.primarySurface,
-                      labelStyle: TextStyle(
-                        color:
-                            !_onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      onSelected: (_) => setState(() => _onlyUnread = false),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Row(
+                      children: [
+                        ChoiceChip(
+                          label: Text('Todos (${allChats.length})'),
+                          selected: !_onlyUnread,
+                          selectedColor: AppTheme.primarySurface,
+                          labelStyle: TextStyle(
+                            color:
+                                !_onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          onSelected: (_) => setState(() => _onlyUnread = false),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: Text('No leídos ($totalUnreadChats)'),
+                          selected: _onlyUnread,
+                          selectedColor: AppTheme.primarySurface,
+                          labelStyle: TextStyle(
+                            color:
+                                _onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          onSelected: (_) => setState(() => _onlyUnread = true),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: Text('No leídos ($totalUnreadChats)'),
-                      selected: _onlyUnread,
-                      selectedColor: AppTheme.primarySurface,
-                      labelStyle: TextStyle(
-                        color:
-                            _onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      onSelected: (_) => setState(() => _onlyUnread = true),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               const Divider(height: 1),
               Expanded(

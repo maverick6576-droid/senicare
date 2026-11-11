@@ -419,6 +419,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     required int todayCount,
   }) {
     return Container(
+      key: TutorialScope.maybeOf(context)?.bookingsToolbarKey,
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       decoration: const BoxDecoration(

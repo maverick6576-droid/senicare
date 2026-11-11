@@ -6,6 +6,7 @@ import 'package:senicare/repositories/firebase/firestore_stats_repository.dart';
 import 'package:senicare/screens/caregiver_profile_edit_screen.dart';
 import 'package:senicare/screens/job_offers/create_offer_screen.dart';
 import 'package:senicare/screens/job_offers/offer_detail_screen.dart';
+import 'package:senicare/widgets/widgets.dart';
 
 class OffersHubScreen extends StatelessWidget {
   const OffersHubScreen({super.key});
@@ -412,6 +413,7 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
         slivers: [
           SliverToBoxAdapter(
             child: Padding(
+              key: TutorialScope.maybeOf(context)?.offersHeaderKey,
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

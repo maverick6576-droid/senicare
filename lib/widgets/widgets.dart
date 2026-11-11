@@ -8,3 +8,4 @@ export 'custom_dialog.dart';
 export 'dispute_dialog.dart';
 export 'video_call_modal.dart';
 export 'guided_matching_wizard.dart';
+export 'caregiver_tutorial_overlay.dart';

@@ -154,6 +154,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final config = context.watch<ConfigNotifier>();
+    final isCaregiver = context.watch<AuthNotifier>().currentRole == 'caregiver';
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ajustes, Accesibilidad y Privacidad'),
@@ -161,6 +162,45 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (isCaregiver) ...[
+            const Text(
+              '🎓 Ayuda y Tutorial para Cuidadores',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primary),
+            ),
+            const SizedBox(height: 8),
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.35)),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primarySurface,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.play_circle_outline_rounded, color: AppTheme.primary, size: 26),
+                ),
+                title: const Text(
+                  'Tutorial guiado paso a paso',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+                subtitle: const Text(
+                  'Aprende cómo gestionar horarios, ofertas, reservas, mensajes y cobros con guía iluminada.',
+                  style: TextStyle(fontSize: 13),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded, color: AppTheme.primary),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  context.read<ConfigNotifier>().triggerCaregiverTutorial();
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                },
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
           const Text('👓 Modo Senior & Accesibilidad Visual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primary)),
           const SizedBox(height: 6),
           const Text(
