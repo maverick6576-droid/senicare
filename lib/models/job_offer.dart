@@ -31,6 +31,21 @@ class JobOffer {
 
   bool get isExpired => status == JobOfferStatus.open && startDate.isBefore(DateTime.now());
 
+  String get familyLabel {
+    final clean = clientName.trim();
+    if (clean.isEmpty || clean.toLowerCase() == 'cliente') {
+      return 'Familia cercana';
+    }
+    if (clean.toLowerCase().startsWith('familia')) {
+      return clean;
+    }
+    final parts = clean.split(RegExp(r'\s+'));
+    if (parts.length > 1) {
+      return 'Familia ${parts.last}';
+    }
+    return 'Familia de $clean';
+  }
+
   JobOffer({
     required this.id,
     required this.clientId,

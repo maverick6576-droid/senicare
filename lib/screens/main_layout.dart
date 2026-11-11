@@ -42,7 +42,12 @@ class _MainLayoutState extends State<MainLayout> {
     if (isClient) {
       showOffersBadge = jobOffers.clientOffers.any((o) => o.status == JobOfferStatus.open && !o.isExpired);
     } else {
-      showOffersBadge = jobOffers.nearbyOffers.any((o) => o.status == JobOfferStatus.open && !o.isExpired);
+      showOffersBadge = jobOffers.nearbyOffers.any(
+        (o) =>
+            o.status == JobOfferStatus.open &&
+            !o.isExpired &&
+            !jobOffers.myApplicationsByOfferId.containsKey(o.id),
+      );
     }
 
     // Reservas Badge

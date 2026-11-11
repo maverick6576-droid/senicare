@@ -56,4 +56,19 @@ class FirestoreStatsRepository {
     if (accumulatedHours <= 80) return 0.12;
     return 0.06;
   }
+
+  static double calculateEffectiveOfferCommissionRate(int accumulatedHours, double urgencyBonusRate) {
+    final baseTier = calculateCommissionRate(accumulatedHours);
+    return (baseTier - urgencyBonusRate).clamp(0.05, 0.18);
+  }
+
+  static double estimateOfferNetTotal({
+    required int totalHours,
+    required double hourlyRate,
+    required double urgencyBonusRate,
+    int accumulatedHours = 0,
+  }) {
+    final effectiveRate = calculateEffectiveOfferCommissionRate(accumulatedHours, urgencyBonusRate);
+    return (totalHours * hourlyRate) * (1.0 - effectiveRate);
+  }
 }

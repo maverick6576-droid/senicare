@@ -77,11 +77,21 @@ Future<void> main() async {
         ChangeNotifierProxyProvider2<AuthNotifier, LocationNotifier, JobOfferNotifier>(
           create: (_) => JobOfferNotifier(),
           update: (_, auth, location, jobOfferNotifier) {
-            if (auth.currentRole == 'client') {
-              jobOfferNotifier!.initForClient(auth.currentUserId ?? '');
+            if (!auth.isAuthenticated || auth.currentUserId == null) {
+              jobOfferNotifier!.clear(notify: false);
+            } else if (auth.currentRole == 'client') {
+              jobOfferNotifier!.initForClient(auth.currentUserId!);
             } else if (auth.currentRole == 'caregiver') {
-              if (location.latitude != null && location.longitude != null) {
-                jobOfferNotifier!.initForCaregiver(location.latitude!, location.longitude!, 50.0);
+              final lat = auth.currentCaregiver?.latitude ?? location.latitude;
+              final lng = auth.currentCaregiver?.longitude ?? location.longitude;
+              final maxDistance = auth.currentCaregiver?.maxDistanceRadius ?? 50.0;
+              if (lat != null && lng != null) {
+                jobOfferNotifier!.initForCaregiver(
+                  lat,
+                  lng,
+                  maxDistance,
+                  caregiverId: auth.currentUserId,
+                );
               }
             }
             return jobOfferNotifier!;
