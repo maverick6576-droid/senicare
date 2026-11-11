@@ -355,7 +355,8 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     final auth = context.watch<AuthNotifier>();
     final location = context.watch<LocationNotifier>();
     final isClient = auth.currentRole == 'client';
-    final currentUserId = auth.currentUserId ?? '';
+    final currentUserId =
+        (isClient ? auth.effectiveClientId : auth.currentUserId) ?? '';
 
     final seniorMode = context.watch<ConfigNotifier>().seniorMode;
 
@@ -716,7 +717,8 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                 seniorMode: seniorMode,
               ),
             ),
-          if (offer.isExpired || offer.status == JobOfferStatus.cancelled) ...[
+          if (context.read<AuthNotifier>().canManageFamilyPayments &&
+              (offer.isExpired || offer.status == JobOfferStatus.cancelled)) ...[
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
@@ -734,7 +736,8 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
               ),
             ),
           ],
-          if (offer.status == JobOfferStatus.open) ...[
+          if (context.read<AuthNotifier>().canManageFamilyPayments &&
+              offer.status == JobOfferStatus.open) ...[
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -750,6 +753,23 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                   offer.isExpired ? 'Cerrar Oferta Caducada' : 'Retirar / Cancelar Oferta',
                   style: TextStyle(fontSize: seniorMode ? 15.5 : 14, fontWeight: FontWeight.w700),
                 ),
+              ),
+            ),
+          ],
+          if (!context.read<AuthNotifier>().canManageFamilyPayments) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: const Text(
+                'Rol Familiar colaborador: puedes revisar candidaturas y chatear con cuidadores. Solo un Administrador puede contratar o cancelar la oferta.',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
               ),
             ),
           ],
@@ -1090,7 +1110,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                 ),
               ],
             ),
-            if (canChoose) ...[
+            if (canChoose && context.read<AuthNotifier>().canManageFamilyPayments) ...[
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,

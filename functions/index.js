@@ -39,6 +39,30 @@ async function addCompletedHours(clientId, caregiverId, bookingSlot) {
     updatedAt: admin.firestore.FieldValue.serverTimestamp()
   }, { merge: true });
 }
+
+async function isFamilyMember(familyId, uid) {
+  if (!familyId || !uid) return false;
+  if (familyId === uid) return true;
+  const snap = await admin.firestore().collection("clients").doc(familyId).get();
+  if (!snap.exists) return false;
+  const data = snap.data() || {};
+  if (data.ownerUid === uid) return true;
+  if (Array.isArray(data.memberUids) && data.memberUids.includes(uid)) return true;
+  return Boolean(data.members && data.members[uid]);
+}
+
+async function isFamilyAdmin(familyId, uid) {
+  if (!familyId || !uid) return false;
+  const snap = await admin.firestore().collection("clients").doc(familyId).get();
+  if (!snap.exists) return familyId === uid;
+  const data = snap.data() || {};
+  if (data.ownerUid === uid) return true;
+  if (familyId === uid && !data.ownerUid) return true;
+  const member = data.members && data.members[uid];
+  if (member && member.role === "admin") return true;
+  return false;
+}
+
 exports.createConnectAccount = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
@@ -107,6 +131,10 @@ exports.syncStripeKycStatus = functions.region("europe-west1").runWith({ secrets
 
 exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+    const targetFamilyId = (typeof data.familyId === "string" && data.familyId.trim()) ? data.familyId.trim() : context.auth.uid;
+    if (!(await isFamilyAdmin(targetFamilyId, context.auth.uid))) {
+      throw new functions.https.HttpsError("permission-denied", "Solo un Administrador familiar puede crear reservas de pago.");
+    }
     const stripe = require("stripe")(stripeSecret.value());
     const db = admin.firestore();
     
@@ -162,7 +190,7 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
                 ref: bookingRef,
                 data: {
                     id: bookingRef.id,
-                    clientId: context.auth.uid,
+                    clientId: targetFamilyId,
                     caregiverId: caregiverId,
                     caregiverName: caregiverName,
                     day: day,
@@ -295,7 +323,7 @@ exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secret
     const booking = bookingDoc.data();
     
     // Security check: only the client who made the booking or an admin can release the escrow
-    if (booking.clientId !== context.auth.uid) {
+    if (!(await isFamilyAdmin(booking.clientId, context.auth.uid))) {
       if (context.auth.token.email !== "maverick6576@gmail.com") {
         throw new functions.https.HttpsError("permission-denied", "No autorizado para liberar este pago.");
       }
@@ -349,7 +377,7 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
     const booking = bookingDoc.data();
     
     // Security check: only involved users can cancel
-    if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid) {
+    if (booking.caregiverId !== context.auth.uid && !(await isFamilyAdmin(booking.clientId, context.auth.uid))) {
       if (context.auth.token.email !== "maverick6576@gmail.com") {
         throw new functions.https.HttpsError("permission-denied", "No autorizado para cancelar esta reserva.");
       }
@@ -755,7 +783,7 @@ exports.processResolutionAgreement = functions.region("europe-west1").runWith({ 
     const booking = bookingDoc.data();
 
     // Security check: Only involved parties or admin
-    if (booking.clientId !== context.auth.uid && booking.caregiverId !== context.auth.uid) {
+    if (booking.caregiverId !== context.auth.uid && !(await isFamilyAdmin(booking.clientId, context.auth.uid))) {
       if (context.auth.token.email !== "maverick6576@gmail.com") {
         throw new functions.https.HttpsError("permission-denied", "No autorizado.");
       }
@@ -805,25 +833,57 @@ exports.processResolutionAgreement = functions.region("europe-west1").runWith({ 
 
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 
-// Función auxiliar para buscar el token y enviar la notificación
-async function sendPushNotification(userId, title, body, dataPayload = {}) {
+// Función auxiliar para buscar token(s) y enviar notificación push (con soporte multifamiliar)
+async function sendPushNotification(targetId, title, body, dataPayload = {}) {
   try {
-    const userDoc = await admin.firestore().collection("users").doc(userId).get();
-    if (!userDoc.exists) return;
-    
-    const fcmToken = userDoc.data().fcmToken;
-    if (fcmToken) {
-      await admin.messaging().send({
-        token: fcmToken,
-        notification: { title, body },
-        data: dataPayload,
-      });
-      console.log(`Push enviada con éxito a ${userId}`);
-    } else {
-      console.log(`El usuario ${userId} no tiene fcmToken registrado.`);
+    if (!targetId) return;
+    const db = admin.firestore();
+    const targetUids = new Set([targetId]);
+
+    const clientSnap = await db.collection("clients").doc(targetId).get();
+    if (clientSnap.exists) {
+      const clientData = clientSnap.data() || {};
+      if (clientData.ownerUid) targetUids.add(clientData.ownerUid);
+      if (Array.isArray(clientData.memberUids)) {
+        clientData.memberUids.forEach((uid) => {
+          if (uid) targetUids.add(uid);
+        });
+      }
+      if (clientData.members && typeof clientData.members === "object") {
+        Object.keys(clientData.members).forEach((uid) => {
+          if (uid) targetUids.add(uid);
+        });
+      }
     }
+
+    const userSnaps = await Promise.all(
+      [...targetUids].map((uid) => db.collection("users").doc(uid).get())
+    );
+    const tokens = [
+      ...new Set(
+        userSnaps
+          .filter((doc) => doc.exists && doc.data()?.fcmToken)
+          .map((doc) => doc.data().fcmToken)
+      ),
+    ];
+
+    if (tokens.length === 0) {
+      console.log(`Ningún destinatario de ${targetId} tiene fcmToken registrado.`);
+      return;
+    }
+
+    await Promise.all(
+      tokens.map((token) =>
+        admin.messaging().send({
+          token,
+          notification: { title, body },
+          data: dataPayload,
+        })
+      )
+    );
+    console.log(`Push enviada con éxito a ${tokens.length} dispositivo(s) para ${targetId}`);
   } catch (error) {
-    console.error(`Error enviando push a ${userId}:`, error);
+    console.error(`Error enviando push a ${targetId}:`, error);
   }
 }
 
@@ -1238,14 +1298,356 @@ exports.triggerSyncLastMessageOnDelete = onDocumentDeleted({
   return null;
 });
 
+const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generateInviteCode(length = 8) {
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += INVITE_ALPHABET[Math.floor(Math.random() * INVITE_ALPHABET.length)];
+  }
+  return code;
+}
+
+exports.createFamilyInvite = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const db = admin.firestore();
+  const familyId = (typeof data.familyId === "string" && data.familyId.trim()) ? data.familyId.trim() : uid;
+
+  if (!(await isFamilyAdmin(familyId, uid))) {
+    throw new functions.https.HttpsError("permission-denied", "Solo un Administrador familiar puede generar invitaciones.");
+  }
+
+  const role = data.role === "admin" ? "admin" : "collaborator";
+  const maxUses = Math.min(Math.max(Number(data.maxUses) || 5, 1), 20);
+  const validHours = Math.min(Math.max(Number(data.validHours) || 168, 1), 720);
+  const clientSnap = await db.collection("clients").doc(familyId).get();
+  const clientData = clientSnap.data() || {};
+  const familyName = (typeof data.familyName === "string" && data.familyName.trim())
+    ? data.familyName.trim()
+    : (clientData.name || "Familia SeniCare");
+
+  let code = generateInviteCode();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await db.collection("family_invites").doc(code).get();
+    if (!existing.exists) break;
+    code = generateInviteCode();
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + validHours * 3600 * 1000);
+  const payload = {
+    code,
+    familyId,
+    familyName,
+    role,
+    createdByUid: uid,
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    maxUses,
+    usedCount: 0,
+    revoked: false,
+  };
+  if (typeof data.invitedEmail === "string" && data.invitedEmail.trim()) {
+    payload.invitedEmail = data.invitedEmail.trim().toLowerCase();
+  }
+
+  await db.collection("family_invites").doc(code).set(payload);
+  return payload;
+});
+
+exports.revokeFamilyInvite = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const db = admin.firestore();
+  const code = String(data.code || "").trim().toUpperCase();
+  if (!code) throw new functions.https.HttpsError("invalid-argument", "Código requerido.");
+
+  const ref = db.collection("family_invites").doc(code);
+  const snap = await ref.get();
+  if (!snap.exists) return { success: true };
+
+  const invite = snap.data() || {};
+  if (!(await isFamilyAdmin(invite.familyId, uid))) {
+    throw new functions.https.HttpsError("permission-denied", "Solo un Administrador familiar puede revocar esta invitación.");
+  }
+
+  await ref.update({ revoked: true, revokedAt: admin.firestore.FieldValue.serverTimestamp() });
+  return { success: true };
+});
+
+async function attachMemberTransaction(tx, db, { familyId, uid, email, displayName, role, joinedVia, consumeInvitedEmail }) {
+  const familyRef = db.collection("clients").doc(familyId);
+  const familySnap = await tx.get(familyRef);
+  if (!familySnap.exists) {
+    throw new functions.https.HttpsError("not-found", "Cuenta familiar no encontrada.");
+  }
+  const fData = familySnap.data() || {};
+  const ownerUid = fData.ownerUid || familyId;
+  const currentMembers = { ...(fData.members || {}) };
+  if (!currentMembers[ownerUid]) {
+    currentMembers[ownerUid] = {
+      uid: ownerUid,
+      email: "",
+      displayName: fData.name || "Administrador",
+      role: "admin",
+      joinedVia: "owner",
+      isOwner: true,
+    };
+  }
+
+  const alreadyMember = Boolean(
+    uid === ownerUid ||
+    (Array.isArray(fData.memberUids) && fData.memberUids.includes(uid)) ||
+    currentMembers[uid]
+  );
+
+  const effectiveRole = uid === ownerUid ? "admin" : (alreadyMember && currentMembers[uid]?.role ? currentMembers[uid].role : role);
+  if (!alreadyMember) {
+    currentMembers[uid] = {
+      uid,
+      email: email || "",
+      displayName: (displayName || "").trim() || (email ? email.split("@")[0] : "Familiar"),
+      role: effectiveRole,
+      joinedAt: new Date().toISOString(),
+      joinedVia,
+      isOwner: false,
+    };
+  }
+
+  const nextMemberUids = [...new Set([ownerUid, ...(fData.memberUids || []), uid].filter(Boolean))];
+  const nextAuthorizedEmails = Array.isArray(fData.authorizedFamilyEmails)
+    ? fData.authorizedFamilyEmails.filter((e) => !consumeInvitedEmail || String(e).trim().toLowerCase() !== consumeInvitedEmail)
+    : [];
+  const nextEmailRoles = { ...(fData.familyEmailRoles || {}) };
+  if (consumeInvitedEmail) {
+    delete nextEmailRoles[consumeInvitedEmail];
+  }
+
+  tx.set(familyRef, {
+    ownerUid,
+    memberUids: nextMemberUids,
+    members: currentMembers,
+    authorizedFamilyEmails: nextAuthorizedEmails,
+    familyEmailRoles: nextEmailRoles,
+  }, { merge: true });
+
+  tx.set(db.collection("users").doc(uid), {
+    activeFamilyId: familyId,
+    role: "client",
+  }, { merge: true });
+
+  return {
+    familyId,
+    familyName: fData.name || "Familia SeniCare",
+    role: effectiveRole,
+    alreadyMember,
+  };
+}
+
+exports.joinFamilyByCode = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const db = admin.firestore();
+  const code = String(data.code || "").replace(/[\s\-_]/g, "").toUpperCase();
+  if (!code) throw new functions.https.HttpsError("invalid-argument", "Código de invitación inválido.");
+
+  const inviteRef = db.collection("family_invites").doc(code);
+  const result = await db.runTransaction(async (tx) => {
+    const inviteSnap = await tx.get(inviteRef);
+    if (!inviteSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Código de invitación no encontrado.");
+    }
+    const invite = inviteSnap.data() || {};
+    if (invite.revoked) {
+      throw new functions.https.HttpsError("failed-precondition", "Esta invitación ha sido revocada.");
+    }
+    if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
+      throw new functions.https.HttpsError("deadline-exceeded", "Esta invitación ha caducado.");
+    }
+    if ((invite.usedCount || 0) >= (invite.maxUses || 5)) {
+      throw new functions.https.HttpsError("resource-exhausted", "Esta invitación ha alcanzado el límite de usos.");
+    }
+
+    const joined = await attachMemberTransaction(tx, db, {
+      familyId: invite.familyId,
+      uid,
+      email: context.auth.token.email || "",
+      displayName: data.displayName || context.auth.token.name || "",
+      role: invite.role === "admin" ? "admin" : "collaborator",
+      joinedVia: "code",
+    });
+
+    if (!joined.alreadyMember) {
+      tx.update(inviteRef, { usedCount: admin.firestore.FieldValue.increment(1) });
+    }
+    return joined;
+  });
+
+  if (!result.alreadyMember) {
+    await sendPushNotification(
+      result.familyId,
+      "Nuevo familiar conectado",
+      `${(data.displayName || context.auth.token.name || context.auth.token.email || "Un familiar")} se ha unido como ${result.role === "admin" ? "Administrador" : "Familiar colaborador"}.`,
+      { type: "family_member_joined", familyId: result.familyId }
+    );
+  }
+  return result;
+});
+
+exports.claimPendingFamilyInvite = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const email = (context.auth.token.email || "").trim().toLowerCase();
+  const emailVerified = context.auth.token.email_verified === true;
+
+  if (!email || !emailVerified) {
+    return { familyId: null, reason: "unverified_email" };
+  }
+
+  const db = admin.firestore();
+  const matchingFamilies = await db
+    .collection("clients")
+    .where("authorizedFamilyEmails", "array-contains", email)
+    .limit(1)
+    .get();
+
+  if (matchingFamilies.empty) {
+    return { familyId: null };
+  }
+
+  const targetDoc = matchingFamilies.docs[0];
+  const fData = targetDoc.data() || {};
+  const configuredRole = (fData.familyEmailRoles && fData.familyEmailRoles[email]) || "collaborator";
+
+  const result = await db.runTransaction(async (tx) => {
+    return attachMemberTransaction(tx, db, {
+      familyId: targetDoc.id,
+      uid,
+      email,
+      displayName: data.displayName || context.auth.token.name || "",
+      role: configuredRole === "admin" ? "admin" : "collaborator",
+      joinedVia: "email",
+      consumeInvitedEmail: email,
+    });
+  });
+
+  if (!result.alreadyMember) {
+    await sendPushNotification(
+      result.familyId,
+      "Familiar conectado por email",
+      `${email} se ha unido automáticamente a la cuenta familiar.`,
+      { type: "family_member_joined", familyId: result.familyId }
+    );
+  }
+  return result;
+});
+
+exports.updateFamilyMemberRole = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const { familyId, memberUid, role } = data;
+  if (!familyId || !memberUid) throw new functions.https.HttpsError("invalid-argument", "Datos incompletos.");
+  if (!(await isFamilyAdmin(familyId, uid))) {
+    throw new functions.https.HttpsError("permission-denied", "Solo un Administrador familiar puede cambiar roles.");
+  }
+
+  const db = admin.firestore();
+  const nextRole = role === "admin" ? "admin" : "collaborator";
+  await db.runTransaction(async (tx) => {
+    const ref = db.collection("clients").doc(familyId);
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new functions.https.HttpsError("not-found", "Familia no encontrada.");
+    const fData = snap.data() || {};
+    const ownerUid = fData.ownerUid || familyId;
+    if (memberUid === ownerUid && nextRole !== "admin") {
+      throw new functions.https.HttpsError("failed-precondition", "El propietario debe mantenerse como Administrador.");
+    }
+    tx.update(ref, { [`members.${memberUid}.role`]: nextRole });
+  });
+
+  return { success: true, role: nextRole };
+});
+
+exports.removeFamilyMember = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const { familyId, memberUid } = data;
+  if (!familyId || !memberUid) throw new functions.https.HttpsError("invalid-argument", "Datos incompletos.");
+
+  const isSelfLeaving = uid === memberUid;
+  if (!isSelfLeaving && !(await isFamilyAdmin(familyId, uid))) {
+    throw new functions.https.HttpsError("permission-denied", "No tienes permisos para desconectar a este familiar.");
+  }
+
+  const db = admin.firestore();
+  await db.runTransaction(async (tx) => {
+    const ref = db.collection("clients").doc(familyId);
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const fData = snap.data() || {};
+    const ownerUid = fData.ownerUid || familyId;
+    if (memberUid === ownerUid) {
+      throw new functions.https.HttpsError("failed-precondition", "El propietario principal no puede desconectarse sin eliminar la cuenta.");
+    }
+    tx.update(ref, {
+      memberUids: admin.firestore.FieldValue.arrayRemove(memberUid),
+      [`members.${memberUid}`]: admin.firestore.FieldValue.delete(),
+    });
+    const userRef = db.collection("users").doc(memberUid);
+    const userSnap = await tx.get(userRef);
+    if (userSnap.exists && userSnap.data()?.activeFamilyId === familyId) {
+      tx.update(userRef, { activeFamilyId: admin.firestore.FieldValue.delete() });
+    }
+  });
+
+  return { success: true };
+});
+
 exports.deleteUserAccountRgpd = functions.region("europe-west1").https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const db = admin.firestore();
   try {
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    const activeFamilyId = userSnap.data()?.activeFamilyId;
+
     const batch = db.batch();
-    batch.delete(db.collection("users").doc(uid));
-    batch.delete(db.collection("clients").doc(uid));
+    if (activeFamilyId && activeFamilyId !== uid) {
+      batch.set(
+        db.collection("clients").doc(activeFamilyId),
+        {
+          memberUids: admin.firestore.FieldValue.arrayRemove(uid),
+          [`members.${uid}`]: admin.firestore.FieldValue.delete(),
+        },
+        { merge: true }
+      );
+    }
+
+    const ownClientSnap = await db.collection("clients").doc(uid).get();
+    if (ownClientSnap.exists) {
+      const ownData = ownClientSnap.data() || {};
+      const otherMembers = (ownData.memberUids || []).filter((m) => m && m !== uid);
+      if (otherMembers.length === 0) {
+        batch.delete(db.collection("clients").doc(uid));
+      } else {
+        const nextOwner = otherMembers[0];
+        batch.set(
+          db.collection("clients").doc(uid),
+          {
+            ownerUid: nextOwner,
+            memberUids: admin.firestore.FieldValue.arrayRemove(uid),
+            [`members.${uid}`]: admin.firestore.FieldValue.delete(),
+            [`members.${nextOwner}.role`]: "admin",
+            [`members.${nextOwner}.isOwner`]: true,
+          },
+          { merge: true }
+        );
+      }
+    }
+
+    batch.delete(userRef);
     batch.delete(db.collection("caregivers").doc(uid));
     await batch.commit();
     return { success: true };

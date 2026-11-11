@@ -201,7 +201,8 @@ class _MainLayoutState extends State<MainLayout> {
     bool showBookingsBadge = bookings.any((b) => b.isActive);
 
     // Mensajes Badge setup
-    final String userId = auth.currentUserId ?? '';
+    final String userId =
+        (isClient ? auth.effectiveClientId : auth.currentUserId) ?? '';
 
     Widget buildMessagesIcon({bool active = false}) {
       if (userId.isEmpty) {

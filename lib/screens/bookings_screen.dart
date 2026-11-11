@@ -1885,7 +1885,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             ),
                           ),
                         ),
-                      if (isClient && isActiveTab && !item.completed)
+                      if (isClient &&
+                          isActiveTab &&
+                          !item.completed &&
+                          context.read<AuthNotifier>().canManageCareDetails)
                         IconButton(
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
@@ -1902,7 +1905,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 ),
               );
             }),
-          if (isClient && isActiveTab) ...[
+          if (isClient &&
+              isActiveTab &&
+              context.read<AuthNotifier>().canManageCareDetails) ...[
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -2065,6 +2070,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final bool isBusy = _busyBookingIds.contains(b.id);
     if (isClient) {
       final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+      final canManagePayments = context.watch<AuthNotifier>().canManageFamilyPayments;
       final btnPad = EdgeInsets.symmetric(vertical: seniorMode ? 14 : 12);
 
       final bool awaitingClientEscrowRelease = b.escrowStatus == 'held' &&
@@ -2073,6 +2079,26 @@ class _BookingsScreenState extends State<BookingsScreen> {
           b.status != BookingStatus.cancelledLate;
 
       if (awaitingClientEscrowRelease) {
+        if (!canManagePayments) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: Text(
+              'Pago en garantía pendiente de confirmación por el Administrador familiar.',
+              style: TextStyle(
+                fontSize: seniorMode ? 14 : 12.5,
+                fontWeight: FontWeight.w600,
+                color: Colors.amber.shade900,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
         return Column(
           children: [
             SizedBox(
@@ -2255,7 +2281,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
         );
       }
 
-      if (b.status == BookingStatus.pendingPayment && !isBookingExpired(b)) {
+      if (b.status == BookingStatus.pendingPayment &&
+          !isBookingExpired(b) &&
+          canManagePayments) {
         return SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -2368,28 +2396,31 @@ class _BookingsScreenState extends State<BookingsScreen> {
       }
 
       if (b.status == BookingStatus.completed && b.isReviewed) {
+        final canRepeatBooking = context.read<AuthNotifier>().canManageFamilyPayments;
         return Row(
           children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _repeatBookingNextWeek(context, b),
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                icon: const Icon(Icons.repeat_rounded, size: 17),
-                label: Text(
-                  'Repetir',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: seniorMode ? 14.5 : 13,
+            if (canRepeatBooking) ...[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _repeatBookingNextWeek(context, b),
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.repeat_rounded, size: 17),
+                  label: Text(
+                    'Repetir',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: seniorMode ? 14.5 : 13,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
+              const SizedBox(width: 8),
+            ],
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => _showLegalReceiptDialog(context, b),
@@ -2919,15 +2950,29 @@ class _BookingsScreenState extends State<BookingsScreen> {
     ClientProfile? clientProfile,
   }) {
     HapticFeedback.mediumImpact();
+    final bool canManagePayments =
+        !isClient || context.read<AuthNotifier>().canManageFamilyPayments;
     final bool canCancel = isClient &&
+        canManagePayments &&
         (b.status == BookingStatus.pending || b.status == BookingStatus.confirmed) &&
         b.checkInTime == null &&
         !isBookingExpired(b);
 
-    final bool canDiscard = isClient && b.status == BookingStatus.pendingPayment;
-    final bool canTip = isClient && b.tipAmount == 0 && (b.status == BookingStatus.completed || b.isReviewed);
-    final bool canRepeat = isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate;
-    final bool canEscrowRelease = isClient && b.escrowStatus == 'held' && b.checkInTime != null;
+    final bool canDiscard = isClient &&
+        canManagePayments &&
+        b.status == BookingStatus.pendingPayment;
+    final bool canTip = isClient &&
+        canManagePayments &&
+        b.tipAmount == 0 &&
+        (b.status == BookingStatus.completed || b.isReviewed);
+    final bool canRepeat = isClient &&
+        canManagePayments &&
+        b.status != BookingStatus.cancelled &&
+        b.status != BookingStatus.cancelledLate;
+    final bool canEscrowRelease = isClient &&
+        canManagePayments &&
+        b.escrowStatus == 'held' &&
+        b.checkInTime != null;
     final bool canOpenMaps = !isClient &&
         b.status == BookingStatus.confirmed &&
         ((b.clientLatitude != null && b.clientLongitude != null) ||

@@ -49,7 +49,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _loadStats() async {
     try {
       final auth = context.read<AuthNotifier>();
-      final clientId = auth.currentUserId ?? 'unknown';
+      final clientId = auth.effectiveClientId ?? 'unknown';
       final hours = await DependencyInjection.stats
           .getAccumulatedHours(clientId, widget.caregiver.id);
       if (mounted) {
@@ -116,7 +116,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
-    final clientId = auth.currentUserId ?? 'unknown';
+    final clientId = auth.effectiveClientId ?? 'unknown';
+    if (!auth.canManageFamilyPayments) {
+      _showSnackBar(
+        scaffoldMessenger,
+        'Solo un Administrador de la familia puede confirmar pagos y reservas.',
+        Colors.orange.shade800,
+      );
+      return;
+    }
     final double caregiverCommissionRate =
         FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
     final int totalHours = widget.slots.length;

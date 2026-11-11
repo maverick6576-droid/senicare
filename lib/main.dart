@@ -80,7 +80,9 @@ Future<void> main() async {
             if (!auth.isAuthenticated || auth.currentUserId == null) {
               jobOfferNotifier!.clear(notify: false);
             } else if (auth.currentRole == 'client') {
-              jobOfferNotifier!.initForClient(auth.currentUserId!);
+              jobOfferNotifier!.initForClient(
+                auth.effectiveClientId ?? auth.currentUserId!,
+              );
             } else if (auth.currentRole == 'caregiver') {
               final lat = auth.currentCaregiver?.latitude ?? location.latitude;
               final lng = auth.currentCaregiver?.longitude ?? location.longitude;
@@ -100,14 +102,20 @@ Future<void> main() async {
         ChangeNotifierProxyProvider<AuthNotifier, BookingNotifier>(
           create: (_) => BookingNotifier(),
           update: (_, auth, bookingNotifier) {
-            bookingNotifier!.updateAuth(auth.currentUserId, auth.currentRole);
+            final scopeId = auth.currentRole == 'client'
+                ? (auth.effectiveClientId ?? auth.currentUserId)
+                : auth.currentUserId;
+            bookingNotifier!.updateAuth(scopeId, auth.currentRole);
             return bookingNotifier;
           },
         ),
         ChangeNotifierProxyProvider<AuthNotifier, ChatNotifier>(
           create: (_) => ChatNotifier(),
           update: (_, auth, chatNotifier) {
-            chatNotifier!.updateAuth(auth.currentUserId, auth.currentRole);
+            final scopeId = auth.currentRole == 'client'
+                ? (auth.effectiveClientId ?? auth.currentUserId)
+                : auth.currentUserId;
+            chatNotifier!.updateAuth(scopeId, auth.currentRole);
             return chatNotifier;
           },
         ),

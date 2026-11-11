@@ -38,7 +38,8 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
     _scrollHistory.addListener(() => _onScroll(_scrollHistory));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final uid = context.read<AuthNotifier>().currentUserId;
+      final auth = context.read<AuthNotifier>();
+      final uid = auth.effectiveClientId ?? auth.currentUserId;
       if (uid != null && uid.isNotEmpty) {
         context.read<JobOfferNotifier>().initForClient(uid);
       }
@@ -60,6 +61,16 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
   }
 
   void _openCreateOffer([JobOffer? template]) {
+    if (!context.read<AuthNotifier>().canManageFamilyPayments) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Tu rol es Familiar colaborador. Solo un Administrador puede publicar o duplicar ofertas.',
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => CreateOfferScreen(initialOffer: template)),
@@ -225,7 +236,8 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
                 const SizedBox(height: 14),
                 FilledButton.icon(
                   onPressed: () {
-                    final uid = context.read<AuthNotifier>().currentUserId;
+                    final auth = context.read<AuthNotifier>();
+                    final uid = auth.effectiveClientId ?? auth.currentUserId;
                     if (uid != null && uid.isNotEmpty) {
                       jobNotifier.initForClient(uid, forceRefresh: true);
                     }

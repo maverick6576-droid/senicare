@@ -246,7 +246,8 @@ class _InboxScreenState extends State<InboxScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthNotifier>();
     final isClient = auth.currentRole == 'client';
-    final String userId = auth.currentUserId ?? '';
+    final String userId =
+        (isClient ? auth.effectiveClientId : auth.currentUserId) ?? '';
     final tutorialTargets = TutorialScope.maybeOf(context);
 
     if (userId.isEmpty) {

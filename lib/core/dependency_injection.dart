@@ -12,6 +12,13 @@ class DependencyInjection {
   static late ReportRepository reports;
   static late ClientRepository clients;
   static late JobOfferRepository jobOffers;
+  static FamilyRepository? _families;
+
+  /// Repositorio familiar con inicialización perezosa segura para tests existentes
+  /// que no invocan `DependencyInjection.initialize()`.
+  static FamilyRepository get families =>
+      _families ??= MockFamilyRepository();
+  static set families(FamilyRepository repo) => _families = repo;
 
   static void initialize() {
     bool hasFirebase = false;
@@ -32,5 +39,6 @@ class DependencyInjection {
     reports = FirestoreReportRepository();
     clients = FirestoreClientRepository();
     jobOffers = FirestoreJobOfferRepository();
+    families = FirestoreFamilyRepository();
   }
 }

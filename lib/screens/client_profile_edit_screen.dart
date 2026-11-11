@@ -38,6 +38,11 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   String? _loadedUserId;
   List<String> _defaultChecklist = [];
   List<String> _authorizedFamilyEmails = [];
+  Map<String, FamilyRole> _familyEmailRoles = {};
+  List<FamilyInvite> _activeInvites = [];
+  FamilyRole _inviteEmailRole = FamilyRole.collaborator;
+  FamilyRole _inviteCodeRole = FamilyRole.collaborator;
+  bool _isManagingInvites = false;
   double? _homeLat;
   double? _homeLon;
   String _initialAddressSnapshot = '';
@@ -93,6 +98,7 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     _patientDetailsCtrl.text = profile.patientDetails;
     _defaultChecklist = List<String>.from(profile.defaultCareChecklist);
     _authorizedFamilyEmails = List<String>.from(profile.authorizedFamilyEmails);
+    _familyEmailRoles = Map<String, FamilyRole>.from(profile.familyEmailRoles);
     _homeLat = profile.latitude;
     _homeLon = profile.longitude;
   }
@@ -107,9 +113,9 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
 
     try {
       final auth = context.read<AuthNotifier>();
-      final userId = auth.currentUserId;
-      _loadedUserId = userId;
-      if (userId == null || userId.trim().isEmpty) {
+      final familyId = auth.effectiveClientId ?? auth.currentUserId;
+      _loadedUserId = familyId;
+      if (familyId == null || familyId.trim().isEmpty) {
         if (mounted) {
           setState(() {
             _isLoading = false;
@@ -122,11 +128,14 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       if (invalidateCache &&
           DependencyInjection.clients is FirestoreClientRepository) {
         (DependencyInjection.clients as FirestoreClientRepository)
-            .invalidateCache(userId);
+            .invalidateCache(familyId);
       }
 
-      final fetched = await DependencyInjection.clients.getClient(userId);
-      if (!mounted || auth.currentUserId != userId) return;
+      final fetched = await DependencyInjection.clients.getClient(familyId) ??
+          await DependencyInjection.families.fetchFreshFamilyProfile(familyId);
+      if (!mounted || (auth.effectiveClientId ?? auth.currentUserId) != familyId) {
+        return;
+      }
 
       final resolved = fetched ?? auth.currentClient;
       if (resolved == null) {
@@ -139,8 +148,16 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       }
 
       auth.currentClient = resolved;
+      List<FamilyInvite> invites = const [];
+      if (resolved.canManageMembers(auth.currentUserId ?? familyId)) {
+        try {
+          invites = await DependencyInjection.families.getActiveInvites(familyId);
+        } catch (_) {}
+      }
+      if (!mounted) return;
       setState(() {
         _syncDraftFromProfile(resolved);
+        _activeInvites = invites;
         _isLoading = false;
       });
     } catch (e) {
@@ -190,13 +207,23 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   }) async {
     if (_isQuickSaving || _profile == null) return;
     final auth = context.read<AuthNotifier>();
-    final userId = auth.currentUserId;
+    final userId = auth.effectiveClientId ?? auth.currentUserId;
     if (userId == null || userId.trim().isEmpty) {
       onRollback();
       CustomSnackBar.show(
         context,
         message: 'No hay una sesión activa para guardar los cambios.',
         type: SnackBarType.error,
+      );
+      return;
+    }
+    if (!auth.canManageCareDetails) {
+      onRollback();
+      CustomSnackBar.show(
+        context,
+        message:
+            'Tu rol es Familiar colaborador. Solo un Administrador puede modificar la cuenta familiar.',
+        type: SnackBarType.warning,
       );
       return;
     }
@@ -323,6 +350,7 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
 
   Future<void> _inviteFamilyEmail() async {
     if (_profile == null) return;
+    if (!context.read<AuthNotifier>().canManageFamilyMembers) return;
     final email = _newFamilyEmailCtrl.text.trim().toLowerCase();
     if (!_emailRegex.hasMatch(email)) {
       CustomSnackBar.show(
@@ -344,41 +372,228 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     HapticFeedback.mediumImpact();
     final previousProfile = _profile!;
     final previousList = List<String>.from(_authorizedFamilyEmails);
+    final previousRoles = Map<String, FamilyRole>.from(_familyEmailRoles);
     final nextList = [..._authorizedFamilyEmails, email];
+    final nextRoles = Map<String, FamilyRole>.from(_familyEmailRoles)
+      ..[email] = _inviteEmailRole;
+    final serializedRoles = <String, String>{};
+    nextRoles.forEach((k, v) => serializedRoles[k] = v.firestoreValue);
+
     setState(() {
       _authorizedFamilyEmails = nextList;
+      _familyEmailRoles = nextRoles;
       _newFamilyEmailCtrl.clear();
     });
 
     await _persistQuickUpdate(
-      fields: {'authorizedFamilyEmails': nextList},
-      optimisticProfile:
-          previousProfile.copyWith(authorizedFamilyEmails: nextList),
+      fields: {
+        'authorizedFamilyEmails': nextList,
+        'familyEmailRoles': serializedRoles,
+      },
+      optimisticProfile: previousProfile.copyWith(
+        authorizedFamilyEmails: nextList,
+        familyEmailRoles: nextRoles,
+      ),
       onRollback: () {
         _authorizedFamilyEmails = previousList;
+        _familyEmailRoles = previousRoles;
         _profile = previousProfile;
       },
-      successMessage: 'Familiar autorizado correctamente.',
+      successMessage:
+          'Invitación enviada como ${_inviteEmailRole.displayLabel}.',
     );
   }
 
   Future<void> _removeFamilyEmail(String email) async {
     if (_profile == null) return;
+    if (!context.read<AuthNotifier>().canManageFamilyMembers) return;
     HapticFeedback.selectionClick();
     final previousProfile = _profile!;
     final previousList = List<String>.from(_authorizedFamilyEmails);
+    final previousRoles = Map<String, FamilyRole>.from(_familyEmailRoles);
     final nextList =
         _authorizedFamilyEmails.where((e) => e != email).toList();
-    setState(() => _authorizedFamilyEmails = nextList);
+    final nextRoles = Map<String, FamilyRole>.from(_familyEmailRoles)
+      ..remove(email.toLowerCase());
+    final serializedRoles = <String, String>{};
+    nextRoles.forEach((k, v) => serializedRoles[k] = v.firestoreValue);
+
+    setState(() {
+      _authorizedFamilyEmails = nextList;
+      _familyEmailRoles = nextRoles;
+    });
 
     await _persistQuickUpdate(
-      fields: {'authorizedFamilyEmails': nextList},
-      optimisticProfile:
-          previousProfile.copyWith(authorizedFamilyEmails: nextList),
+      fields: {
+        'authorizedFamilyEmails': nextList,
+        'familyEmailRoles': serializedRoles,
+      },
+      optimisticProfile: previousProfile.copyWith(
+        authorizedFamilyEmails: nextList,
+        familyEmailRoles: nextRoles,
+      ),
       onRollback: () {
         _authorizedFamilyEmails = previousList;
+        _familyEmailRoles = previousRoles;
         _profile = previousProfile;
       },
+    );
+  }
+
+  Future<void> _generateFamilyInviteCode() async {
+    if (_profile == null || _isManagingInvites) return;
+    if (!context.read<AuthNotifier>().canManageFamilyMembers) return;
+    setState(() => _isManagingInvites = true);
+    try {
+      final invite = await DependencyInjection.families.createInvite(
+        familyId: _profile!.id,
+        familyName: _profile!.name,
+        role: _inviteCodeRole,
+      );
+      final invites =
+          await DependencyInjection.families.getActiveInvites(_profile!.id);
+      if (!mounted) return;
+      setState(() {
+        _activeInvites = invites.any((i) => i.code == invite.code)
+            ? invites
+            : [invite, ...invites];
+      });
+      CustomSnackBar.show(
+        context,
+        message: 'Código creado: ${invite.code} (${invite.role.shortLabel})',
+        type: SnackBarType.success,
+      );
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo generar el código: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isManagingInvites = false);
+    }
+  }
+
+  Future<void> _revokeFamilyInviteCode(String code) async {
+    if (_profile == null || _isManagingInvites) return;
+    if (!context.read<AuthNotifier>().canManageFamilyMembers) return;
+    setState(() => _isManagingInvites = true);
+    try {
+      await DependencyInjection.families.revokeInvite(
+        familyId: _profile!.id,
+        code: code,
+      );
+      if (!mounted) return;
+      setState(() {
+        _activeInvites =
+            _activeInvites.where((i) => i.code != code).toList();
+      });
+      CustomSnackBar.show(
+        context,
+        message: 'Código $code revocado.',
+        type: SnackBarType.info,
+      );
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo revocar el código: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isManagingInvites = false);
+    }
+  }
+
+  Future<void> _changeMemberRole(FamilyMember member, FamilyRole newRole) async {
+    if (_profile == null || member.role == newRole || _isManagingInvites) {
+      return;
+    }
+    if (!context.read<AuthNotifier>().canManageFamilyMembers) return;
+    setState(() => _isManagingInvites = true);
+    try {
+      await DependencyInjection.families.updateMemberRole(
+        familyId: _profile!.id,
+        memberUid: member.uid,
+        newRole: newRole,
+      );
+      await _loadProfile(invalidateCache: true);
+      if (!mounted) return;
+      await context.read<AuthNotifier>().refreshFamilyProfile();
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message:
+              '${member.effectiveName} ahora es ${newRole.displayLabel}.',
+          type: SnackBarType.success,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo cambiar el rol: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isManagingInvites = false);
+    }
+  }
+
+  Future<void> _removeConnectedMember(FamilyMember member) async {
+    if (_profile == null || _isManagingInvites) return;
+    if (!context.read<AuthNotifier>().canManageFamilyMembers) return;
+    final confirmed = await CustomDialog.showConfirmation(
+      context,
+      title: 'Desconectar familiar',
+      message:
+          '¿Seguro que quieres quitar a ${member.effectiveName} de esta cuenta familiar compartida?',
+      confirmText: 'Desconectar',
+      isDestructive: true,
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isManagingInvites = true);
+    try {
+      await DependencyInjection.families.removeMember(
+        familyId: _profile!.id,
+        memberUid: member.uid,
+      );
+      await _loadProfile(invalidateCache: true);
+      if (!mounted) return;
+      await context.read<AuthNotifier>().refreshFamilyProfile();
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: '${member.effectiveName} fue desconectado.',
+          type: SnackBarType.info,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo desconectar al familiar: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isManagingInvites = false);
+    }
+  }
+
+  Future<void> _copyToClipboard(String text, String toastMessage) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    HapticFeedback.selectionClick();
+    if (!mounted) return;
+    CustomSnackBar.show(
+      context,
+      message: toastMessage,
+      type: SnackBarType.success,
     );
   }
 
@@ -504,10 +719,15 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
 
     try {
       final auth = context.read<AuthNotifier>();
-      final userId = auth.currentUserId;
+      final userId = auth.effectiveClientId ?? auth.currentUserId;
       _loadedUserId = userId;
       if (userId == null || userId.trim().isEmpty) {
         throw Exception('No hay una sesión activa.');
+      }
+      if (!auth.canManageCareDetails) {
+        throw Exception(
+          'Solo un Administrador de la familia puede editar esta ficha.',
+        );
       }
 
       double? lat = _homeLat;
@@ -536,6 +756,9 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
 
       final bool coordinatesMissing = lat == null || lon == null;
 
+      final serializedEmailRoles = <String, String>{};
+      _familyEmailRoles.forEach((k, v) => serializedEmailRoles[k] = v.firestoreValue);
+
       final data = <String, dynamic>{
         'name': cleanName,
         'phone': cleanPhone,
@@ -546,6 +769,8 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
         'onboardingComplete': true,
         'defaultCareChecklist': _defaultChecklist,
         'authorizedFamilyEmails': _authorizedFamilyEmails,
+        if (serializedEmailRoles.isNotEmpty)
+          'familyEmailRoles': serializedEmailRoles,
       };
 
       await DependencyInjection.clients.updateClient(userId, data);
@@ -620,9 +845,12 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthNotifier>();
-    if (auth.currentUserId != _loadedUserId && !_isLoading) {
+    final activeFamilyId = auth.effectiveClientId ?? auth.currentUserId;
+    if (activeFamilyId != _loadedUserId && !_isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && auth.currentUserId != _loadedUserId && !_isLoading) {
+        final nextId = context.read<AuthNotifier>().effectiveClientId ??
+            context.read<AuthNotifier>().currentUserId;
+        if (mounted && nextId != _loadedUserId && !_isLoading) {
           _loadProfile();
         }
       });
@@ -932,7 +1160,8 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
               ),
             ],
           ),
-          if (!_isEditing) ...[
+          if (!_isEditing &&
+              context.watch<AuthNotifier>().canManageCareDetails) ...[
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -1040,25 +1269,26 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: accentColor,
-                  side: BorderSide(color: accentColor),
-                  backgroundColor: Colors.white.withValues(alpha: 0.75),
-                ),
-                onPressed: () => setState(() => _isEditing = true),
-                icon: const Icon(Icons.edit_note_rounded, size: 18),
-                label: Text(
-                  'Completar ahora',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14 * fontMult,
+            if (context.watch<AuthNotifier>().canManageCareDetails)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: accentColor,
+                    side: BorderSide(color: accentColor),
+                    backgroundColor: Colors.white.withValues(alpha: 0.75),
+                  ),
+                  onPressed: () => setState(() => _isEditing = true),
+                  icon: const Icon(Icons.edit_note_rounded, size: 18),
+                  label: Text(
+                    'Completar ahora',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14 * fontMult,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ],
       ),
@@ -1179,7 +1409,9 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                   ),
                 ],
               ),
-              if (hasAddress && !hasCoords) ...[
+              if (hasAddress &&
+                  !hasCoords &&
+                  context.watch<AuthNotifier>().canManageCareDetails) ...[
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed:
@@ -1205,13 +1437,15 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
           title: 'Ficha de la Persona a Cuidar',
           icon: Icons.favorite_rounded,
           fontMult: fontMult,
-          trailing: TextButton(
-            onPressed: () => setState(() => _isEditing = true),
-            child: Text(
-              'Editar',
-              style: TextStyle(fontSize: 13.5 * fontMult),
-            ),
-          ),
+          trailing: context.watch<AuthNotifier>().canManageCareDetails
+              ? TextButton(
+                  onPressed: () => setState(() => _isEditing = true),
+                  child: Text(
+                    'Editar',
+                    style: TextStyle(fontSize: 13.5 * fontMult),
+                  ),
+                )
+              : null,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1394,6 +1628,8 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
               spacing: 8,
               runSpacing: 8,
               children: _defaultChecklist.map((task) {
+                final canEditCare =
+                    context.watch<AuthNotifier>().canManageCareDetails;
                 return Chip(
                   backgroundColor: Colors.white,
                   label: Text(
@@ -1403,48 +1639,91 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  deleteIcon: const Icon(Icons.close_rounded, size: 17),
-                  deleteButtonTooltipMessage: 'Quitar tarea',
-                  onDeleted:
-                      _isQuickSaving ? null : () => _removeChecklistTask(task),
+                  deleteIcon: canEditCare
+                      ? const Icon(Icons.close_rounded, size: 17)
+                      : null,
+                  deleteButtonTooltipMessage:
+                      canEditCare ? 'Quitar tarea' : null,
+                  onDeleted: !canEditCare || _isQuickSaving
+                      ? null
+                      : () => _removeChecklistTask(task),
                 );
               }).toList(),
             ),
-          const SizedBox(height: 10),
-          _buildResponsiveAddRow(
-            controller: _newChecklistCtrl,
-            hintText: 'Añadir tarea (ej. Pastilla tensión 12:30)...',
-            buttonLabel: 'Añadir',
-            keyboardType: TextInputType.text,
-            fontMult: fontMult,
-            isSenior: isSenior,
-            onSubmit: _isQuickSaving ? null : () => _addChecklistTask(),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _quickChecklistPresets
-                .where((p) => !_defaultChecklist.contains(p))
-                .map(
-                  (preset) => ActionChip(
-                    backgroundColor: Colors.white,
-                    label: Text(
-                      '+ $preset',
-                      style: TextStyle(fontSize: 12 * fontMult),
+          if (context.watch<AuthNotifier>().canManageCareDetails) ...[
+            const SizedBox(height: 10),
+            _buildResponsiveAddRow(
+              controller: _newChecklistCtrl,
+              hintText: 'Añadir tarea (ej. Pastilla tensión 12:30)...',
+              buttonLabel: 'Añadir',
+              keyboardType: TextInputType.text,
+              fontMult: fontMult,
+              isSenior: isSenior,
+              onSubmit: _isQuickSaving ? null : () => _addChecklistTask(),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _quickChecklistPresets
+                  .where((p) => !_defaultChecklist.contains(p))
+                  .map(
+                    (preset) => ActionChip(
+                      backgroundColor: Colors.white,
+                      label: Text(
+                        '+ $preset',
+                        style: TextStyle(fontSize: 12 * fontMult),
+                      ),
+                      onPressed: _isQuickSaving
+                          ? null
+                          : () => _addChecklistTask(preset),
                     ),
-                    onPressed:
-                        _isQuickSaving ? null : () => _addChecklistTask(preset),
-                  ),
-                )
-                .toList(),
-          ),
+                  )
+                  .toList(),
+            ),
+          ],
         ],
       ),
     );
   }
 
+  Widget _buildRoleSelectorChips({
+    required FamilyRole selected,
+    required ValueChanged<FamilyRole> onChanged,
+    required double fontMult,
+  }) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [FamilyRole.collaborator, FamilyRole.admin].map((role) {
+        final isSelected = selected == role;
+        return ChoiceChip(
+          selected: isSelected,
+          selectedColor: AppTheme.primarySurface,
+          checkmarkColor: AppTheme.primary,
+          label: Text(
+            role.displayLabel,
+            style: TextStyle(
+              fontSize: 12 * fontMult,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              color: isSelected ? AppTheme.primary : AppTheme.darkSlate,
+            ),
+          ),
+          onSelected: _isManagingInvites || _isQuickSaving
+              ? null
+              : (_) => onChanged(role),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildSharedFamilyAccountCard(double fontMult, bool isSenior) {
+    final auth = context.watch<AuthNotifier>();
+    final profile = _profile;
+    final myRole = auth.currentFamilyRole ?? FamilyRole.admin;
+    final canManageMembers = auth.canManageFamilyMembers;
+    final connectedMembers = profile?.orderedMembers ?? const <FamilyMember>[];
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: AppTheme.modernCardDecoration(radius: 18),
@@ -1471,53 +1750,423 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Autoriza a otros familiares para que reciban avisos del Diario del Cuidado y vean el calendario de visitas.',
-            style: TextStyle(
-              fontSize: 12.5 * fontMult,
-              color: AppTheme.slateMuted,
-              height: 1.35,
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: myRole == FamilyRole.admin
+                  ? AppTheme.primarySurface
+                  : Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: myRole == FamilyRole.admin
+                    ? AppTheme.primary.withValues(alpha: 0.35)
+                    : Colors.amber.shade300,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tu rol actual: ${myRole.displayLabel}',
+                  style: TextStyle(
+                    fontSize: 13 * fontMult,
+                    fontWeight: FontWeight.w800,
+                    color: myRole == FamilyRole.admin
+                        ? AppTheme.primary
+                        : Colors.amber.shade900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  myRole.permissionsSummary,
+                  style: TextStyle(
+                    fontSize: 12 * fontMult,
+                    color: AppTheme.darkSlate,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          if (_authorizedFamilyEmails.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Text(
+            'Familiares conectados (${connectedMembers.length})',
+            style: TextStyle(
+              fontSize: 14 * fontMult,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkSlate,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...connectedMembers.map((member) {
+            final isSelf = member.uid == auth.currentUserId;
+            final canModifyThis =
+                canManageMembers && !member.isOwner && !isSelf;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.backgroundNeutral,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 17,
+                    backgroundColor: AppTheme.primarySurface,
+                    child: member.isOwner
+                        ? const Icon(
+                            Icons.verified_user_rounded,
+                            size: 17,
+                            color: AppTheme.primary,
+                          )
+                        : Text(
+                            _extractInitials(member.effectiveName),
+                            style: const TextStyle(
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isSelf
+                              ? '${member.effectiveName} (Tú)'
+                              : member.effectiveName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5 * fontMult,
+                            color: AppTheme.darkSlate,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (member.email.isNotEmpty)
+                          Text(
+                            member.email,
+                            style: TextStyle(
+                              fontSize: 11.5 * fontMult,
+                              color: AppTheme.slateMuted,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        const SizedBox(height: 2),
+                        Text(
+                          member.isOwner
+                              ? 'Propietario · Administrador'
+                              : member.role.displayLabel,
+                          style: TextStyle(
+                            fontSize: 11.5 * fontMult,
+                            fontWeight: FontWeight.w700,
+                            color: member.role == FamilyRole.admin
+                                ? AppTheme.primary
+                                : AppTheme.slateMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (canModifyThis)
+                    PopupMenuButton<String>(
+                      tooltip: 'Gestionar miembro',
+                      onSelected: (action) {
+                        if (action == 'admin') {
+                          _changeMemberRole(member, FamilyRole.admin);
+                        } else if (action == 'collaborator') {
+                          _changeMemberRole(member, FamilyRole.collaborator);
+                        } else if (action == 'remove') {
+                          _removeConnectedMember(member);
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        if (member.role != FamilyRole.admin)
+                          const PopupMenuItem(
+                            value: 'admin',
+                            child: Text('Hacer Administrador'),
+                          ),
+                        if (member.role != FamilyRole.collaborator)
+                          const PopupMenuItem(
+                            value: 'collaborator',
+                            child: Text('Cambiar a Familiar colaborador'),
+                          ),
+                        const PopupMenuItem(
+                          value: 'remove',
+                          child: Text(
+                            'Desconectar familiar',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                      icon: const Icon(Icons.more_vert_rounded),
+                    ),
+                ],
+              ),
+            );
+          }),
+          if (canManageMembers) ...[
+            const Divider(height: 22),
+            Text(
+              'Invitar por Código o Enlace (Google, Apple o Contraseña)',
+              style: TextStyle(
+                fontSize: 14 * fontMult,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.darkSlate,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Ideal si el familiar usa Apple "Ocultar mi correo" o quiere conectarse en 1 toque.',
+              style: TextStyle(
+                fontSize: 12 * fontMult,
+                color: AppTheme.slateMuted,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildRoleSelectorChips(
+              selected: _inviteCodeRole,
+              onChanged: (r) => setState(() => _inviteCodeRole = r),
+              fontMult: fontMult,
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: Size(double.infinity, isSenior ? 48 : 42),
+                ),
+                onPressed: _isManagingInvites ? null : _generateFamilyInviteCode,
+                icon: _isManagingInvites
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.qr_code_2_rounded, size: 18),
+                label: Text(
+                  'Generar código y enlace (${_inviteCodeRole.shortLabel})',
+                  style: TextStyle(fontSize: 13.5 * fontMult),
+                ),
+              ),
+            ),
+            if (_activeInvites.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              ..._activeInvites.map(
+                (invite) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primarySurface.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppTheme.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            invite.code,
+                            style: TextStyle(
+                              fontSize: 17 * fontMult,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.4,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              invite.role.displayLabel,
+                              style: TextStyle(
+                                fontSize: 12 * fontMult,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.darkSlate,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Revocar código',
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                              size: 19,
+                              color: Colors.redAccent,
+                            ),
+                            onPressed: _isManagingInvites
+                                ? null
+                                : () => _revokeFamilyInviteCode(invite.code),
+                          ),
+                        ],
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _copyToClipboard(
+                              invite.code,
+                              'Código ${invite.code} copiado.',
+                            ),
+                            icon: const Icon(Icons.copy_rounded, size: 15),
+                            label: const Text('Copiar código'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _copyToClipboard(
+                              invite.shareUrl,
+                              'Enlace de invitación copiado.',
+                            ),
+                            icon: const Icon(Icons.link_rounded, size: 16),
+                            label: const Text('Copiar enlace'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const Divider(height: 22),
+            Text(
+              'Invitación automática por Email',
+              style: TextStyle(
+                fontSize: 14 * fontMult,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.darkSlate,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Cuando tu familiar inicie sesión con este email (Google, Apple o correo verificado), se conectará automáticamente.',
+              style: TextStyle(
+                fontSize: 12 * fontMult,
+                color: AppTheme.slateMuted,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildRoleSelectorChips(
+              selected: _inviteEmailRole,
+              onChanged: (r) => setState(() => _inviteEmailRole = r),
+              fontMult: fontMult,
+            ),
+            const SizedBox(height: 10),
+            if (_authorizedFamilyEmails.isNotEmpty) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _authorizedFamilyEmails.map((email) {
+                  final role = _familyEmailRoles[email.toLowerCase()] ??
+                      FamilyRole.collaborator;
+                  return Chip(
+                    avatar: const Icon(
+                      Icons.mark_email_read_outlined,
+                      size: 16,
+                      color: AppTheme.primary,
+                    ),
+                    backgroundColor: AppTheme.backgroundNeutral,
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            email,
+                            style: TextStyle(
+                              fontSize: 12 * fontMult,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: role == FamilyRole.admin
+                                ? AppTheme.primarySurface
+                                : Colors.amber.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            role.shortLabel,
+                            style: TextStyle(
+                              fontSize: 10.5 * fontMult,
+                              fontWeight: FontWeight.w700,
+                              color: role == FamilyRole.admin
+                                  ? AppTheme.primary
+                                  : Colors.amber.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    deleteIcon: const Icon(Icons.close_rounded, size: 17),
+                    deleteButtonTooltipMessage: 'Quitar familiar',
+                    onDeleted:
+                        _isQuickSaving ? null : () => _removeFamilyEmail(email),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+            ],
+            _buildResponsiveAddRow(
+              controller: _newFamilyEmailCtrl,
+              hintText: 'Email del familiar (ej. hermano@email.com)',
+              buttonLabel: 'Invitar',
+              keyboardType: TextInputType.emailAddress,
+              fontMult: fontMult,
+              isSenior: isSenior,
+              onSubmit: _isQuickSaving ? null : _inviteFamilyEmail,
+            ),
+          ] else ...[
+            const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: _authorizedFamilyEmails.map((email) {
-                return Chip(
-                  avatar: const Icon(
-                    Icons.person_outline_rounded,
-                    size: 16,
-                    color: AppTheme.primary,
-                  ),
-                  backgroundColor: AppTheme.backgroundNeutral,
-                  label: Text(
-                    email,
-                    style: TextStyle(
-                      fontSize: 12.5 * fontMult,
-                      fontWeight: FontWeight.w600,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => showJoinFamilyDialog(context),
+                  icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                  label: const Text('Unirme a otra familia'),
+                ),
+                if (auth.isSharedFamilyMember)
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.deepOrange,
+                      side: const BorderSide(color: Colors.deepOrange),
                     ),
+                    onPressed: () async {
+                      final authNotifier = context.read<AuthNotifier>();
+                      final ok = await CustomDialog.showConfirmation(
+                        context,
+                        title: 'Salir de esta familia',
+                        message:
+                            'Dejarás de acceder a las reservas, chat y Diario del Cuidado compartidos.',
+                        confirmText: 'Salir',
+                        isDestructive: true,
+                      );
+                      if (ok == true && mounted) {
+                        await authNotifier.leaveSharedFamily();
+                      }
+                    },
+                    icon: const Icon(Icons.logout_rounded, size: 18),
+                    label: const Text('Salir de esta familia'),
                   ),
-                  deleteIcon: const Icon(Icons.close_rounded, size: 17),
-                  deleteButtonTooltipMessage: 'Quitar familiar',
-                  onDeleted:
-                      _isQuickSaving ? null : () => _removeFamilyEmail(email),
-                );
-              }).toList(),
+              ],
             ),
-            const SizedBox(height: 10),
           ],
-          _buildResponsiveAddRow(
-            controller: _newFamilyEmailCtrl,
-            hintText: 'Email del familiar (ej. hermano@email.com)',
-            buttonLabel: 'Invitar',
-            keyboardType: TextInputType.emailAddress,
-            fontMult: fontMult,
-            isSenior: isSenior,
-            onSubmit: _isQuickSaving ? null : _inviteFamilyEmail,
-          ),
         ],
       ),
     );

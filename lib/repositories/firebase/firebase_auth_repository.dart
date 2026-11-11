@@ -224,6 +224,12 @@ class FirebaseAuthRepository implements AuthRepository {
   @override
   String? get currentUserId => _auth.currentUser?.uid;
 
+  String? get currentUserEmail => _auth.currentUser?.email;
+
+  String? get currentUserDisplayName => _auth.currentUser?.displayName;
+
+  bool get isCurrentUserEmailVerified => _auth.currentUser?.emailVerified ?? false;
+
   @override
   Future<String?> getUserRole(String uid) async {
     try {

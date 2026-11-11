@@ -168,7 +168,8 @@ class _ReviewDialogState extends State<ReviewDialog> {
               (v) => setState(() => _hygiene = v),
               seniorMode: seniorMode,
             ),
-            if (overall >= 4.0) ...[
+            if (overall >= 4.0 &&
+                context.read<AuthNotifier>().canManageFamilyPayments) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -234,7 +235,8 @@ class _ReviewDialogState extends State<ReviewDialog> {
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
               ),
             ),
-            if (overall < 3.0)
+            if (overall < 3.0 &&
+                context.read<AuthNotifier>().canManageFamilyPayments)
               Padding(
                 padding: const EdgeInsets.only(top: 12.0),
                 child: Center(
@@ -265,23 +267,25 @@ class _ReviewDialogState extends State<ReviewDialog> {
                   setState(() => _isSubmitting = true);
                   try {
                     final auth = context.read<AuthNotifier>();
+                    final effectiveClientId = auth.effectiveClientId ?? auth.currentUserId;
+                    final allowedTip = auth.canManageFamilyPayments ? _selectedTip : 0.0;
                     await context.read<BookingNotifier>().submitReviewForBookings(
                           widget.bookings,
                           overall,
                           _commentController.text.trim(),
-                          auth.currentUserId,
+                          effectiveClientId,
                           punctualityRating: _punctuality,
                           empathyRating: _empathy,
                           communicationRating: _communication,
                           hygieneRating: _hygiene,
-                          tipAmount: _selectedTip,
+                          tipAmount: allowedTip,
                         );
                     if (context.mounted) {
                       Navigator.pop(context);
                       CustomSnackBar.show(
                         context,
-                        message: _selectedTip > 0
-                            ? '¡Reseña y propina de ${_selectedTip.toInt()}€ enviadas con éxito!'
+                        message: allowedTip > 0
+                            ? '¡Reseña y propina de ${allowedTip.toInt()}€ enviadas con éxito!'
                             : '¡Reseña enviada! Gracias por ayudar a otras familias.',
                         type: SnackBarType.success,
                       );

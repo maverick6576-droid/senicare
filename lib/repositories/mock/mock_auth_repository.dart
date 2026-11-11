@@ -7,6 +7,9 @@ class MockAuthRepository implements AuthRepository {
   final _controller = StreamController<String?>.broadcast();
   String? _currentUser;
   String? _currentUserRole = 'client';
+  String? currentUserEmail;
+  String? currentUserDisplayName;
+  bool currentUserEmailVerified = false;
   String? adminOverrideEmail;
 
   MockAuthRepository() {
@@ -32,6 +35,8 @@ class MockAuthRepository implements AuthRepository {
   @override
   Future<void> signUpWithEmail(String email, String password, String role, [Map<String, dynamic>? extraData]) async {
     _currentUser = 'mock_user_${DateTime.now().millisecondsSinceEpoch}';
+    currentUserEmail = email.trim().toLowerCase();
+    currentUserDisplayName = extraData?['name']?.toString();
     _currentUserRole = (adminOverrideEmail == email) ? 'admin' : role;
     
     if (_currentUserRole == 'caregiver') {
@@ -53,6 +58,7 @@ class MockAuthRepository implements AuthRepository {
   @override
   Future<void> signInWithEmail(String email, String password) async {
     _currentUser = 'mock_user_123';
+    currentUserEmail = email.trim().toLowerCase();
     _currentUserRole = (adminOverrideEmail == email) ? 'admin' : 'client';
     _controller.add(_currentUser);
   }
@@ -60,6 +66,7 @@ class MockAuthRepository implements AuthRepository {
   @override
   Future<void> signInWithGoogle(String role, {bool isLogin = true}) async {
     _currentUser = 'mock_user_123';
+    currentUserEmailVerified = true;
     if (!isLogin) {
       _currentUserRole = role;
       if (role == 'caregiver') {
@@ -83,6 +90,7 @@ class MockAuthRepository implements AuthRepository {
   @override
   Future<void> signInWithApple(String role, {bool isLogin = true}) async {
     _currentUser = 'mock_user_123';
+    currentUserEmailVerified = true;
     if (!isLogin) {
       _currentUserRole = role;
       if (role == 'caregiver') {
@@ -106,12 +114,18 @@ class MockAuthRepository implements AuthRepository {
   @override
   Future<void> signOut() async {
     _currentUser = null;
+    currentUserEmail = null;
+    currentUserDisplayName = null;
+    currentUserEmailVerified = false;
     _controller.add(null);
   }
 
   @override
   Future<void> deleteAccount() async {
     _currentUser = null;
+    currentUserEmail = null;
+    currentUserDisplayName = null;
+    currentUserEmailVerified = false;
     _controller.add(null);
   }
 

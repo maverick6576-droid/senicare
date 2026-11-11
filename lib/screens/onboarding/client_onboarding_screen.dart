@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
+import 'package:senicare/models/models.dart';
 import 'package:senicare/widgets/address_form_widget.dart';
 import 'package:senicare/widgets/widgets.dart';
 
@@ -18,8 +19,28 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
   final _addressCtrl = TextEditingController();
   final _patientDetailsCtrl = TextEditingController();
   bool _isLoading = false;
+  bool _isRecheckingEmail = false;
   double? _homeLat;
   double? _homeLon;
+
+  Future<void> _recheckEmailInvitation() async {
+    setState(() => _isRecheckingEmail = true);
+    try {
+      final auth = context.read<AuthNotifier>();
+      await auth.reloadRole();
+      if (!mounted) return;
+      if (!auth.onboardingComplete) {
+        CustomSnackBar.show(
+          context,
+          message:
+              'No encontramos una invitación activa para tu email verificado. Puedes pedir el código a tu familia.',
+          type: SnackBarType.info,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRecheckingEmail = false);
+    }
+  }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -40,6 +61,10 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
         }
       }
 
+      final displayName = _nameCtrl.text.trim().isNotEmpty
+          ? _nameCtrl.text.trim()
+          : (auth.currentUserDisplayName ?? 'Administrador');
+
       final data = {
         'name': _nameCtrl.text.trim(),
         'phone': _phoneCtrl.text.trim(),
@@ -48,16 +73,30 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
         'onboardingComplete': true,
         'latitude': lat,
         'longitude': lon,
+        'ownerUid': userId,
+        'memberUids': [userId],
+        'members': {
+          userId: FamilyMember(
+            uid: userId,
+            email: auth.currentUserEmail ?? '',
+            displayName: displayName,
+            role: FamilyRole.admin,
+            joinedAt: DateTime.now(),
+            joinedVia: 'owner',
+            isOwner: true,
+          ).toMap(),
+        },
       };
 
       await DependencyInjection.clients.updateClient(userId, data);
-      
+
       // Update local state directly so UI can rebuild and switch to MainLayout
+      auth.activeFamilyId = userId;
       auth.currentClient = await DependencyInjection.clients.getClient(userId);
       auth.onboardingComplete = true;
       auth.forceRefresh();
     } catch (e) {
-      if (context.mounted) {
+      if (mounted) {
         CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.info);
       }
     } finally {
@@ -81,7 +120,12 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
                   const Text('¡Bienvenido a SeniCare!', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   const Text('Antes de empezar a buscar cuidadores, necesitamos algunos datos básicos.'),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
+                  JoinFamilyBannerCard(
+                    isRecheckingEmail: _isRecheckingEmail,
+                    onRecheckEmail: _recheckEmailInvitation,
+                  ),
+                  const SizedBox(height: 20),
                   TextFormField(
                     controller: _nameCtrl,
                     decoration: const InputDecoration(labelText: 'Nombre Completo', border: OutlineInputBorder()),

@@ -82,14 +82,18 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _showDeleteConfirmation(BuildContext context) async {
+    final isSharedMember = context.read<AuthNotifier>().isSharedFamilyMember;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Eliminar Cuenta', style: TextStyle(color: Colors.red)),
-        content: const Text(
-          '¿Estás seguro de que quieres eliminar tu cuenta?\n\n'
-          'Esta acción es IRREVERSIBLE y borrará permanentemente todos tus datos, '
-          'historial de reservas y perfil de nuestros servidores (Derecho al Olvido RGPD Art. 17).',
+        content: Text(
+          isSharedMember
+              ? '¿Estás seguro de que quieres eliminar tu cuenta personal?\n\n'
+                  'Saldrás de la cuenta familiar compartida sin borrar el historial médico ni las reservas de los demás familiares.'
+              : '¿Estás seguro de que quieres eliminar tu cuenta?\n\n'
+                  'Esta acción es IRREVERSIBLE y borrará permanentemente todos tus datos, '
+                  'historial de reservas y perfil de nuestros servidores (Derecho al Olvido RGPD Art. 17).',
         ),
         actions: [
           TextButton(
@@ -122,6 +126,10 @@ class SettingsScreen extends StatelessWidget {
       final userId = authNotifier.currentUserId;
 
       if (userId != null) {
+        if (authNotifier.isSharedFamilyMember) {
+          // Si es miembro unido a una familia compartida, abandona primero sin destruir la cuenta familiar común.
+          await authNotifier.leaveSharedFamily();
+        }
         try {
           await FirebaseFunctions.instanceFor(region: 'europe-west1')
               .httpsCallable('deleteUserAccountRgpd')
@@ -334,6 +342,116 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          if (!isCaregiver) ...[
+            const SizedBox(height: 20),
+            Builder(
+              builder: (ctx) {
+                final auth = ctx.watch<AuthNotifier>();
+                final role = auth.currentFamilyRole;
+                final familyName = auth.currentClient?.name.isNotEmpty == true
+                    ? auth.currentClient!.name
+                    : 'Cuenta Familiar';
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '👨‍👩‍👧‍👦 Cuenta Familiar Compartida',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Card(
+                      child: Column(
+                        children: [
+                          ListTile(
+                            leading: const Icon(
+                              Icons.family_restroom_rounded,
+                              color: AppTheme.primary,
+                            ),
+                            title: Text(
+                              familyName,
+                              style: const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            subtitle: Text(
+                              role != null
+                                  ? 'Tu rol: ${role.displayLabel} · ${role.permissionsSummary}'
+                                  : 'Conecta a otros familiares desde Mi Perfil',
+                              style: const TextStyle(fontSize: 12.5),
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          ListTile(
+                            leading: const Icon(
+                              Icons.qr_code_2_rounded,
+                              color: AppTheme.primary,
+                            ),
+                            title: const Text(
+                              'Unirme a otra cuenta familiar con código',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: const Text(
+                              'Introduce un código o enlace recibido de tu familia.',
+                            ),
+                            trailing: const Icon(Icons.chevron_right_rounded),
+                            onTap: () => showJoinFamilyDialog(context),
+                          ),
+                          if (auth.isSharedFamilyMember) ...[
+                            const Divider(height: 1),
+                            ListTile(
+                              leading: const Icon(
+                                Icons.logout_rounded,
+                                color: Colors.orange,
+                              ),
+                              title: const Text(
+                                'Salir de esta familia compartida',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.deepOrange,
+                                ),
+                              ),
+                              subtitle: const Text(
+                                'Desconecta tu usuario de esta cuenta familiar sin afectar al resto.',
+                              ),
+                              onTap: () async {
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (dCtx) => AlertDialog(
+                                    title: const Text('¿Salir de esta familia?'),
+                                    content: const Text(
+                                      'Dejarás de ver sus reservas, el Diario del Cuidado y sus chats hasta que vuelvas a recibir una invitación.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(dCtx, false),
+                                        child: const Text('Cancelar'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.pop(dCtx, true),
+                                        child: const Text('Salir'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (ok == true && context.mounted) {
+                                  await context.read<AuthNotifier>().leaveSharedFamily();
+                                  if (context.mounted) {
+                                    Navigator.of(context).popUntil((r) => r.isFirst);
+                                  }
+                                }
+                              },
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
           const SizedBox(height: 20),
           const Text('Seguridad, Cobertura y Legal', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primary)),
           const SizedBox(height: 10),

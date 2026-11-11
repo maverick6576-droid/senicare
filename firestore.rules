@@ -9,6 +9,36 @@ service cloud.firestore {
     function isAdmin() {
       return request.auth.token.email == "maverick6576@gmail.com";
     }
+    function isFamilyMember(familyId) {
+      return isAuthenticated() && (
+        request.auth.uid == familyId ||
+        (exists(/databases/$(database)/documents/clients/$(familyId)) && (
+          get(/databases/$(database)/documents/clients/$(familyId)).data.get('ownerUid', familyId) == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/clients/$(familyId)).data.get('memberUids', []) ||
+          (
+            get(/databases/$(database)/documents/clients/$(familyId)).data.get('members', {}) is map &&
+            request.auth.uid in get(/databases/$(database)/documents/clients/$(familyId)).data.get('members', {})
+          )
+        ))
+      );
+    }
+    function isFamilyAdmin(familyId) {
+      return isAuthenticated() && (
+        (
+          request.auth.uid == familyId &&
+          (!exists(/databases/$(database)/documents/clients/$(familyId)) ||
+            get(/databases/$(database)/documents/clients/$(familyId)).data.get('ownerUid', familyId) == request.auth.uid)
+        ) ||
+        (exists(/databases/$(database)/documents/clients/$(familyId)) && (
+          get(/databases/$(database)/documents/clients/$(familyId)).data.get('ownerUid', familyId) == request.auth.uid ||
+          (
+            get(/databases/$(database)/documents/clients/$(familyId)).data.get('members', {}) is map &&
+            request.auth.uid in get(/databases/$(database)/documents/clients/$(familyId)).data.get('members', {}) &&
+            get(/databases/$(database)/documents/clients/$(familyId)).data.members[request.auth.uid].get('role', '') == 'admin'
+          )
+        ))
+      );
+    }
 
     // 2. Colecciones publicas/semi-publicas
     match /users/{userId} {
@@ -38,12 +68,18 @@ service cloud.firestore {
     }
     match /clients/{clientId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
+      allow create: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
+      allow update: if isFamilyAdmin(clientId) || isAdmin();
+      allow delete: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
+    }
+    match /family_invites/{inviteCode} {
+      allow read: if isAuthenticated() && (resource == null || isFamilyAdmin(resource.data.familyId) || isAdmin());
+      allow write: if false; // Solo Cloud Functions (createFamilyInvite / revokeFamilyInvite / joinFamilyByCode)
     }
     match /job_offers/{offerId} {
       allow read: if true;
-      allow create: if isAuthenticated() && (request.auth.uid == request.resource.data.clientId || isAdmin());
-      allow update, delete: if isAuthenticated() && (request.auth.uid == resource.data.clientId || isAdmin());
+      allow create: if isFamilyAdmin(request.resource.data.clientId) || isAdmin();
+      allow update, delete: if isFamilyAdmin(resource.data.clientId) || isAdmin();
       
       match /applications/{applicationId} {
         allow read: if isAuthenticated();
@@ -55,14 +91,15 @@ service cloud.firestore {
     match /bookings/{bookingId} {
       allow read: if isAuthenticated();
       
-      // Permitimos al cliente CREAR
-      allow create: if isAuthenticated() && 
-                    request.resource.data.clientId == request.auth.uid &&
+      // Permitimos al Administrador familiar CREAR
+      allow create: if isFamilyAdmin(request.resource.data.clientId) &&
                     (request.resource.data.status == "pendingPayment" || request.resource.data.status == "pending" || request.resource.data.status == "confirmed");
       
-      // Permitimos al cliente actualizar solo si no modifica los campos financieros y no pasa a pending
-      allow update: if isAuthenticated() && 
-                    (request.auth.uid == resource.data.clientId || request.auth.uid == resource.data.caregiverId) &&
+      // Permitimos actualizar al Administrador familiar o al cuidador (colaboradores solo marcan reseña si no tocan pagos ni estado)
+      allow update: if isAuthenticated() &&
+                    (isFamilyAdmin(resource.data.clientId) ||
+                     request.auth.uid == resource.data.caregiverId ||
+                     (isFamilyMember(resource.data.clientId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isReviewed"]))) &&
                     (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["cost", "totalPaid", "caregiverPayout", "clientFee", "caregiverCommissionAmount", "escrowStatus", "paymentIntentId", "transferGroup"])) &&
                     (request.resource.data.status == resource.data.status || 
                      request.resource.data.status == "cancelled" || 
@@ -77,15 +114,15 @@ service cloud.firestore {
     // 4. Coleccion CHATS
     match /chats/{chatId} {
       allow read, write: if isAuthenticated() && (
-        chatId.split("_")[0] == request.auth.uid ||
+        isFamilyMember(chatId.split("_")[0]) ||
         chatId.split("_")[1] == request.auth.uid ||
-        (resource != null && (request.auth.uid == resource.data.clientId || request.auth.uid == resource.data.caregiverId)) ||
+        (resource != null && (isFamilyMember(resource.data.clientId) || request.auth.uid == resource.data.caregiverId)) ||
         isAdmin()
       );
       
       match /messages/{messageId} {
         allow read, write: if isAuthenticated() && (
-          request.auth.uid == chatId.split("_")[0] || 
+          isFamilyMember(chatId.split("_")[0]) || 
           request.auth.uid == chatId.split("_")[1] || 
           isAdmin()
         );

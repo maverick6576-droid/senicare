@@ -29,7 +29,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
     final auth = context.read<AuthNotifier>();
     final client = auth.currentClient;
     _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
-    _loadAccumulatedHours(auth.currentUserId);
+    _loadAccumulatedHours(auth.effectiveClientId);
   }
 
   Future<void> _loadAccumulatedHours(String? clientId) async {
@@ -60,7 +60,17 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
   void _processPayment() async {
     final auth = context.read<AuthNotifier>();
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final clientId = auth.currentUserId;
+    final clientId = auth.effectiveClientId;
+    if (!auth.canManageFamilyPayments) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Solo un Administrador de la familia puede confirmar pagos de ofertas.',
+          ),
+        ),
+      );
+      return;
+    }
 
     if (clientId == null || clientId.isEmpty) {
       _showSnackBar(scaffoldMessenger, 'Debes iniciar sesión para confirmar el pago.', Colors.red);
@@ -199,7 +209,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
 
             bookings.add(Booking(
               id: '',
-              clientId: auth.currentUserId ?? '',
+              clientId: auth.effectiveClientId ?? '',
               caregiverId: widget.application.caregiverId,
               caregiverName: widget.application.caregiverName,
               day: '${startDateTime.year}-${startDateTime.month.toString().padLeft(2, '0')}-${startDateTime.day.toString().padLeft(2, '0')}',
@@ -238,7 +248,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
 
         final booking = Booking(
           id: '',
-          clientId: auth.currentUserId ?? '',
+          clientId: auth.effectiveClientId ?? '',
           caregiverId: widget.application.caregiverId,
           caregiverName: widget.application.caregiverName,
           day: '${widget.offer.startDate.year}-${widget.offer.startDate.month.toString().padLeft(2, '0')}-${widget.offer.startDate.day.toString().padLeft(2, '0')}',

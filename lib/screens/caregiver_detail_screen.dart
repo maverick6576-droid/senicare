@@ -545,10 +545,26 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                                 textAlign: TextAlign.center,
                               ),
                             ),
+                          if (!(auth?.canManageFamilyPayments ?? true))
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.amber.shade300),
+                              ),
+                              child: const Text(
+                                'Tu rol es Familiar colaborador. Solo un Administrador de la familia puede confirmar pagos y reservas.',
+                                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: (c.pricePerHour >= 8 || _selectedSlots.length >= 2) && c.hasStripeAccount ? () {
+                              onPressed: (auth?.canManageFamilyPayments ?? true) && (c.pricePerHour >= 8 || _selectedSlots.length >= 2) && c.hasStripeAccount ? () {
                                 final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
                                 Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentScreen(caregiver: c, dateString: dateStr, slots: _selectedSlots)));
                               } : null,
@@ -629,7 +645,7 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
               onPressed: () {
                 final auth = context.read<AuthNotifier>();
                 Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
-                  clientId: auth.currentUserId ?? 'unknown',
+                  clientId: auth.effectiveClientId ?? 'unknown',
                   caregiverId: c.id,
                   caregiverName: c.name,
                 )));

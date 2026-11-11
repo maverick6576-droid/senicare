@@ -4,6 +4,12 @@ import 'package:senicare/repositories/interfaces/client_repository.dart';
 class MockClientRepository implements ClientRepository {
   final Map<String, ClientProfile> _clients = {};
 
+  Iterable<ClientProfile> get allClients => _clients.values;
+
+  void seedClient(ClientProfile profile) {
+    _clients[profile.id] = profile;
+  }
+
   @override
   Future<ClientProfile?> getClient(String id) async {
     return _clients[id];
@@ -24,6 +30,32 @@ class MockClientRepository implements ClientRepository {
                 .toList() ??
             const <String>[]
         : List<String>.from(existing?.authorizedFamilyEmails ?? const []);
+
+    final ownerUid = data.containsKey('ownerUid')
+        ? data['ownerUid']?.toString()
+        : (existing?.ownerUid ?? id);
+
+    final memberUids = data.containsKey('memberUids')
+        ? (data['memberUids'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .where((e) => e.isNotEmpty)
+                .toList() ??
+            <String>[ownerUid ?? id]
+        : List<String>.from(
+            existing?.memberUids.isNotEmpty == true
+                ? existing!.memberUids
+                : <String>[ownerUid ?? id],
+          );
+
+    final members = data.containsKey('members')
+        ? ClientProfile.parseMembers(data['members'])
+        : Map<String, FamilyMember>.from(existing?.members ?? const {});
+
+    final emailRoles = data.containsKey('familyEmailRoles')
+        ? ClientProfile.parseEmailRoles(data['familyEmailRoles'])
+        : Map<String, FamilyRole>.from(
+            existing?.familyEmailRoles ?? const {},
+          );
 
     _clients[id] = ClientProfile(
       id: id,
@@ -53,6 +85,10 @@ class MockClientRepository implements ClientRepository {
       hasSeenClientTutorial: data.containsKey('clientTutorialSeen')
           ? data['clientTutorialSeen'] == true
           : (existing?.hasSeenClientTutorial ?? false),
+      ownerUid: ownerUid,
+      memberUids: List<String>.unmodifiable(memberUids),
+      members: Map<String, FamilyMember>.unmodifiable(members),
+      familyEmailRoles: Map<String, FamilyRole>.unmodifiable(emailRoles),
     );
   }
 }

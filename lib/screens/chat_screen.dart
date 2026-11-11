@@ -1012,7 +1012,10 @@ class _ChatScreenState extends State<ChatScreen> {
         }
 
         return StreamBuilder<List<Booking>>(
-          stream: _ensureBookingsStream(viewerUserId, auth.currentRole),
+          stream: _ensureBookingsStream(
+            isClient ? widget.clientId : viewerUserId,
+            auth.currentRole,
+          ),
           builder: (context, bookingSnap) {
             final bookings = bookingSnap.data ?? const [];
             final hasConfirmedBooking = bookings.any(

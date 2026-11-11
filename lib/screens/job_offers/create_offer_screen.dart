@@ -127,7 +127,16 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
     }
 
     final auth = context.read<AuthNotifier>();
-    final uid = auth.currentUserId;
+    final uid = auth.effectiveClientId ?? auth.currentUserId;
+    if (!auth.canManageFamilyPayments) {
+      CustomSnackBar.show(
+        context,
+        message:
+            'Solo un Administrador de la familia puede publicar ofertas de empleo.',
+        type: SnackBarType.warning,
+      );
+      return;
+    }
     if (uid == null || uid.isEmpty) {
       CustomSnackBar.show(
         context,

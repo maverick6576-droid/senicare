@@ -15,7 +15,8 @@ class ClientTutorialService {
     final userId = auth.currentUserId;
     if (userId == null || userId.isEmpty) return true;
 
-    if (auth.currentClient?.hasSeenClientTutorial == true) {
+    final isSharedMember = auth.isSharedFamilyMember;
+    if (!isSharedMember && auth.currentClient?.hasSeenClientTutorial == true) {
       return true;
     }
 
@@ -24,14 +25,25 @@ class ClientTutorialService {
     }
 
     try {
-      final fetched = await DependencyInjection.clients.getClient(userId);
-      if (fetched != null) {
-        auth.currentClient = fetched;
-        if (fetched.hasSeenClientTutorial) {
+      if (isSharedMember) {
+        final seen =
+            await DependencyInjection.families.hasSeenMemberTutorial(userId);
+        if (seen) {
           if (useLocalFileStorage && !kIsWeb) {
             await _writeLocalFlag(userId);
           }
           return true;
+        }
+      } else {
+        final fetched = await DependencyInjection.clients.getClient(userId);
+        if (fetched != null) {
+          auth.currentClient = fetched;
+          if (fetched.hasSeenClientTutorial) {
+            if (useLocalFileStorage && !kIsWeb) {
+              await _writeLocalFlag(userId);
+            }
+            return true;
+          }
         }
       }
     } catch (_) {
@@ -45,10 +57,13 @@ class ClientTutorialService {
     final userId = auth.currentUserId;
     if (userId == null || userId.isEmpty) return;
 
-    final existing = auth.currentClient;
-    if (existing != null && !existing.hasSeenClientTutorial) {
-      auth.currentClient = existing.copyWith(hasSeenClientTutorial: true);
-      auth.forceRefresh();
+    final isSharedMember = auth.isSharedFamilyMember;
+    if (!isSharedMember) {
+      final existing = auth.currentClient;
+      if (existing != null && !existing.hasSeenClientTutorial) {
+        auth.currentClient = existing.copyWith(hasSeenClientTutorial: true);
+        auth.forceRefresh();
+      }
     }
 
     if (useLocalFileStorage && !kIsWeb) {
@@ -56,9 +71,14 @@ class ClientTutorialService {
     }
 
     try {
-      await DependencyInjection.clients.updateClient(userId, {
-        'clientTutorialSeen': true,
-      });
+      if (isSharedMember) {
+        await DependencyInjection.families
+            .markMemberTutorialSeen(userId, seen: true);
+      } else {
+        await DependencyInjection.clients.updateClient(userId, {
+          'clientTutorialSeen': true,
+        });
+      }
     } catch (_) {
       // Local flag already protects against immediate repeats offline
     }
