@@ -137,6 +137,9 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     final filterCount = caregiverState.activeFilterSheetCount;
 
     return Container(
+      key: auth.currentRole == 'client'
+          ? AppTutorialTargets.maybeClientOf(context)?.explorerHeaderKey
+          : null,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -445,13 +448,20 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
           );
         }
 
-        return _buildCaregiverCard(
+        final card = _buildCaregiverCard(
           context,
           caregiver: results[cgIndex],
           effectiveLat: effectiveLat,
           effectiveLng: effectiveLng,
           isSenior: isSenior,
         );
+        if (cgIndex == 0 && auth.currentRole == 'client') {
+          return KeyedSubtree(
+            key: AppTutorialTargets.maybeClientOf(context)?.explorerFirstCardKey,
+            child: card,
+          );
+        }
+        return card;
       },
     );
   }

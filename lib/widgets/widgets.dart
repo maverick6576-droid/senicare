@@ -9,3 +9,5 @@ export 'dispute_dialog.dart';
 export 'video_call_modal.dart';
 export 'guided_matching_wizard.dart';
 export 'caregiver_tutorial_overlay.dart';
+export 'client_tutorial_overlay.dart';
+export 'spotlight_tutorial_overlay.dart';

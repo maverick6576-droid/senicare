@@ -44,6 +44,7 @@ void main() {
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
     CaregiverTutorialService.useLocalFileStorage = false;
+    ClientTutorialService.useLocalFileStorage = false;
     mockAuth = MockAuthRepository();
     mockCaregivers = MockCaregiverRepository();
     mockBookings = MockBookingRepository();
@@ -63,6 +64,7 @@ void main() {
 
   tearDown(() {
     CaregiverTutorialService.useLocalFileStorage = true;
+    ClientTutorialService.useLocalFileStorage = true;
   });
 
   Widget buildMainLayoutApp({
@@ -266,7 +268,7 @@ void main() {
     );
 
     testWidgets(
-      'launches caregiver tutorial when selected from top-right SettingsScreen and hides option in client mode',
+      'launches caregiver tutorial when selected from top-right SettingsScreen and launches client tutorial in client mode',
       (tester) async {
         tester.view.physicalSize = const Size(1080, 2200);
         tester.view.devicePixelRatio = 1.0;
@@ -311,7 +313,7 @@ void main() {
         );
         expect(find.text('Paso 1 de 11'), findsOneWidget);
 
-        // Client mode never triggers caregiver tutorial or exposes caregiver option
+        // Client mode never triggers caregiver tutorial; it uses client tutorial instead.
         final clientAuth = AuthNotifier()
           ..isAuthenticated = true
           ..currentUserId = 'client_1'
@@ -326,9 +328,26 @@ void main() {
           find.byKey(const Key('caregiver_tutorial_overlay')),
           findsNothing,
         );
+        expect(
+          find.byKey(const Key('client_tutorial_overlay')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const Key('client_tutorial_exit_button')));
+        await tester.pump(const Duration(milliseconds: 250));
+
         await tester.tap(find.byTooltip('Más opciones'));
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(find.text('Tutorial guiado paso a paso'), findsNothing);
+        await tester.pumpAndSettle();
+        expect(find.text('Tutorial guiado paso a paso'), findsOneWidget);
+        await tester.tap(find.text('Tutorial guiado paso a paso'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('caregiver_tutorial_overlay')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('client_tutorial_overlay')),
+          findsOneWidget,
+        );
       },
     );
   });

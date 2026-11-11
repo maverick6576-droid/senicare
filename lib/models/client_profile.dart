@@ -11,6 +11,7 @@ class ClientProfile {
   final bool onboardingComplete;
   final List<String> defaultCareChecklist;
   final List<String> authorizedFamilyEmails;
+  final bool hasSeenClientTutorial;
 
   ClientProfile({
     required this.id,
@@ -23,6 +24,7 @@ class ClientProfile {
     required this.onboardingComplete,
     this.defaultCareChecklist = const [],
     this.authorizedFamilyEmails = const [],
+    this.hasSeenClientTutorial = false,
   });
 
   factory ClientProfile.fromFirestore(DocumentSnapshot doc) {
@@ -44,6 +46,7 @@ class ClientProfile {
               ?.map((e) => e.toString())
               .toList() ??
           const [],
+      hasSeenClientTutorial: data['clientTutorialSeen'] == true,
     );
   }
 
@@ -58,6 +61,7 @@ class ClientProfile {
       'onboardingComplete': onboardingComplete,
       'defaultCareChecklist': defaultCareChecklist,
       'authorizedFamilyEmails': authorizedFamilyEmails,
+      'clientTutorialSeen': hasSeenClientTutorial,
     };
   }
 
@@ -73,6 +77,7 @@ class ClientProfile {
     bool? onboardingComplete,
     List<String>? defaultCareChecklist,
     List<String>? authorizedFamilyEmails,
+    bool? hasSeenClientTutorial,
   }) {
     return ClientProfile(
       id: id ?? this.id,
@@ -89,6 +94,8 @@ class ClientProfile {
       authorizedFamilyEmails: authorizedFamilyEmails != null
           ? List<String>.unmodifiable(authorizedFamilyEmails)
           : List<String>.unmodifiable(this.authorizedFamilyEmails),
+      hasSeenClientTutorial:
+          hasSeenClientTutorial ?? this.hasSeenClientTutorial,
     );
   }
 }

@@ -364,6 +364,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
         body: Column(
           children: [
             Container(
+              key: isClient
+                  ? AppTutorialTargets.maybeClientOf(context)
+                      ?.clientBookingsHeaderKey
+                  : null,
               decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
@@ -888,7 +892,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                       }
                       final b = bookings[index];
                       if (isClient) {
-                        return _buildBookingCard(
+                        final card = _buildBookingCard(
                           context,
                           b,
                           isClient: true,
@@ -896,6 +900,14 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           allBookings: bookings,
                           isActiveTab: isActiveTab,
                         );
+                        if (isActiveTab && index == 0) {
+                          return KeyedSubtree(
+                            key: AppTutorialTargets.maybeClientOf(context)
+                                ?.clientFirstBookingKey,
+                            child: card,
+                          );
+                        }
+                        return card;
                       }
                       return FutureBuilder<ClientProfile?>(
                         future: _getClientProfile(b.clientId),

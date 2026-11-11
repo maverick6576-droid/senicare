@@ -14,3 +14,4 @@ export 'mlkit_service.dart';
 export 'stripe_service.dart';
 export 'fcm_service.dart';
 export 'caregiver_tutorial_service.dart';
+export 'client_tutorial_service.dart';

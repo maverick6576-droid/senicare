@@ -157,6 +157,7 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
           ],
         ),
         floatingActionButton: FloatingActionButton.extended(
+          key: AppTutorialTargets.maybeClientOf(context)?.clientOffersFabKey,
           heroTag: 'client_new_offer_fab',
           onPressed: () => _openCreateOffer(),
           icon: const Icon(Icons.add_rounded),

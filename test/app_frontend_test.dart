@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 
 void main() {
   setUpAll(() {
+    ClientTutorialService.useLocalFileStorage = false;
+    CaregiverTutorialService.useLocalFileStorage = false;
     // Override dependencies with Mock implementations for headless testing
     DependencyInjection.auth = MockAuthRepository();
     DependencyInjection.caregivers = MockCaregiverRepository();
@@ -52,7 +54,11 @@ void main() {
   group('Headless Frontend UI Tests', () {
     testWidgets('Flujo de Usuario Normal (Login y Navegación) - Sin Simulador', (tester) async {
       // Pre-poblar el mock client para evitar la pantalla de onboarding
-      await DependencyInjection.clients.updateClient('mock_user_123', {'name': 'Test Client', 'onboardingComplete': true});
+      await DependencyInjection.clients.updateClient('mock_user_123', {
+        'name': 'Test Client',
+        'onboardingComplete': true,
+        'clientTutorialSeen': true,
+      });
 
       await tester.pumpWidget(createTestApp());
       await tester.pumpAndSettle();

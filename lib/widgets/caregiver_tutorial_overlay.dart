@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
+import 'package:senicare/widgets/spotlight_tutorial_overlay.dart';
 
 /// Holds global keys for all spotlight targets across caregiver tabs.
 /// Created and owned by [MainLayout] so standalone screens remain decoupled.
@@ -409,30 +410,10 @@ class _CaregiverTutorialOverlayState extends State<CaregiverTutorialOverlay> {
     );
   }
 
-  Widget _buildSpotlightBackdrop(Rect? targetRect) {
-    Widget paintFor(Rect? rect) => GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {},
-          child: CustomPaint(
-            painter: _SpotlightPainter(highlightRect: rect),
-            child: const SizedBox.expand(),
-          ),
-        );
-
-    if (targetRect == null) {
-      return paintFor(null);
-    }
-
-    return TweenAnimationBuilder<Rect?>(
-      tween: RectTween(
-        begin: _previousRect ?? targetRect,
-        end: targetRect,
-      ),
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      builder: (context, animatedRect, _) => paintFor(animatedRect),
-    );
-  }
+  Widget _buildSpotlightBackdrop(Rect? targetRect) => SpotlightBackdrop(
+        targetRect: targetRect,
+        previousRect: _previousRect,
+      );
 
   Widget _buildTutorialCard({
     required CaregiverTutorialStep step,
@@ -440,293 +421,24 @@ class _CaregiverTutorialOverlayState extends State<CaregiverTutorialOverlay> {
     required bool isLast,
     required bool isSenior,
     required double fontMult,
-  }) {
-    final double progress = (_stepIndex + 1) / _steps.length;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppTheme.primary.withValues(alpha: 0.35),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Top bar: Tag + step count + always-visible Exit button
-            Row(
-              children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primarySurface,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          step.tag,
-                          style: TextStyle(
-                            color: AppTheme.primary,
-                            fontSize: 11.5 * fontMult,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Paso ${_stepIndex + 1} de ${_steps.length}',
-                        style: TextStyle(
-                          fontSize: 12 * fontMult,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.slateMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  key: const Key('caregiver_tutorial_exit_button'),
-                  onPressed: widget.onExit,
-                  icon: const Icon(Icons.close_rounded, size: 17),
-                  label: Text(
-                    'Salir',
-                    style: TextStyle(
-                      fontSize: 13 * fontMult,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.darkSlate,
-                    side: const BorderSide(color: AppTheme.borderSubtle),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    minimumSize: Size(0, isSenior ? 42 : 36),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 6,
-                backgroundColor: AppTheme.backgroundNeutral,
-                valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Flexible(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primarySurface,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(
-                            step.icon,
-                            color: AppTheme.primary,
-                            size: isSenior ? 26 : 23,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            step.title,
-                            style: TextStyle(
-                              fontSize: 17.5 * fontMult,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.darkSlate,
-                              height: 1.2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      step.description,
-                      style: TextStyle(
-                        fontSize: 14 * fontMult,
-                        color: AppTheme.darkSlate,
-                        height: 1.45,
-                      ),
-                    ),
-                    if (step.bullets.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      ...step.bullets.map(
-                        (line) => Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Padding(
-                                padding: EdgeInsets.only(top: 2),
-                                child: Icon(
-                                  Icons.check_circle_rounded,
-                                  size: 16,
-                                  color: AppTheme.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  line,
-                                  style: TextStyle(
-                                    fontSize: 13.5 * fontMult,
-                                    color: AppTheme.darkSlate,
-                                    fontWeight: FontWeight.w500,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                if (!isFirst) ...[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const Key('caregiver_tutorial_prev_button'),
-                      onPressed: () => _goToStep(_stepIndex - 1),
-                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                      label: Text(
-                        'Anterior',
-                        style: TextStyle(
-                          fontSize: 14 * fontMult,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.darkSlate,
-                        minimumSize: Size(0, isSenior ? 50 : 44),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    key: const Key('caregiver_tutorial_next_button'),
-                    onPressed: isLast
-                        ? widget.onFinish
-                        : () => _goToStep(_stepIndex + 1),
-                    icon: Icon(
-                      isLast
-                          ? Icons.check_circle_rounded
-                          : Icons.arrow_forward_rounded,
-                      size: 19,
-                    ),
-                    label: Text(
-                      isLast ? '¡Entendido, empezar!' : 'Siguiente',
-                      style: TextStyle(
-                        fontSize: 14.5 * fontMult,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(0, isSenior ? 50 : 44),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SpotlightPainter extends CustomPainter {
-  final Rect? highlightRect;
-
-  const _SpotlightPainter({required this.highlightRect});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final fullScreen = Path()..addRect(Offset.zero & size);
-    final overlayPaint = Paint()..color = Colors.black.withValues(alpha: 0.78);
-
-    if (highlightRect == null) {
-      canvas.drawPath(fullScreen, overlayPaint);
-      return;
-    }
-
-    final rrect = RRect.fromRectAndRadius(
-      highlightRect!,
-      const Radius.circular(16),
-    );
-    final cutout = Path()..addRRect(rrect);
-    final combined = Path.combine(PathOperation.difference, fullScreen, cutout);
-
-    canvas.drawPath(combined, overlayPaint);
-
-    // Subtle soft glow + crisp bright ring around illuminated element
-    final glowPaint = Paint()
-      ..color = AppTheme.primary.withValues(alpha: 0.55)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5.0;
-    canvas.drawRRect(rrect, glowPaint);
-
-    final borderPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2;
-    canvas.drawRRect(rrect, borderPaint);
-  }
-
-  @override
-  bool shouldRepaint(_SpotlightPainter oldDelegate) =>
-      highlightRect != oldDelegate.highlightRect;
+  }) =>
+      SpotlightTutorialCard(
+        tag: step.tag,
+        stepNumber: _stepIndex + 1,
+        totalSteps: _steps.length,
+        icon: step.icon,
+        title: step.title,
+        description: step.description,
+        bullets: step.bullets,
+        isFirst: isFirst,
+        isLast: isLast,
+        isSenior: isSenior,
+        fontMult: fontMult,
+        exitButtonKey: const Key('caregiver_tutorial_exit_button'),
+        prevButtonKey: const Key('caregiver_tutorial_prev_button'),
+        nextButtonKey: const Key('caregiver_tutorial_next_button'),
+        onExit: widget.onExit,
+        onPrevious: () => _goToStep(_stepIndex - 1),
+        onNext: isLast ? widget.onFinish : () => _goToStep(_stepIndex + 1),
+      );
 }

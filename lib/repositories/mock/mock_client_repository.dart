@@ -50,6 +50,9 @@ class MockClientRepository implements ClientRepository {
           : (existing?.onboardingComplete ?? true),
       defaultCareChecklist: List<String>.unmodifiable(checklist),
       authorizedFamilyEmails: List<String>.unmodifiable(familyEmails),
+      hasSeenClientTutorial: data.containsKey('clientTutorialSeen')
+          ? data['clientTutorialSeen'] == true
+          : (existing?.hasSeenClientTutorial ?? false),
     );
   }
 }

@@ -786,7 +786,11 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildHeaderCard(profile, missingItems, fontMult, isSenior),
+              KeyedSubtree(
+                key: AppTutorialTargets.maybeClientOf(context)
+                    ?.clientProfileHeaderKey,
+                child: _buildHeaderCard(profile, missingItems, fontMult, isSenior),
+              ),
               const SizedBox(height: 14),
               if (!_isEditing) ...[
                 _buildStatusBanner(missingItems, fontMult),

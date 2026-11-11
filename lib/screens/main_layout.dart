@@ -29,9 +29,10 @@ class _MainLayoutState extends State<MainLayout> {
     if (!mounted) return;
     setState(() => _currentIndex = index);
   }
-  final CaregiverTutorialTargets _tutorialTargets = CaregiverTutorialTargets();
+  final AppTutorialTargets _tutorialTargets = AppTutorialTargets();
   bool _showCaregiverTutorial = false;
-  String? _checkedAutoTutorialUserId;
+  bool _showClientTutorial = false;
+  String? _checkedAutoTutorialKey;
   Timer? _autoTutorialTimer;
 
   @override
@@ -40,21 +41,32 @@ class _MainLayoutState extends State<MainLayout> {
     super.dispose();
   }
 
-  void _startCaregiverTutorial() {
+  void _startTutorial({required bool forClient}) {
     _autoTutorialTimer?.cancel();
     setState(() {
       _currentIndex = 0;
-      _showCaregiverTutorial = true;
+      _showClientTutorial = forClient;
+      _showCaregiverTutorial = !forClient;
     });
   }
 
-  void _closeCaregiverTutorial({required String? userId, required AuthNotifier auth}) {
+  void _closeTutorial({
+    required bool forClient,
+    required AuthNotifier auth,
+  }) {
     _autoTutorialTimer?.cancel();
     setState(() {
-      _showCaregiverTutorial = false;
+      if (forClient) {
+        _showClientTutorial = false;
+      } else {
+        _showCaregiverTutorial = false;
+      }
       _currentIndex = 0;
     });
-    if (userId != null && userId.isNotEmpty) {
+    final userId = auth.currentUserId;
+    if (forClient) {
+      unawaited(ClientTutorialService.markSeen(auth));
+    } else if (userId != null && userId.isNotEmpty) {
       unawaited(CaregiverTutorialService.markSeen(userId: userId, auth: auth));
     }
   }
@@ -62,8 +74,32 @@ class _MainLayoutState extends State<MainLayout> {
   Future<void> _maybeScheduleAutoTutorial(AuthNotifier auth) async {
     final userId = auth.currentUserId;
     if (userId == null || userId.isEmpty) return;
-    if (_checkedAutoTutorialUserId == userId) return;
-    _checkedAutoTutorialUserId = userId;
+    final role = auth.currentRole;
+    final checkKey = '$role:$userId';
+    if (_checkedAutoTutorialKey == checkKey) return;
+    _checkedAutoTutorialKey = checkKey;
+
+    if (role == 'client') {
+      final seenClient = await ClientTutorialService.hasSeen(auth);
+      if (!mounted ||
+          seenClient ||
+          _showClientTutorial ||
+          _showCaregiverTutorial ||
+          auth.currentRole != 'client' ||
+          auth.currentUserId != userId) {
+        return;
+      }
+      _autoTutorialTimer?.cancel();
+      _autoTutorialTimer = Timer(const Duration(milliseconds: 180), () {
+        if (!mounted) return;
+        if (auth.currentRole == 'client' &&
+            auth.currentUserId == userId &&
+            !_showClientTutorial) {
+          _startTutorial(forClient: true);
+        }
+      });
+      return;
+    }
 
     CaregiverProfile? profile = auth.currentCaregiver;
     if (profile == null) {
@@ -81,7 +117,9 @@ class _MainLayoutState extends State<MainLayout> {
     }
 
     final seenLocally = await CaregiverTutorialService.hasSeenLocally(userId);
-    if (!mounted || seenLocally || _showCaregiverTutorial) return;
+    if (!mounted || seenLocally || _showCaregiverTutorial || _showClientTutorial) {
+      return;
+    }
     if (auth.currentRole != 'caregiver' || auth.currentUserId != userId) return;
 
     _autoTutorialTimer?.cancel();
@@ -90,7 +128,7 @@ class _MainLayoutState extends State<MainLayout> {
       if (auth.currentRole == 'caregiver' &&
           auth.currentUserId == userId &&
           !_showCaregiverTutorial) {
-        _startCaregiverTutorial();
+        _startTutorial(forClient: false);
       }
     });
   }
@@ -111,18 +149,29 @@ class _MainLayoutState extends State<MainLayout> {
     final isClient = auth.currentRole == 'client';
 
     if (!isClient) {
+      _showClientTutorial = false;
       if (config.pendingCaregiverTutorial) {
         config.consumeCaregiverTutorialRequest();
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && auth.currentRole == 'caregiver') {
-            _startCaregiverTutorial();
+            _startTutorial(forClient: false);
           }
         });
       } else if (!_showCaregiverTutorial) {
         _maybeScheduleAutoTutorial(auth);
       }
-    } else if (_showCaregiverTutorial) {
+    } else {
       _showCaregiverTutorial = false;
+      if (config.pendingClientTutorial) {
+        config.consumeClientTutorialRequest();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && auth.currentRole == 'client') {
+            _startTutorial(forClient: true);
+          }
+        });
+      } else if (!_showClientTutorial) {
+        _maybeScheduleAutoTutorial(auth);
+      }
     }
 
     final currentScreens = isClient
@@ -179,10 +228,13 @@ class _MainLayoutState extends State<MainLayout> {
     return TutorialScope(
       targets: _tutorialTargets,
       child: PopScope(
-        canPop: !_showCaregiverTutorial,
+        canPop: !((_showCaregiverTutorial && !isClient) ||
+            (_showClientTutorial && isClient)),
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop && _showCaregiverTutorial) {
-            _closeCaregiverTutorial(userId: auth.currentUserId, auth: auth);
+          if (!didPop && _showCaregiverTutorial && !isClient) {
+            _closeTutorial(forClient: false, auth: auth);
+          } else if (!didPop && _showClientTutorial && isClient) {
+            _closeTutorial(forClient: true, auth: auth);
           }
         },
         child: Stack(
@@ -248,7 +300,7 @@ class _MainLayoutState extends State<MainLayout> {
                         tooltip: 'Más opciones',
                         onSelected: (action) {
                           if (action == 'tutorial') {
-                            _startCaregiverTutorial();
+                            _startTutorial(forClient: isClient);
                           } else if (action == 'logout') {
                             DependencyInjection.auth.signOut();
                           } else if (action == 'settings') {
@@ -256,17 +308,16 @@ class _MainLayoutState extends State<MainLayout> {
                           }
                         },
                         itemBuilder: (context) => [
-                          if (!isClient)
-                            const PopupMenuItem(
-                              value: 'tutorial',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.play_circle_outline_rounded, size: 18, color: AppTheme.primary),
-                                  SizedBox(width: 8),
-                                  Expanded(child: Text('Tutorial guiado paso a paso')),
-                                ],
-                              ),
+                          const PopupMenuItem(
+                            value: 'tutorial',
+                            child: Row(
+                              children: [
+                                Icon(Icons.play_circle_outline_rounded, size: 18, color: AppTheme.primary),
+                                SizedBox(width: 8),
+                                Expanded(child: Text('Tutorial guiado paso a paso')),
+                              ],
                             ),
+                          ),
                           const PopupMenuItem(
                             value: 'settings',
                             child: Row(
@@ -330,14 +381,18 @@ class _MainLayoutState extends State<MainLayout> {
                 onSwitchTab: (idx) {
                   if (mounted) setState(() => _currentIndex = idx);
                 },
-                onExit: () => _closeCaregiverTutorial(
-                  userId: auth.currentUserId,
-                  auth: auth,
-                ),
-                onFinish: () => _closeCaregiverTutorial(
-                  userId: auth.currentUserId,
-                  auth: auth,
-                ),
+                onExit: () => _closeTutorial(forClient: false, auth: auth),
+                onFinish: () => _closeTutorial(forClient: false, auth: auth),
+              ),
+            if (_showClientTutorial && isClient)
+              ClientTutorialOverlay(
+                targets: _tutorialTargets,
+                currentTabIndex: _currentIndex,
+                onSwitchTab: (idx) {
+                  if (mounted) setState(() => _currentIndex = idx);
+                },
+                onExit: () => _closeTutorial(forClient: true, auth: auth),
+                onFinish: () => _closeTutorial(forClient: true, auth: auth),
               ),
           ],
         ),
