@@ -5,7 +5,8 @@ import 'package:senicare/models/models.dart';
 import 'package:senicare/widgets/widgets.dart';
 
 class CreateOfferScreen extends StatefulWidget {
-  const CreateOfferScreen({super.key});
+  final JobOffer? initialOffer;
+  const CreateOfferScreen({super.key, this.initialOffer});
 
   @override
   State<CreateOfferScreen> createState() => _CreateOfferScreenState();
@@ -17,224 +18,562 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
   final _descCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
   final _hoursCtrl = TextEditingController();
-  
+
   DateTime _startDate = DateTime.now().add(const Duration(days: 1));
-  TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
-  
-  final bool _isRecurring = false;
-  final int _recurringWeeks = 1;
-  final List<bool> _recurringDays = List.filled(7, false); // Mon-Sun
-  
-  bool get _isUrgent {
-    final startDateTime = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute);
-    return startDateTime.difference(DateTime.now()).inHours < 24 && startDateTime.isAfter(DateTime.now());
+  TimeOfDay _startTime = const TimeOfDay(hour: 10, minute: 0);
+
+  static const _quickTemplates = <({String title, String desc, double price, int hours})>[
+    (
+      title: 'Acompañamiento y paseo',
+      desc: 'Compañía agradable, conversación y paseo tranquilo cerca de casa.',
+      price: 14,
+      hours: 3,
+    ),
+    (
+      title: 'Ayuda en casa y comidas',
+      desc: 'Apoyo con las tareas diarias del hogar, preparación de comida y compañía.',
+      price: 15,
+      hours: 4,
+    ),
+    (
+      title: 'Cuidado de noche',
+      desc: 'Acompañamiento nocturno en domicilio y asistencia si se despierta.',
+      price: 16,
+      hours: 8,
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialOffer;
+    if (initial != null) {
+      _titleCtrl.text = initial.title;
+      _descCtrl.text = initial.description;
+      _priceCtrl.text = _formatNumber(initial.pricePerHour);
+      _hoursCtrl.text = initial.totalHours.toString();
+      _startTime = TimeOfDay(hour: initial.startDate.hour, minute: initial.startDate.minute);
+    }
+    _priceCtrl.addListener(_onCostInputChanged);
+    _hoursCtrl.addListener(_onCostInputChanged);
   }
 
-  void _submit() async {
+  void _onCostInputChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _priceCtrl.removeListener(_onCostInputChanged);
+    _hoursCtrl.removeListener(_onCostInputChanged);
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    _priceCtrl.dispose();
+    _hoursCtrl.dispose();
+    super.dispose();
+  }
+
+  String _formatNumber(double val) {
+    return val == val.roundToDouble() ? val.toInt().toString() : val.toStringAsFixed(2);
+  }
+
+  double? _parsePrice() {
+    final normalized = _priceCtrl.text.trim().replaceAll(',', '.');
+    return double.tryParse(normalized);
+  }
+
+  int? _parseHours() {
+    return int.tryParse(_hoursCtrl.text.trim());
+  }
+
+  DateTime get _selectedStartDateTime => DateTime(
+        _startDate.year,
+        _startDate.month,
+        _startDate.day,
+        _startTime.hour,
+        _startTime.minute,
+      );
+
+  bool get _isInPast => _selectedStartDateTime.isBefore(DateTime.now());
+
+  bool get _isUrgent {
+    final start = _selectedStartDateTime;
+    final now = DateTime.now();
+    return start.isAfter(now) && start.difference(now).inHours < 24;
+  }
+
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    
-    final startDateTime = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute);
-    
+
+    final startDateTime = _selectedStartDateTime;
     if (startDateTime.isBefore(DateTime.now())) {
-      CustomSnackBar.show(context, message: 'La fecha y hora de la oferta no pueden ser en el pasado', type: SnackBarType.error);
+      CustomSnackBar.show(
+        context,
+        message: 'Elige una fecha y hora que todavía no hayan pasado.',
+        type: SnackBarType.error,
+      );
       return;
     }
-    
-    if (_isRecurring && !_recurringDays.any((d) => d)) {
-      CustomSnackBar.show(context, message: 'Selecciona al menos un día para la oferta recurrente', type: SnackBarType.info);
+
+    final price = _parsePrice();
+    final totalHours = _parseHours();
+    if (price == null || price <= 0 || totalHours == null || totalHours < 1) {
+      CustomSnackBar.show(
+        context,
+        message: 'Revisa el precio por hora y el total de horas.',
+        type: SnackBarType.error,
+      );
       return;
     }
 
     final auth = context.read<AuthNotifier>();
-    final loc = context.read<LocationNotifier>();
-    
-    // Calcular horas totales si es recurrente
-    int totalHours = int.parse(_hoursCtrl.text);
-    int hoursPerDay = totalHours;
-    if (_isRecurring) {
-      int daysPerWeek = _recurringDays.where((d) => d).length;
-      totalHours = hoursPerDay * daysPerWeek * _recurringWeeks;
+    final uid = auth.currentUserId;
+    if (uid == null || uid.isEmpty) {
+      CustomSnackBar.show(
+        context,
+        message: 'Debes iniciar sesión para publicar una oferta.',
+        type: SnackBarType.error,
+      );
+      return;
     }
 
+    final loc = context.read<LocationNotifier>();
     final offer = JobOffer(
-      id: '', // Will be generated
-      clientId: auth.currentUserId!,
+      id: '',
+      clientId: uid,
       clientName: auth.currentClient?.name ?? 'Cliente',
       clientLatitude: auth.currentClient?.latitude ?? loc.latitude ?? 41.3851,
       clientLongitude: auth.currentClient?.longitude ?? loc.longitude ?? 2.1734,
-      title: _titleCtrl.text,
-      description: _descCtrl.text,
-      pricePerHour: double.parse(_priceCtrl.text),
+      title: _titleCtrl.text.trim(),
+      description: _descCtrl.text.trim(),
+      pricePerHour: price,
       totalHours: totalHours,
-      isRecurring: _isRecurring,
-      recurringDaysOfWeek: _isRecurring ? List.generate(7, (i) => _recurringDays[i] ? i + 1 : -1).where((d) => d != -1).toList() : [],
-      recurringHoursPerDay: _isRecurring ? hoursPerDay : 0,
-      recurringWeeks: _isRecurring ? _recurringWeeks : 0,
-      recurringStartTime: _isRecurring ? '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}' : '',
+      isRecurring: false,
       startDate: startDateTime,
       isUrgent: _isUrgent,
       urgencyBonusRate: _isUrgent ? 0.10 : 0.0,
       createdAt: DateTime.now(),
     );
 
-    await context.read<JobOfferNotifier>().createOffer(offer);
-    
-    if (mounted) {
+    try {
+      await context.read<JobOfferNotifier>().createOffer(offer);
+      if (!mounted) return;
       Navigator.pop(context);
-      CustomSnackBar.show(context, message: 'Oferta publicada correctamente. Avisaremos a los cuidadores cercanos.', type: SnackBarType.info);
+      CustomSnackBar.show(
+        context,
+        message: 'Oferta publicada gratis. Te avisaremos en cuanto respondan cuidadores.',
+        type: SnackBarType.info,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      CustomSnackBar.show(
+        context,
+        message: 'No pudimos publicar tu oferta ahora. Inténtalo de nuevo.',
+        type: SnackBarType.error,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+    final isCreating = context.watch<JobOfferNotifier>().isCreating;
+    final parsedPrice = _parsePrice();
+    final parsedHours = _parseHours();
+    final estimatedTotal =
+        (parsedPrice != null && parsedPrice > 0 && parsedHours != null && parsedHours > 0)
+            ? parsedPrice * parsedHours
+            : null;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Crear Oferta de Trabajo')),
+      backgroundColor: AppTheme.backgroundNeutral,
+      appBar: AppBar(
+        title: Text(widget.initialOffer != null ? 'Volver a Publicar Oferta' : 'Nueva Oferta de Cuidado'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
           children: [
-            if (_isUrgent)
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.shade300),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.flash_on_rounded, color: Colors.orange.shade800),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '⚡ Oferta urgente (<24h): SeniCare rebaja un 10% su comisión al cuidador para que recibas candidatos mucho más rápido (sin coste extra para ti).',
-                        style: TextStyle(color: Colors.orange.shade900, fontSize: 12.5, fontWeight: FontWeight.w600),
+            _buildIntroBanner(seniorMode),
+            const SizedBox(height: 16),
+            Text(
+              'Plantillas rápidas (opcional)',
+              style: TextStyle(
+                fontSize: seniorMode ? 16 : 14,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.darkSlate,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _quickTemplates.map((tpl) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ActionChip(
+                      avatar: const Icon(Icons.auto_awesome_rounded, size: 16, color: AppTheme.primary),
+                      label: Text(
+                        tpl.title,
+                        style: TextStyle(
+                          fontSize: seniorMode ? 14 : 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
+                      backgroundColor: Colors.white,
+                      side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.25)),
+                      onPressed: () {
+                        setState(() {
+                          _titleCtrl.text = tpl.title;
+                          _descCtrl.text = tpl.desc;
+                          if (_priceCtrl.text.trim().isEmpty) {
+                            _priceCtrl.text = _formatNumber(tpl.price);
+                          }
+                          if (_hoursCtrl.text.trim().isEmpty) {
+                            _hoursCtrl.text = tpl.hours.toString();
+                          }
+                        });
+                      },
                     ),
-                  ],
-                ),
-              ),
-            TextFormField(
-              controller: _titleCtrl,
-              decoration: const InputDecoration(labelText: 'Título de la oferta', hintText: 'Ej. Cuidado diario abuela'),
-              validator: (v) => v!.isEmpty ? 'Requerido' : null,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _descCtrl,
-              decoration: const InputDecoration(labelText: 'Descripción / Necesidades', alignLabelWithHint: true),
-              maxLines: 4,
-              validator: (v) => v!.isEmpty ? 'Requerido' : null,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _priceCtrl,
-                    decoration: const InputDecoration(labelText: 'Precio que ofreces (€/h)'),
-                    keyboardType: TextInputType.number,
-                    validator: (v) => v!.isEmpty ? 'Requerido' : null,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextFormField(
-                    controller: _hoursCtrl,
-                    decoration: InputDecoration(labelText: _isRecurring ? 'Horas por día' : 'Total de horas'),
-                    keyboardType: TextInputType.number,
-                    validator: (v) => v!.isEmpty ? 'Requerido' : null,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              title: const Text('Fecha de inicio'),
-              subtitle: Text('${_startDate.day.toString().padLeft(2, '0')}/${_startDate.month.toString().padLeft(2, '0')}/${_startDate.year}'),
-              trailing: const Icon(Icons.calendar_today),
-              onTap: () async {
-                final d = await showDatePicker(context: context, initialDate: _startDate, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 365)));
-                if (d != null) setState(() => _startDate = d);
-              },
-            ),
-            ListTile(
-              title: const Text('Hora de inicio'),
-              subtitle: Text('${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}'),
-              trailing: const Icon(Icons.access_time),
-              onTap: () async {
-                final t = await showTimePicker(context: context, initialTime: _startTime);
-                if (t != null) setState(() => _startTime = t);
-              },
-            ),
-            /*
-            // Ocultado temporalmente para el MVP por seguridad financiera
-            SwitchListTile(
-              title: const Text('¿Es un cuidado recurrente?'),
-              value: _isRecurring,
-              onChanged: (v) => setState(() => _isRecurring = v),
-              activeThumbColor: AppTheme.primary,
-            ),
-            if (_isRecurring) ...[
-              const Text('Días de la semana', style: TextStyle(fontWeight: FontWeight.bold)),
-              Wrap(
-                spacing: 8,
-                children: List.generate(7, (i) {
-                  final days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-                  return FilterChip(
-                    label: Text(days[i]),
-                    selected: _recurringDays[i],
-                    onSelected: (v) => setState(() => _recurringDays[i] = v),
                   );
-                }),
+                }).toList(),
               ),
-              const SizedBox(height: 16),
-              const Text('Semanas de duración', style: TextStyle(fontWeight: FontWeight.bold)),
-              Slider(
-                value: _recurringWeeks.toDouble(),
-                min: 1, max: 12, divisions: 11,
-                label: '$_recurringWeeks semanas',
-                onChanged: (v) => setState(() => _recurringWeeks = v.toInt()),
-                activeColor: AppTheme.primary,
-              ),
-            ],
-            */
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppTheme.primarySurface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
-              ),
-              child: const Row(
+            ),
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: '1. ¿Qué ayuda necesitas?',
+              seniorMode: seniorMode,
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.verified_user_rounded, color: AppTheme.primary, size: 20),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Publicar tu oferta es 100% gratuito y sin compromiso. Solo abonarás el servicio (con cobertura de Seguro RC y pago protegido en Escrow) cuando elijas y contrates al candidato que más te guste.',
-                      style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate, height: 1.35),
+                  TextFormField(
+                    controller: _titleCtrl,
+                    style: TextStyle(fontSize: seniorMode ? 17 : 15),
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Título sencillo',
+                      hintText: 'Ej. Acompañamiento por la tarde',
                     ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _descCtrl,
+                    style: TextStyle(fontSize: seniorMode ? 16.5 : 14.5),
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: '¿En qué consiste el cuidado?',
+                      hintText: 'Ej. Paseo suave, ayuda con la merienda y compañía.',
+                      alignLabelWithHint: true,
+                    ),
+                    maxLines: 3,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: context.watch<JobOfferNotifier>().isCreating ? null : _submit,
-              icon: context.watch<JobOfferNotifier>().isCreating
-                  ? const SizedBox.shrink()
-                  : const Icon(Icons.campaign_rounded, size: 20),
-              label: context.watch<JobOfferNotifier>().isCreating
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('Publicar Oferta Gratis'),
-            )
+            const SizedBox(height: 14),
+            _buildSectionCard(
+              title: '2. ¿Cuánto pagas y cuántas horas?',
+              seniorMode: seniorMode,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [12, 15, 18].map((rate) {
+                      final selected = _parsePrice() == rate.toDouble();
+                      return ChoiceChip(
+                        label: Text('$rate €/h'),
+                        selected: selected,
+                        onSelected: (_) => setState(() => _priceCtrl.text = '$rate'),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _priceCtrl,
+                          style: TextStyle(fontSize: seniorMode ? 17 : 15),
+                          decoration: const InputDecoration(
+                            labelText: 'Precio (€/h)',
+                            hintText: '15',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return 'Requerido';
+                            final parsed = double.tryParse(v.trim().replaceAll(',', '.'));
+                            if (parsed == null || parsed <= 0 || parsed > 200) {
+                              return 'Precio no válido';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _hoursCtrl,
+                          style: TextStyle(fontSize: seniorMode ? 17 : 15),
+                          decoration: const InputDecoration(
+                            labelText: 'Horas totales',
+                            hintText: '4',
+                          ),
+                          keyboardType: TextInputType.number,
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return 'Requerido';
+                            final parsed = int.tryParse(v.trim());
+                            if (parsed == null || parsed < 1 || parsed > 168) {
+                              return 'Mínimo 1 hora';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [2, 4, 8].map((hrs) {
+                      final selected = _parseHours() == hrs;
+                      return ChoiceChip(
+                        label: Text('$hrs horas'),
+                        selected: selected,
+                        onSelected: (_) => setState(() => _hoursCtrl.text = '$hrs'),
+                      );
+                    }).toList(),
+                  ),
+                  if (estimatedTotal != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primarySurface,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calculate_outlined, color: AppTheme.primary, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Total aproximado de la oferta: ${_formatNumber(estimatedTotal)} € (${parsedHours}h × ${_formatNumber(parsedPrice!)} €/h)',
+                              style: TextStyle(
+                                color: AppTheme.darkSlate,
+                                fontWeight: FontWeight.w700,
+                                fontSize: seniorMode ? 14.5 : 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            _buildSectionCard(
+              title: '3. ¿Cuándo empieza el cuidado?',
+              seniorMode: seniorMode,
+              child: Column(
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primarySurface,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.calendar_today_rounded, color: AppTheme.primary, size: 20),
+                    ),
+                    title: Text(
+                      'Día de inicio',
+                      style: TextStyle(fontSize: seniorMode ? 16 : 14.5, fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      '${_startDate.day.toString().padLeft(2, '0')}/${_startDate.month.toString().padLeft(2, '0')}/${_startDate.year}',
+                      style: TextStyle(fontSize: seniorMode ? 16 : 14, color: AppTheme.darkSlate),
+                    ),
+                    trailing: const Text('Cambiar', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w700)),
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final today = DateTime(now.year, now.month, now.day);
+                      final initial = _startDate.isBefore(today) ? today : _startDate;
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: initial,
+                        firstDate: today,
+                        lastDate: today.add(const Duration(days: 365)),
+                      );
+                      if (picked != null) setState(() => _startDate = picked);
+                    },
+                  ),
+                  const Divider(height: 8),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primarySurface,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.access_time_rounded, color: AppTheme.primary, size: 20),
+                    ),
+                    title: Text(
+                      'Hora de inicio',
+                      style: TextStyle(fontSize: seniorMode ? 16 : 14.5, fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+                      style: TextStyle(fontSize: seniorMode ? 16 : 14, color: AppTheme.darkSlate),
+                    ),
+                    trailing: const Text('Cambiar', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w700)),
+                    onTap: () async {
+                      final picked = await showTimePicker(context: context, initialTime: _startTime);
+                      if (picked != null) setState(() => _startTime = picked);
+                    },
+                  ),
+                  if (_isInPast) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'La hora elegida ya ha pasado. Adelanta el día o la hora para poder publicar.',
+                              style: TextStyle(
+                                color: Colors.red.shade900,
+                                fontSize: seniorMode ? 14 : 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else if (_isUrgent) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange.shade300),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.flash_on_rounded, color: Colors.orange.shade800),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Oferta urgente (<24h): la destacamos para encontrar cuidador mucho más rápido, sin coste extra para ti.',
+                              style: TextStyle(
+                                color: Colors.orange.shade900,
+                                fontSize: seniorMode ? 14 : 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: seniorMode ? 56 : 50,
+              child: FilledButton.icon(
+                onPressed: isCreating ? null : _submit,
+                icon: isCreating
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2),
+                      )
+                    : const Icon(Icons.campaign_rounded, size: 20),
+                label: Text(
+                  isCreating ? 'Publicando oferta...' : 'Publicar Oferta Gratis',
+                  style: TextStyle(fontSize: seniorMode ? 17 : 15.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildIntroBanner(bool seniorMode) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.primarySurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.verified_user_rounded, color: AppTheme.primary, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Publicar es 100% gratis y sin compromiso. Solo pagas cuando elijas al cuidador que más confianza te dé.',
+              style: TextStyle(
+                fontSize: seniorMode ? 14.5 : 13,
+                color: AppTheme.darkSlate,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionCard({
+    required String title,
+    required bool seniorMode,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.modernCardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: seniorMode ? 17.5 : 15.5,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkSlate,
+            ),
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
       ),
     );
   }

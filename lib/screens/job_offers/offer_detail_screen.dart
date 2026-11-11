@@ -357,6 +357,8 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     final isClient = auth.currentRole == 'client';
     final currentUserId = auth.currentUserId ?? '';
 
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Detalle de Oferta')),
       body: StreamBuilder<JobOffer?>(
@@ -374,11 +376,15 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                   context: context,
                   offer: offer,
                   isClient: true,
+                  seniorMode: seniorMode,
                   currentUserId: currentUserId,
+                  clientName: auth.currentClient?.name,
                   caregiver: auth.currentCaregiver,
                   caregiverLat: null,
                   caregiverLng: null,
                   clientApps: apps,
+                  isLoadingClientApps: appsSnapshot.connectionState == ConnectionState.waiting && !appsSnapshot.hasData,
+                  clientAppsError: appsSnapshot.hasError ? 'No pudimos cargar las candidaturas. Revisa tu conexión.' : null,
                   myApp: null,
                 );
               },
@@ -393,11 +399,15 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                 context: context,
                 offer: offer,
                 isClient: false,
+                seniorMode: seniorMode,
                 currentUserId: currentUserId,
+                clientName: auth.currentClient?.name,
                 caregiver: caregiver,
                 caregiverLat: caregiver?.latitude ?? location.latitude,
                 caregiverLng: caregiver?.longitude ?? location.longitude,
                 clientApps: const [],
+                isLoadingClientApps: false,
+                clientAppsError: null,
                 myApp: myAppSnapshot.data,
               );
             },
@@ -411,11 +421,15 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     required BuildContext context,
     required JobOffer offer,
     required bool isClient,
+    required bool seniorMode,
     required String currentUserId,
+    required String? clientName,
     required CaregiverProfile? caregiver,
     required double? caregiverLat,
     required double? caregiverLng,
     required List<JobApplication> clientApps,
+    required bool isLoadingClientApps,
+    required String? clientAppsError,
     required JobApplication? myApp,
   }) {
     final badge = _resolveStatusBadge(offer);
@@ -426,7 +440,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
         : null;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 72),
       children: [
         Container(
           padding: const EdgeInsets.all(18),
@@ -630,14 +644,27 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
           ),
         ],
         if (isClient) ...[
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
+          _buildClientStatusGuide(
+            context: context,
+            offer: offer,
+            clientApps: clientApps,
+            seniorMode: seniorMode,
+          ),
+          const SizedBox(height: 20),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Candidatos Interesados',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+              Expanded(
+                child: Text(
+                  'Candidatos Interesados',
+                  style: TextStyle(
+                    fontSize: seniorMode ? 20 : 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.darkSlate,
+                  ),
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
@@ -646,198 +673,628 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                 ),
                 child: Text(
                   '${clientApps.length}',
-                  style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.primary, fontSize: 13),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.primary,
+                    fontSize: seniorMode ? 15 : 13,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          if (clientApps.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: AppTheme.modernCardDecoration(),
-              child: const Column(
-                children: [
-                  Icon(Icons.hourglass_top_rounded, size: 40, color: AppTheme.primary),
-                  SizedBox(height: 10),
-                  Text(
-                    'Avisando a los cuidadores verificados de tu zona',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.darkSlate),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'En cuanto un profesional se postule, verás aquí su valoración, su propuesta económica y podrás revisar su perfil antes de contratar.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: AppTheme.slateMuted, height: 1.4),
-                  ),
-                ],
-              ),
+          if (clientAppsError != null)
+            _buildClientMessageBox(
+              icon: Icons.error_outline_rounded,
+              iconColor: Colors.red.shade600,
+              title: 'No pudimos cargar las candidaturas',
+              subtitle: clientAppsError,
+              seniorMode: seniorMode,
+            )
+          else if (isLoadingClientApps)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (clientApps.isEmpty)
+            _buildClientMessageBox(
+              icon: Icons.hourglass_top_rounded,
+              iconColor: AppTheme.primary,
+              title: 'Avisando a cuidadores verificados de tu zona',
+              subtitle:
+                  'En cuanto un profesional responda, podrás ver su perfil, hablar por chat o contratarle con pago protegido.',
+              seniorMode: seniorMode,
             )
           else
-            ...clientApps.map(
-              (app) => Card(
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () async {
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (_) => const Center(child: CircularProgressIndicator()),
-                    );
-                    final selectedCaregiver = await DependencyInjection.caregivers.getCaregiver(app.caregiverId);
-                    if (context.mounted) {
-                      Navigator.pop(context);
-                      if (selectedCaregiver != null) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => CaregiverDetailScreen(caregiver: selectedCaregiver)),
-                        );
-                      } else {
-                        CustomSnackBar.show(
-                          context,
-                          message: 'No se pudo cargar el perfil del cuidador.',
-                          type: SnackBarType.error,
-                        );
-                      }
-                    }
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
+            ..._sortedClientApps(clientApps).map(
+              (app) => _buildClientCandidateCard(
+                context: context,
+                offer: offer,
+                app: app,
+                currentUserId: currentUserId,
+                clientName: clientName,
+                seniorMode: seniorMode,
+              ),
+            ),
+          if (offer.isExpired || offer.status == JobOfferStatus.cancelled) ...[
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: seniorMode ? 54 : 48,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => CreateOfferScreen(initialOffer: offer)),
+                ),
+                icon: const Icon(Icons.replay_rounded),
+                label: Text(
+                  'Volver a Publicar Oferta',
+                  style: TextStyle(fontSize: seniorMode ? 16.5 : 15, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+          if (offer.status == JobOfferStatus.open) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: seniorMode ? 52 : 46,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmCancelOffer(context, offer),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red.shade700,
+                  side: BorderSide(color: Colors.red.shade300),
+                ),
+                icon: const Icon(Icons.cancel_outlined, size: 18),
+                label: Text(
+                  offer.isExpired ? 'Cerrar Oferta Caducada' : 'Retirar / Cancelar Oferta',
+                  style: TextStyle(fontSize: seniorMode ? 15.5 : 14, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+        ],
+      ],
+    );
+  }
+
+  List<JobApplication> _sortedClientApps(List<JobApplication> apps) {
+    int rank(JobApplicationStatus s) {
+      switch (s) {
+        case JobApplicationStatus.accepted:
+          return 0;
+        case JobApplicationStatus.pending:
+          return 1;
+        case JobApplicationStatus.rejected:
+          return 2;
+      }
+    }
+
+    final sorted = List<JobApplication>.from(apps);
+    sorted.sort((a, b) {
+      final r = rank(a.status).compareTo(rank(b.status));
+      if (r != 0) return r;
+      return b.appliedAt.compareTo(a.appliedAt);
+    });
+    return sorted;
+  }
+
+  Widget _buildClientStatusGuide({
+    required BuildContext context,
+    required JobOffer offer,
+    required List<JobApplication> clientApps,
+    required bool seniorMode,
+  }) {
+    final pendingCount = clientApps.where((a) => a.status == JobApplicationStatus.pending).length;
+    late final Color bg;
+    late final Color border;
+    late final Color fg;
+    late final IconData icon;
+    late final String title;
+    late final String subtitle;
+
+    if (offer.status == JobOfferStatus.inProgress) {
+      bg = Colors.green.shade50;
+      border = Colors.green.shade200;
+      fg = Colors.green.shade900;
+      icon = Icons.verified_rounded;
+      title = 'Cuidador confirmado y reserva asegurada';
+      subtitle = 'Puedes hablar con tu cuidador por chat debajo o revisar los detalles en la pestaña Reservas.';
+    } else if (offer.isExpired) {
+      bg = Colors.grey.shade100;
+      border = Colors.grey.shade300;
+      fg = AppTheme.darkSlate;
+      icon = Icons.event_busy_rounded;
+      title = 'La fecha de esta oferta ya pasó';
+      subtitle = 'Si sigues necesitando ayuda, pulsa "Volver a Publicar Oferta" con los mismos datos en un toque.';
+    } else if (offer.status == JobOfferStatus.cancelled) {
+      bg = Colors.red.shade50;
+      border = Colors.red.shade200;
+      fg = Colors.red.shade900;
+      icon = Icons.cancel_rounded;
+      title = 'Oferta retirada';
+      subtitle = 'Esta convocatoria está cerrada. Puedes volver a publicarla cuando la necesites.';
+    } else if (pendingCount > 0) {
+      bg = Colors.amber.shade50;
+      border = Colors.amber.shade300;
+      fg = Colors.amber.shade900;
+      icon = Icons.people_alt_rounded;
+      title = 'Tienes $pendingCount candidatura${pendingCount == 1 ? '' : 's'} para revisar';
+      subtitle = 'Chatea gratis con quien quieras o elige al cuidador ideal para confirmar la reserva.';
+    } else {
+      bg = AppTheme.primarySurface;
+      border = AppTheme.primary.withValues(alpha: 0.25);
+      fg = AppTheme.darkSlate;
+      icon = Icons.campaign_rounded;
+      title = 'Oferta visible para cuidadores cercanos';
+      subtitle = 'Recibirás aquí las propuestas. Publicar es gratis hasta que contrates.';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: fg, size: seniorMode ? 24 : 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: seniorMode ? 15.5 : 14,
+                    color: fg,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: seniorMode ? 14 : 12.5,
+                    color: fg.withValues(alpha: 0.88),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientMessageBox({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required bool seniorMode,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: AppTheme.modernCardDecoration(),
+      child: Column(
+        children: [
+          Icon(icon, size: 40, color: iconColor),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: seniorMode ? 17 : 15,
+              color: AppTheme.darkSlate,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: seniorMode ? 14.5 : 13,
+              color: AppTheme.slateMuted,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientCandidateCard({
+    required BuildContext context,
+    required JobOffer offer,
+    required JobApplication app,
+    required String currentUserId,
+    required String? clientName,
+    required bool seniorMode,
+  }) {
+    final totalService = app.proposedPrice * offer.totalHours;
+    final totalWithFee = totalService * (1 + offer.clientFeeRate);
+    final diffPerHour = app.proposedPrice - offer.pricePerHour;
+    final firstName = app.caregiverName.trim().split(' ').first;
+    final isAccepted = app.status == JobApplicationStatus.accepted;
+    final isRejected = app.status == JobApplicationStatus.rejected;
+    final canChoose =
+        offer.status == JobOfferStatus.open && !offer.isExpired && app.status == JobApplicationStatus.pending;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isAccepted ? Colors.green.shade300 : Colors.grey.shade200,
+          width: isAccepted ? 1.5 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => _openCandidateProfile(context, app.caregiverId),
+              child: Row(
+                children: [
+                  ClipOval(
+                    child: app.caregiverImageUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: app.caregiverImageUrl,
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, _, _) => Container(
+                              width: 48,
+                              height: 48,
+                              color: AppTheme.primarySurface,
+                              child: const Icon(Icons.person, color: AppTheme.primary),
+                            ),
+                          )
+                        : Container(
+                            width: 48,
+                            height: 48,
+                            color: AppTheme.primarySurface,
+                            child: const Icon(Icons.person, color: AppTheme.primary),
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text(
+                          app.caregiverName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: seniorMode ? 17.5 : 15.5,
+                            color: AppTheme.darkSlate,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
                         Row(
                           children: [
-                            ClipOval(
-                              child: app.caregiverImageUrl.isNotEmpty
-                                  ? CachedNetworkImage(
-                                      imageUrl: app.caregiverImageUrl,
-                                      width: 42,
-                                      height: 42,
-                                      fit: BoxFit.cover,
-                                      errorWidget: (_, _, _) => Container(
-                                        width: 42,
-                                        height: 42,
-                                        color: AppTheme.primarySurface,
-                                        child: const Icon(Icons.person, color: AppTheme.primary),
-                                      ),
-                                    )
-                                  : Container(
-                                      width: 42,
-                                      height: 42,
-                                      color: AppTheme.primarySurface,
-                                      child: const Icon(Icons.person, color: AppTheme.primary),
-                                    ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(app.caregiverName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.star, color: Colors.amber, size: 16),
-                                      Text(' ${app.caregiverRating.toStringAsFixed(1)} (${app.caregiverReviewsCount})'),
-                                    ],
-                                  ),
-                                ],
+                            const Icon(Icons.star_rounded, color: Colors.amber, size: 17),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                '${app.caregiverRating.toStringAsFixed(1)} (${app.caregiverReviewsCount} reseñas)',
+                                style: TextStyle(
+                                  fontSize: seniorMode ? 14 : 12.5,
+                                  color: AppTheme.slateMuted,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            Text(
-                              '${app.proposedPrice.toStringAsFixed(2)} €/h',
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary, fontSize: 16),
                             ),
                           ],
                         ),
-                        if (app.message.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: Text('"${app.message}"', style: const TextStyle(fontStyle: FontStyle.italic)),
-                          ),
-                        const SizedBox(height: 12),
-                        if (offer.status == JobOfferStatus.open &&
-                            !offer.isExpired &&
-                            app.status == JobApplicationStatus.pending)
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => JobOfferPaymentScreen(offer: offer, application: app),
-                                  ),
-                                );
-                              },
-                              child: const Text('Aceptar Cuidador'),
-                            ),
-                          )
-                        else if (app.status == JobApplicationStatus.accepted)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(8),
-                            color: Colors.green.shade100,
-                            child: const Text(
-                              '✓ Cuidador Aceptado',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                            ),
-                          )
-                        else if (app.status == JobApplicationStatus.rejected)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(8),
-                            color: Colors.grey.shade200,
-                            child: const Text(
-                              '✗ Rechazado',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${app.proposedPrice.toStringAsFixed(2)} €/h',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.primary,
+                          fontSize: seniorMode ? 17 : 15.5,
+                        ),
+                      ),
+                      Text(
+                        'Total ${totalService.toStringAsFixed(0)} €',
+                        style: TextStyle(
+                          fontSize: seniorMode ? 13 : 11.5,
+                          color: AppTheme.slateMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (diffPerHour.abs() >= 0.01) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: diffPerHour < 0 ? Colors.green.shade50 : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  diffPerHour < 0
+                      ? 'Propone ${diffPerHour.abs().toStringAsFixed(2)} €/h menos que tu oferta'
+                      : 'Propone +${diffPerHour.toStringAsFixed(2)} €/h sobre tu oferta',
+                  style: TextStyle(
+                    fontSize: seniorMode ? 13 : 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: diffPerHour < 0 ? Colors.green.shade800 : Colors.orange.shade900,
+                  ),
+                ),
+              ),
+            ],
+            if (app.message.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.backgroundNeutral,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '"${app.message}"',
+                  style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    fontSize: seniorMode ? 15 : 13.5,
+                    color: AppTheme.darkSlate,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openCandidateProfile(context, app.caregiverId),
+                    icon: const Icon(Icons.person_search_rounded, size: 18),
+                    label: const Text('Ver perfil'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openCandidateChat(
+                      context: context,
+                      clientId: currentUserId,
+                      clientName: clientName,
+                      app: app,
+                    ),
+                    icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
+                    label: const Text('Chatear'),
+                  ),
+                ),
+              ],
+            ),
+            if (canChoose) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: seniorMode ? 50 : 44,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => JobOfferPaymentScreen(offer: offer, application: app),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.verified_user_rounded, size: 18),
+                  label: Text(
+                    'Elegir a $firstName (${totalWithFee.toStringAsFixed(2)} €)',
+                    style: TextStyle(
+                      fontSize: seniorMode ? 15.5 : 14,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
               ),
-            ),
-          if (offer.status == JobOfferStatus.open) ...[
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  final confirm = await CustomDialog.showConfirmation(
-                    context,
-                    title: 'Retirar Oferta',
-                    message:
-                        '¿Estás seguro de que deseas retirar esta oferta? Se cerrará la convocatoria y los cuidadores ya no podrán postularse.',
-                    confirmText: 'Retirar Oferta',
-                    cancelText: 'Mantener',
-                    isDestructive: true,
-                  );
-                  if (confirm == true && context.mounted) {
-                    await context.read<JobOfferNotifier>().cancelOffer(offer.id);
-                    if (context.mounted) {
-                      CustomSnackBar.show(context, message: 'Oferta retirada correctamente', type: SnackBarType.info);
-                      Navigator.pop(context);
-                    }
-                  }
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red.shade700,
-                  side: BorderSide(color: Colors.red.shade300),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+              const SizedBox(height: 6),
+              Center(
+                child: TextButton(
+                  onPressed: () => _confirmRejectApplication(context, offer.id, app),
+                  style: TextButton.styleFrom(foregroundColor: AppTheme.slateMuted),
+                  child: Text(
+                    'Descartar candidatura',
+                    style: TextStyle(fontSize: seniorMode ? 14 : 12.5),
+                  ),
                 ),
-                icon: const Icon(Icons.cancel_outlined, size: 18),
-                label: const Text('Retirar / Cancelar Oferta'),
               ),
-            ),
+            ] else if (isAccepted) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Text(
+                  '✓ Cuidador confirmado para este cuidado',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.green.shade800,
+                    fontWeight: FontWeight.w800,
+                    fontSize: seniorMode ? 15 : 13.5,
+                  ),
+                ),
+              ),
+            ] else if (isRejected) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Candidatura descartada',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w600,
+                    fontSize: seniorMode ? 14 : 12.5,
+                  ),
+                ),
+              ),
+            ],
           ],
-        ],
-      ],
+        ),
+      ),
     );
+  }
+
+  Future<void> _openCandidateProfile(BuildContext context, String caregiverId) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    CaregiverProfile? selectedCaregiver;
+    try {
+      selectedCaregiver = await DependencyInjection.caregivers.getCaregiver(caregiverId);
+    } catch (_) {
+      selectedCaregiver = null;
+    } finally {
+      if (context.mounted) {
+        Navigator.pop(context);
+      }
+    }
+
+    if (!context.mounted) return;
+    if (selectedCaregiver != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => CaregiverDetailScreen(caregiver: selectedCaregiver!)),
+      );
+    } else {
+      CustomSnackBar.show(
+        context,
+        message: 'No pudimos abrir el perfil de este cuidador.',
+        type: SnackBarType.error,
+      );
+    }
+  }
+
+  void _openCandidateChat({
+    required BuildContext context,
+    required String clientId,
+    required String? clientName,
+    required JobApplication app,
+  }) {
+    if (clientId.isEmpty) {
+      CustomSnackBar.show(
+        context,
+        message: 'Inicia sesión para poder abrir el chat.',
+        type: SnackBarType.error,
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          clientId: clientId,
+          caregiverId: app.caregiverId,
+          caregiverName: app.caregiverName,
+          caregiverImageUrl: app.caregiverImageUrl,
+          clientName: clientName,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmRejectApplication(
+    BuildContext context,
+    String offerId,
+    JobApplication app,
+  ) async {
+    final confirm = await CustomDialog.showConfirmation(
+      context,
+      title: 'Descartar candidatura',
+      message: '¿Quieres descartar la propuesta de ${app.caregiverName}? Podrás seguir viendo al resto de candidatos.',
+      confirmText: 'Descartar',
+      cancelText: 'Mantener',
+      isDestructive: true,
+    );
+    if (confirm != true || !context.mounted) return;
+    try {
+      await context.read<JobOfferNotifier>().rejectApplication(offerId, app.id);
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Candidatura descartada.',
+          type: SnackBarType.info,
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No pudimos actualizar la candidatura. Inténtalo de nuevo.',
+          type: SnackBarType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmCancelOffer(BuildContext context, JobOffer offer) async {
+    final confirm = await CustomDialog.showConfirmation(
+      context,
+      title: '¿Retirar esta oferta?',
+      message:
+          '¿Seguro que quieres retirar esta oferta? Se cerrará la convocatoria y no recibirás más candidatos.',
+      confirmText: 'Sí, retirar',
+      cancelText: 'Mantener',
+      isDestructive: true,
+    );
+    if (confirm != true || !context.mounted) return;
+    try {
+      await context.read<JobOfferNotifier>().cancelOffer(offer.id);
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Oferta retirada correctamente.',
+          type: SnackBarType.info,
+        );
+        Navigator.pop(context);
+      }
+    } catch (_) {
+      if (context.mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No pudimos retirar la oferta. Revisa tu conexión e inténtalo de nuevo.',
+          type: SnackBarType.error,
+        );
+      }
+    }
   }
 
   Widget _buildCaregiverActionSection({

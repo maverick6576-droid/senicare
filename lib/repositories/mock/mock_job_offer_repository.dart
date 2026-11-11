@@ -52,8 +52,14 @@ class MockJobOfferRepository implements JobOfferRepository {
 
   @override
   Stream<List<JobOffer>> streamClientOffers(String clientId, {int limit = 10}) async* {
-    yield _offers.where((o) => o.clientId == clientId).toList();
-    yield* _offersController.stream.map((list) => list.where((o) => o.clientId == clientId).toList());
+    List<JobOffer> filter(List<JobOffer> source) {
+      final list = source.where((o) => o.clientId == clientId).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list.take(limit).toList();
+    }
+
+    yield filter(_offers);
+    yield* _offersController.stream.map(filter);
   }
 
   @override

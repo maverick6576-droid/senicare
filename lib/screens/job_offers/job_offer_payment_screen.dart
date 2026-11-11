@@ -60,9 +60,21 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
   void _processPayment() async {
     final auth = context.read<AuthNotifier>();
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    
+    final clientId = auth.currentUserId;
+
+    if (clientId == null || clientId.isEmpty) {
+      _showSnackBar(scaffoldMessenger, 'Debes iniciar sesión para confirmar el pago.', Colors.red);
+      return;
+    }
+
+    if (widget.offer.totalHours <= 0 || widget.application.proposedPrice <= 0) {
+      _showSnackBar(scaffoldMessenger, 'El importe de la oferta no es válido.', Colors.red);
+      return;
+    }
+
     _safeSetState(() => _isProcessing = true);
 
+    String? chargedPaymentIntentId;
     try {
       // 1. Fetch caregiver to get stripeAccountId
       final caregiver = await DependencyInjection.caregivers.getCaregiver(widget.application.caregiverId);
@@ -151,6 +163,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
       }
 
       // 5. Payment Success -> Update DB
+      chargedPaymentIntentId = paymentIntentData['paymentIntentId'] as String?;
       if (!mounted) return;
       // Update application and offer statuses
       await context.read<JobOfferNotifier>().acceptApplication(widget.offer.id, widget.application.id, widget.application.caregiverId);
@@ -261,7 +274,10 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
     } catch (e) {
       debugPrint('Error processing payment: $e');
       if (mounted) {
-        _showSnackBar(scaffoldMessenger, 'Error al procesar el pago: $e', Colors.red);
+        final msg = chargedPaymentIntentId != null
+            ? 'El pago fue autorizado ($chargedPaymentIntentId), pero hubo un problema al registrar la reserva. Contacta con soporte.'
+            : 'No pudimos completar el pago. Inténtalo de nuevo.';
+        _showSnackBar(scaffoldMessenger, msg, Colors.red);
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -406,52 +422,112 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
     final subtotal = widget.offer.totalHours * widget.application.proposedPrice;
     final fee = subtotal * widget.offer.clientFeeRate;
     final total = subtotal + fee;
 
     return Scaffold(
+      backgroundColor: AppTheme.backgroundNeutral,
       appBar: AppBar(title: const Text('Confirmar y Pagar')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
         children: [
-          const Text('Resumen del servicio', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          ListTile(
-            title: Text(widget.offer.title),
-            subtitle: Text('Cuidador: ${widget.application.caregiverName}'),
-          ),
-          ListTile(
-            title: const Text('Precio acordado'),
-            trailing: Text('${widget.application.proposedPrice.toStringAsFixed(2)} €/h'),
-          ),
-          ListTile(
-            title: const Text('Total horas'),
-            trailing: Text('${widget.offer.totalHours}h'),
-          ),
-          const Divider(),
-          ListTile(
-            title: const Text('Subtotal'),
-            trailing: Text('${subtotal.toStringAsFixed(2)} €'),
-          ),
-          ListTile(
-            title: Row(
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: AppTheme.modernCardDecoration(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Flexible(
-                  child: Text('${(widget.offer.clientFeeRate * 100).toInt()}% Comisión de Gestión y Cobertura'),
+                Text(
+                  'Resumen del cuidado',
+                  style: TextStyle(
+                    fontSize: seniorMode ? 19 : 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.darkSlate,
+                  ),
                 ),
-                const SizedBox(width: 6),
-                InkWell(
-                  onTap: () => _showFeeInfoSheet(context),
-                  child: const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    widget.offer.title,
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: seniorMode ? 16.5 : 15),
+                  ),
+                  subtitle: Text(
+                    'Cuidador/a: ${widget.application.caregiverName}',
+                    style: TextStyle(fontSize: seniorMode ? 15 : 13.5),
+                  ),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text('Precio acordado', style: TextStyle(fontSize: seniorMode ? 15.5 : 14)),
+                  trailing: Text(
+                    '${widget.application.proposedPrice.toStringAsFixed(2)} €/h',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: seniorMode ? 15.5 : 14),
+                  ),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text('Duración', style: TextStyle(fontSize: seniorMode ? 15.5 : 14)),
+                  trailing: Text(
+                    '${widget.offer.totalHours}h',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: seniorMode ? 15.5 : 14),
+                  ),
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text('Subtotal servicio', style: TextStyle(fontSize: seniorMode ? 15.5 : 14)),
+                  trailing: Text(
+                    '${subtotal.toStringAsFixed(2)} €',
+                    style: TextStyle(fontSize: seniorMode ? 15.5 : 14),
+                  ),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          '${(widget.offer.clientFeeRate * 100).round()}% Gestión y Seguro RC',
+                          style: TextStyle(fontSize: seniorMode ? 15 : 13.5),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () => _showFeeInfoSheet(context),
+                        child: const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
+                      ),
+                    ],
+                  ),
+                  trailing: Text(
+                    '${fee.toStringAsFixed(2)} €',
+                    style: TextStyle(fontSize: seniorMode ? 15.5 : 14),
+                  ),
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Total protegido',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: seniorMode ? 18 : 16),
+                  ),
+                  trailing: Text(
+                    '${total.toStringAsFixed(2)} €',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: seniorMode ? 21 : 18.5,
+                      color: AppTheme.primary,
+                    ),
+                  ),
                 ),
               ],
             ),
-            trailing: Text('${fee.toStringAsFixed(2)} €'),
-          ),
-          ListTile(
-            title: const Text('Total a pagar', style: TextStyle(fontWeight: FontWeight.bold)),
-            trailing: Text('${total.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           ),
           const SizedBox(height: 16),
           Container(
@@ -464,14 +540,18 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '📋 Checklist de Cuidado para esta Oferta',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppTheme.darkSlate),
+                Text(
+                  '📋 Lista de tareas para la visita (opcional)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: seniorMode ? 16 : 14.5,
+                    color: AppTheme.darkSlate,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Tareas que el cuidador marcará en tiempo real durante la visita:',
-                  style: TextStyle(fontSize: 12, color: AppTheme.slateMuted),
+                Text(
+                  'El cuidador irá marcando cada punto durante el servicio:',
+                  style: TextStyle(fontSize: seniorMode ? 14 : 12.5, color: AppTheme.slateMuted),
                 ),
                 const SizedBox(height: 8),
                 if (_customChecklist.isNotEmpty)
@@ -481,7 +561,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
                     children: _customChecklist
                         .map((t) => Chip(
                               backgroundColor: Colors.white,
-                              label: Text(t, style: const TextStyle(fontSize: 12)),
+                              label: Text(t, style: TextStyle(fontSize: seniorMode ? 14 : 12.5)),
                               onDeleted: () => setState(() => _customChecklist.remove(t)),
                             ))
                         .toList(),
@@ -492,8 +572,10 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
                     Expanded(
                       child: TextField(
                         controller: _taskCtrl,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _addChecklistItem(),
                         decoration: InputDecoration(
-                          hintText: 'Añadir tarea (ej. Medicación, paseo)...',
+                          hintText: 'Añadir tarea (ej. paseo, comida)...',
                           isDense: true,
                           filled: true,
                           fillColor: Colors.white,
@@ -503,15 +585,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
                     ),
                     const SizedBox(width: 8),
                     FilledButton(
-                      onPressed: () {
-                        final val = _taskCtrl.text.trim();
-                        if (val.isNotEmpty && !_customChecklist.contains(val)) {
-                          setState(() {
-                            _customChecklist.add(val);
-                            _taskCtrl.clear();
-                          });
-                        }
-                      },
+                      onPressed: _addChecklistItem,
                       child: const Text('Añadir'),
                     ),
                   ],
@@ -524,16 +598,41 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-              child: const Text('Al ser un servicio recurrente, este pago retiene el importe total. Se irá liberando al cuidador a medida que se completen las sesiones.', style: TextStyle(color: Colors.blue)),
+              child: const Text(
+                'Al ser un servicio recurrente, este pago retiene el importe total y se libera conforme se completan las sesiones.',
+                style: TextStyle(color: Colors.blue),
+              ),
             ),
-          const SizedBox(height: 32),
-          FilledButton(
-            onPressed: _isProcessing ? null : _processPayment,
-            child: _isProcessing ? const CircularProgressIndicator(color: Colors.white) : Text('Pagar ${total.toStringAsFixed(2)} €'),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: seniorMode ? 56 : 50,
+            child: FilledButton(
+              onPressed: _isProcessing ? null : _processPayment,
+              child: _isProcessing
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                    )
+                  : Text(
+                      'Confirmar y Pagar ${total.toStringAsFixed(2)} €',
+                      style: TextStyle(fontSize: seniorMode ? 17 : 15.5, fontWeight: FontWeight.w700),
+                    ),
+            ),
           ),
         ],
       ),
     );
+  }
+
+  void _addChecklistItem() {
+    final val = _taskCtrl.text.trim();
+    if (val.isNotEmpty && !_customChecklist.contains(val)) {
+      setState(() {
+        _customChecklist.add(val);
+        _taskCtrl.clear();
+      });
+    }
   }
 }
 

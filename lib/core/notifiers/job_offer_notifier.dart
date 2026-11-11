@@ -32,6 +32,13 @@ class JobOfferNotifier extends ChangeNotifier {
 
   int _clientLimit = 10;
   String? _lastClientId;
+  bool isLoadingClientOffers = false;
+  bool _isLoadingMoreClient = false;
+  bool _hasMoreClientOffers = false;
+  String? clientError;
+  Completer<void>? _clientRefreshCompleter;
+
+  bool get hasMoreClientOffers => _hasMoreClientOffers;
 
   int _nearbyLimit = 15;
   double? _lastLat;
@@ -43,35 +50,88 @@ class JobOfferNotifier extends ChangeNotifier {
 
   void initForClient(String clientId, {bool forceRefresh = false}) {
     if (clientId.isEmpty) return;
-    if (!forceRefresh && _lastClientId == clientId && _clientSub != null) return;
+    if (!forceRefresh && _lastClientId == clientId && _clientSub != null && clientError == null) return;
     _clientLimit = 10;
     _lastClientId = clientId;
+    _hasMoreClientOffers = false;
+    _isLoadingMoreClient = false;
+    isLoadingClientOffers = true;
+    clientError = null;
     _subscribeClientOffers();
   }
 
+  Future<void> refreshClientOffers() async {
+    if (_lastClientId == null || _lastClientId!.isEmpty) return;
+    _clientRefreshCompleter?.complete();
+    final completer = Completer<void>();
+    _clientRefreshCompleter = completer;
+
+    isLoadingClientOffers = true;
+    clientError = null;
+    _clientLimit = 10;
+    notifyListeners();
+    _subscribeClientOffers();
+
+    await completer.future.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () {
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+        isLoadingClientOffers = false;
+        notifyListeners();
+      },
+    );
+  }
+
   void loadMoreClientOffers() {
-    if (_lastClientId != null) {
-      _clientLimit += 10;
-      _subscribeClientOffers();
+    if (_lastClientId == null || !_hasMoreClientOffers || _isLoadingMoreClient) {
+      return;
     }
+    _isLoadingMoreClient = true;
+    _clientLimit += 10;
+    notifyListeners();
+    _subscribeClientOffers();
   }
 
   void _subscribeClientOffers() {
     _clientSub?.cancel();
     _clientSub = DependencyInjection.jobOffers
         .streamClientOffers(_lastClientId!, limit: _clientLimit)
-        .listen((offers) {
-      clientOffers = offers;
-      notifyListeners();
+        .listen(
+      (offers) {
+        clientOffers = offers;
+        isLoadingClientOffers = false;
+        _isLoadingMoreClient = false;
+        clientError = null;
+        _hasMoreClientOffers = offers.length >= _clientLimit;
+        _clientRefreshCompleter?.complete();
+        _clientRefreshCompleter = null;
 
-      for (final offer in offers) {
-        if (offer.status == JobOfferStatus.open || offer.status == JobOfferStatus.inProgress) {
-          _subscribeToApplications(offer.id);
-        } else {
-          _unsubscribeFromApplications(offer.id);
+        final activeOfferIds = offers.map((o) => o.id).toSet();
+        final staleSubIds = _appSubs.keys.where((id) => !activeOfferIds.contains(id)).toList();
+        for (final staleId in staleSubIds) {
+          _unsubscribeFromApplications(staleId, notify: false);
         }
-      }
-    });
+
+        for (final offer in offers) {
+          if (offer.status == JobOfferStatus.open || offer.status == JobOfferStatus.inProgress) {
+            _subscribeToApplications(offer.id);
+          } else {
+            _unsubscribeFromApplications(offer.id, notify: false);
+          }
+        }
+        notifyListeners();
+      },
+      onError: (Object error) {
+        isLoadingClientOffers = false;
+        _isLoadingMoreClient = false;
+        clientError = 'No pudimos cargar tus ofertas. Revisa tu conexión e inténtalo de nuevo.';
+        _clientRefreshCompleter?.complete();
+        _clientRefreshCompleter = null;
+        notifyListeners();
+      },
+    );
   }
 
   void initForCaregiver(
@@ -205,17 +265,24 @@ class JobOfferNotifier extends ChangeNotifier {
 
   void _subscribeToApplications(String offerId) {
     if (_appSubs.containsKey(offerId)) return;
-    _appSubs[offerId] = DependencyInjection.jobOffers.streamOfferApplications(offerId, limit: 20).listen((apps) {
-      applicationsByOffer[offerId] = apps;
-      notifyListeners();
-    });
+    _appSubs[offerId] = DependencyInjection.jobOffers.streamOfferApplications(offerId, limit: 20).listen(
+      (apps) {
+        applicationsByOffer[offerId] = apps;
+        notifyListeners();
+      },
+      onError: (_) {},
+    );
   }
 
-  void _unsubscribeFromApplications(String offerId) {
+  void _unsubscribeFromApplications(String offerId, {bool notify = true}) {
+    final hadSub = _appSubs.containsKey(offerId);
+    final hadApps = applicationsByOffer.containsKey(offerId);
     _appSubs[offerId]?.cancel();
     _appSubs.remove(offerId);
     applicationsByOffer.remove(offerId);
-    notifyListeners();
+    if (notify && (hadSub || hadApps)) {
+      notifyListeners();
+    }
   }
 
   Future<void> createOffer(JobOffer offer) async {
@@ -276,6 +343,13 @@ class JobOfferNotifier extends ChangeNotifier {
   }
 
   Future<void> acceptApplication(String offerId, String applicationId, String caregiverId) async {
+    var appsSnapshot = List<JobApplication>.from(applicationsByOffer[offerId] ?? const []);
+    if (appsSnapshot.isEmpty) {
+      try {
+        appsSnapshot = await DependencyInjection.jobOffers.streamOfferApplications(offerId, limit: 50).first;
+      } catch (_) {}
+    }
+
     await DependencyInjection.jobOffers.updateApplicationStatus(offerId, applicationId, JobApplicationStatus.accepted);
     await DependencyInjection.jobOffers.updateOfferStatus(
       offerId,
@@ -284,21 +358,67 @@ class JobOfferNotifier extends ChangeNotifier {
       acceptedApplicationId: applicationId,
     );
 
-    final apps = applicationsByOffer[offerId] ?? [];
-    for (final app in apps) {
-      if (app.id != applicationId && app.status == JobApplicationStatus.pending) {
+    final offerIdx = clientOffers.indexWhere((o) => o.id == offerId);
+    if (offerIdx != -1) {
+      clientOffers[offerIdx].status = JobOfferStatus.inProgress;
+      clientOffers[offerIdx].acceptedCaregiverId = caregiverId;
+      clientOffers[offerIdx].acceptedApplicationId = applicationId;
+    }
+
+    for (final app in appsSnapshot) {
+      if (app.id == applicationId) {
+        app.status = JobApplicationStatus.accepted;
+      } else if (app.status == JobApplicationStatus.pending) {
         await DependencyInjection.jobOffers.updateApplicationStatus(offerId, app.id, JobApplicationStatus.rejected);
+        app.status = JobApplicationStatus.rejected;
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> rejectApplication(String offerId, String applicationId) async {
+    await DependencyInjection.jobOffers.updateApplicationStatus(
+      offerId,
+      applicationId,
+      JobApplicationStatus.rejected,
+    );
+    final apps = applicationsByOffer[offerId];
+    if (apps != null) {
+      final idx = apps.indexWhere((a) => a.id == applicationId);
+      if (idx != -1) {
+        apps[idx].status = JobApplicationStatus.rejected;
+        notifyListeners();
       }
     }
   }
 
   Future<void> cancelOffer(String offerId) async {
+    var appsSnapshot = List<JobApplication>.from(applicationsByOffer[offerId] ?? const []);
+    if (appsSnapshot.isEmpty) {
+      try {
+        appsSnapshot = await DependencyInjection.jobOffers.streamOfferApplications(offerId, limit: 50).first;
+      } catch (_) {}
+    }
+
     await DependencyInjection.jobOffers.updateOfferStatus(offerId, JobOfferStatus.cancelled);
     final offer = clientOffers.where((o) => o.id == offerId).firstOrNull;
     if (offer != null) {
       offer.status = JobOfferStatus.cancelled;
-      notifyListeners();
     }
+
+    for (final app in appsSnapshot) {
+      if (app.status == JobApplicationStatus.pending) {
+        try {
+          await DependencyInjection.jobOffers.updateApplicationStatus(
+            offerId,
+            app.id,
+            JobApplicationStatus.rejected,
+          );
+          app.status = JobApplicationStatus.rejected;
+        } catch (_) {}
+      }
+    }
+    notifyListeners();
   }
 
   void clear({bool notify = true}) {
@@ -306,7 +426,8 @@ class JobOfferNotifier extends ChangeNotifier {
         nearbyOffers.isNotEmpty ||
         myApplications.isNotEmpty ||
         _lastClientId != null ||
-        _lastLat != null;
+        _lastLat != null ||
+        clientError != null;
     _clientSub?.cancel();
     _clientSub = null;
     _nearbySub?.cancel();
@@ -315,16 +436,23 @@ class JobOfferNotifier extends ChangeNotifier {
       sub.cancel();
     }
     _appSubs.clear();
+    _clientRefreshCompleter?.complete();
+    _clientRefreshCompleter = null;
     clientOffers = [];
     nearbyOffers = [];
     myApplications = [];
     myApplicationsByOfferId.clear();
     applicationsByOffer.clear();
     _lastClientId = null;
+    _clientLimit = 10;
     _lastLat = null;
     _lastLng = null;
     _lastMaxDistanceKm = null;
     _caregiverId = null;
+    isLoadingClientOffers = false;
+    _isLoadingMoreClient = false;
+    _hasMoreClientOffers = false;
+    clientError = null;
     isLoadingNearby = false;
     isLoadingMyApplications = false;
     nearbyError = null;
@@ -335,6 +463,8 @@ class JobOfferNotifier extends ChangeNotifier {
 
   @override
   void dispose() {
+    _clientRefreshCompleter?.complete();
+    _clientRefreshCompleter = null;
     _clientSub?.cancel();
     _nearbySub?.cancel();
     for (final sub in _appSubs.values) {

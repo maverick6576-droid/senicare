@@ -34,15 +34,20 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
   @override
   void initState() {
     super.initState();
-    _scrollActive.addListener(_onScroll);
-    _scrollHistory.addListener(_onScroll);
+    _scrollActive.addListener(() => _onScroll(_scrollActive));
+    _scrollHistory.addListener(() => _onScroll(_scrollHistory));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final uid = context.read<AuthNotifier>().currentUserId;
+      if (uid != null && uid.isNotEmpty) {
+        context.read<JobOfferNotifier>().initForClient(uid);
+      }
+    });
   }
 
-  void _onScroll() {
-    if (_scrollActive.hasClients && _scrollActive.position.pixels >= _scrollActive.position.maxScrollExtent - 200) {
-      context.read<JobOfferNotifier>().loadMoreClientOffers();
-    }
-    if (_scrollHistory.hasClients && _scrollHistory.position.pixels >= _scrollHistory.position.maxScrollExtent - 200) {
+  void _onScroll(ScrollController controller) {
+    if (!controller.hasClients) return;
+    if (controller.position.pixels >= controller.position.maxScrollExtent - 180) {
       context.read<JobOfferNotifier>().loadMoreClientOffers();
     }
   }
@@ -54,106 +59,695 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
     super.dispose();
   }
 
+  void _openCreateOffer([JobOffer? template]) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => CreateOfferScreen(initialOffer: template)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final offers = context.watch<JobOfferNotifier>().clientOffers;
-    final appsMap = context.watch<JobOfferNotifier>().applicationsByOffer;
+    final jobNotifier = context.watch<JobOfferNotifier>();
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+    final offers = jobNotifier.clientOffers;
+    final appsMap = jobNotifier.applicationsByOffer;
 
-    final activeOffers = offers.where((o) => o.status == JobOfferStatus.open && !o.isExpired).toList();
-    final historyOffers = offers.where((o) => o.status != JobOfferStatus.open || o.isExpired).toList();
+    final activeOffers = offers
+        .where((o) => o.status == JobOfferStatus.inProgress || (o.status == JobOfferStatus.open && !o.isExpired))
+        .toList()
+      ..sort((a, b) {
+        int pendingCount(JobOffer o) =>
+            (appsMap[o.id] ?? const []).where((app) => app.status == JobApplicationStatus.pending).length;
 
-    Widget buildList(List<JobOffer> list, ScrollController controller) {
-      return RefreshIndicator(
-        onRefresh: () async {
-          final uid = context.read<AuthNotifier>().currentUserId ?? '';
-          if (uid.isNotEmpty) {
-            context.read<JobOfferNotifier>().initForClient(uid, forceRefresh: true);
-          }
-        },
-        child: list.isEmpty
-            ? ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  SizedBox(
-                    height: MediaQuery.of(context).size.height * 0.6,
-                    child: const Center(child: Text('No tienes ofertas en esta sección')),
-                  )
-                ],
-              )
-            : ListView.builder(
-                controller: controller,
-                physics: const AlwaysScrollableScrollPhysics(),
-                itemCount: list.length,
-                itemBuilder: (context, index) {
-                  final offer = list[index];
-                  final appsCount = (appsMap[offer.id] ?? []).length;
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: ListTile(
-                      title: Text(offer.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(
-                        '${offer.isExpired ? "CADUCADA" : offer.status.toString().split('.').last.toUpperCase()}   ${offer.pricePerHour.toStringAsFixed(2)}€/h',
-                      ),
-                      trailing: appsCount > 0
-                          ? Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Text(
-                                '$appsCount',
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                            )
-                          : null,
-                      onTap: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => OfferDetailScreen(offer: offer)));
-                      },
-                    ),
-                  );
-                },
-              ),
-      );
-    }
+        final aPending = a.status == JobOfferStatus.open ? pendingCount(a) : 0;
+        final bPending = b.status == JobOfferStatus.open ? pendingCount(b) : 0;
+        if ((aPending > 0) != (bPending > 0)) {
+          return aPending > 0 ? -1 : 1;
+        }
+        if (a.status != b.status) {
+          return a.status == JobOfferStatus.inProgress ? -1 : 1;
+        }
+        return a.startDate.compareTo(b.startDate);
+      });
+
+    final historyOffers = offers
+        .where((o) => o.status != JobOfferStatus.inProgress && (o.status != JobOfferStatus.open || o.isExpired))
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    final pendingToReview = activeOffers.fold<int>(
+      0,
+      (sum, o) =>
+          sum +
+          (o.status == JobOfferStatus.open
+              ? (appsMap[o.id] ?? const []).where((a) => a.status == JobApplicationStatus.pending).length
+              : 0),
+    );
 
     return DefaultTabController(
       length: 2,
       child: Scaffold(
+        backgroundColor: AppTheme.backgroundNeutral,
         body: Column(
           children: [
             Container(
               color: Colors.white,
-              child: const TabBar(
+              child: TabBar(
                 labelColor: AppTheme.primary,
                 unselectedLabelColor: AppTheme.slateMuted,
                 indicatorColor: AppTheme.primary,
                 indicatorWeight: 3,
-                labelStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: seniorMode ? 16 : 14.5,
+                ),
                 tabs: [
-                  Tab(text: 'Mis Ofertas Activas'),
-                  Tab(text: 'Historial'),
+                  Tab(text: 'Activas (${activeOffers.length})'),
+                  Tab(text: 'Historial (${historyOffers.length})'),
                 ],
               ),
             ),
             Expanded(
               child: TabBarView(
                 children: [
-                  buildList(activeOffers, _scrollActive),
-                  buildList(historyOffers, _scrollHistory),
+                  _buildOfferList(
+                    context: context,
+                    jobNotifier: jobNotifier,
+                    offers: activeOffers,
+                    appsMap: appsMap,
+                    controller: _scrollActive,
+                    isActiveTab: true,
+                    pendingCandidatesCount: pendingToReview,
+                    seniorMode: seniorMode,
+                  ),
+                  _buildOfferList(
+                    context: context,
+                    jobNotifier: jobNotifier,
+                    offers: historyOffers,
+                    appsMap: appsMap,
+                    controller: _scrollHistory,
+                    isActiveTab: false,
+                    pendingCandidatesCount: pendingToReview,
+                    seniorMode: seniorMode,
+                  ),
                 ],
               ),
             ),
           ],
         ),
         floatingActionButton: FloatingActionButton.extended(
-          onPressed: () {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateOfferScreen()));
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Publicar Oferta'),
+          heroTag: 'client_new_offer_fab',
+          onPressed: () => _openCreateOffer(),
+          icon: const Icon(Icons.add_rounded),
+          label: Text(
+            'Publicar Oferta',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: seniorMode ? 16 : 14.5,
+            ),
+          ),
           backgroundColor: AppTheme.primary,
           foregroundColor: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOfferList({
+    required BuildContext context,
+    required JobOfferNotifier jobNotifier,
+    required List<JobOffer> offers,
+    required Map<String, List<JobApplication>> appsMap,
+    required ScrollController controller,
+    required bool isActiveTab,
+    required int pendingCandidatesCount,
+    required bool seniorMode,
+  }) {
+    if (jobNotifier.isLoadingClientOffers && jobNotifier.clientOffers.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('Cargando tus ofertas...', style: TextStyle(color: AppTheme.slateMuted)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (jobNotifier.clientError != null && jobNotifier.clientOffers.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: AppTheme.modernCardDecoration(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.wifi_off_rounded, size: 44, color: Colors.red.shade600),
+                const SizedBox(height: 12),
+                Text(
+                  jobNotifier.clientError!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: seniorMode ? 16 : 14.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.darkSlate,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: () {
+                    final uid = context.read<AuthNotifier>().currentUserId;
+                    if (uid != null && uid.isNotEmpty) {
+                      jobNotifier.initForClient(uid, forceRefresh: true);
+                    }
+                  },
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => context.read<JobOfferNotifier>().refreshClientOffers(),
+      child: offers.isEmpty
+          ? ListView(
+              controller: controller,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 96),
+              children: [
+                if (jobNotifier.clientError != null) ...[
+                  _ClientErrorInlineBanner(
+                    message: jobNotifier.clientError!,
+                    seniorMode: seniorMode,
+                    onRetry: () => jobNotifier.refreshClientOffers(),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                _ClientEmptyOffersCard(
+                  isActiveTab: isActiveTab,
+                  seniorMode: seniorMode,
+                  onCreateOffer: () => _openCreateOffer(),
+                ),
+              ],
+            )
+          : ListView.builder(
+              controller: controller,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+              itemCount: offers.length + 1 + (jobNotifier.hasMoreClientOffers ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return _ClientOffersGuideBanner(
+                    seniorMode: seniorMode,
+                    isActiveTab: isActiveTab,
+                    pendingCandidatesCount: pendingCandidatesCount,
+                    errorMessage: jobNotifier.clientError,
+                    onRetry: () => jobNotifier.refreshClientOffers(),
+                  );
+                }
+                final offerIndex = index - 1;
+                if (offerIndex >= offers.length) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                }
+                final offer = offers[offerIndex];
+                final apps = appsMap[offer.id] ?? const [];
+                return _ClientOfferCard(
+                  offer: offer,
+                  applications: apps,
+                  seniorMode: seniorMode,
+                  onOpenDetail: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => OfferDetailScreen(offer: offer)),
+                    );
+                  },
+                  onRepublish: () => _openCreateOffer(offer),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class _ClientErrorInlineBanner extends StatelessWidget {
+  final String message;
+  final bool seniorMode;
+  final VoidCallback onRetry;
+
+  const _ClientErrorInlineBanner({
+    required this.message,
+    required this.seniorMode,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: Colors.red.shade900, fontSize: seniorMode ? 14 : 12.5),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Reintentar')),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientOffersGuideBanner extends StatelessWidget {
+  final bool seniorMode;
+  final bool isActiveTab;
+  final int pendingCandidatesCount;
+  final String? errorMessage;
+  final VoidCallback onRetry;
+
+  const _ClientOffersGuideBanner({
+    required this.seniorMode,
+    required this.isActiveTab,
+    required this.pendingCandidatesCount,
+    required this.errorMessage,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPending = isActiveTab && pendingCandidatesCount > 0;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        children: [
+          if (errorMessage != null) ...[
+            _ClientErrorInlineBanner(
+              message: errorMessage!,
+              seniorMode: seniorMode,
+              onRetry: onRetry,
+            ),
+            const SizedBox(height: 10),
+          ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: hasPending ? Colors.amber.shade50 : AppTheme.primarySurface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: hasPending
+                    ? Colors.amber.shade300
+                    : AppTheme.primary.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  hasPending ? Icons.notifications_active_rounded : Icons.verified_user_rounded,
+                  color: hasPending ? Colors.amber.shade900 : AppTheme.primary,
+                  size: seniorMode ? 24 : 21,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    !isActiveTab
+                        ? 'Aquí tienes tus ofertas anteriores. Puedes volver a publicar cualquiera con un toque.'
+                        : hasPending
+                            ? 'Tienes $pendingCandidatesCount candidato${pendingCandidatesCount == 1 ? '' : 's'} por revisar. Toca una oferta para ver perfiles y chatear.'
+                            : 'Publicar es gratis y sin compromiso. Solo pagas cuando elijas al cuidador que más confianza te dé.',
+                    style: TextStyle(
+                      fontSize: seniorMode ? 14.5 : 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.darkSlate,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientEmptyOffersCard extends StatelessWidget {
+  final bool isActiveTab;
+  final bool seniorMode;
+  final VoidCallback onCreateOffer;
+
+  const _ClientEmptyOffersCard({
+    required this.isActiveTab,
+    required this.seniorMode,
+    required this.onCreateOffer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: AppTheme.modernCardDecoration(),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: AppTheme.primarySurface,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isActiveTab ? Icons.campaign_rounded : Icons.history_rounded,
+              size: 40,
+              color: AppTheme.primary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            isActiveTab ? 'Aún no tienes ofertas activas' : 'Tu historial está vacío',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: seniorMode ? 19 : 17,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkSlate,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isActiveTab
+                ? 'Publica gratis el horario y el precio que ofreces. Los cuidadores de tu zona podrán responderte.'
+                : 'Aquí quedarán guardadas tus ofertas completadas, canceladas o con fecha pasada.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: seniorMode ? 15 : 13.5,
+              color: AppTheme.slateMuted,
+              height: 1.4,
+            ),
+          ),
+          if (isActiveTab) ...[
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: seniorMode ? 52 : 46,
+              child: FilledButton.icon(
+                onPressed: onCreateOffer,
+                icon: const Icon(Icons.add_rounded),
+                label: Text(
+                  'Publicar mi primera oferta',
+                  style: TextStyle(
+                    fontSize: seniorMode ? 16 : 14.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientOfferCard extends StatelessWidget {
+  final JobOffer offer;
+  final List<JobApplication> applications;
+  final bool seniorMode;
+  final VoidCallback onOpenDetail;
+  final VoidCallback onRepublish;
+
+  const _ClientOfferCard({
+    required this.offer,
+    required this.applications,
+    required this.seniorMode,
+    required this.onOpenDetail,
+    required this.onRepublish,
+  });
+
+  ({String label, Color bg, Color border, Color text}) _statusStyle(int pendingAppsCount) {
+    if (offer.isExpired) {
+      return (
+        label: 'Fecha pasada',
+        bg: Colors.grey.shade100,
+        border: Colors.grey.shade300,
+        text: Colors.grey.shade700,
+      );
+    }
+    switch (offer.status) {
+      case JobOfferStatus.open:
+        if (pendingAppsCount > 0) {
+          return (
+            label: '$pendingAppsCount candidato${pendingAppsCount == 1 ? '' : 's'}',
+            bg: Colors.amber.shade50,
+            border: Colors.amber.shade400,
+            text: Colors.amber.shade900,
+          );
+        }
+        return (
+          label: 'Buscando cuidador',
+          bg: AppTheme.primarySurface,
+          border: AppTheme.primary.withValues(alpha: 0.35),
+          text: AppTheme.primary,
+        );
+      case JobOfferStatus.inProgress:
+        return (
+          label: 'Cuidador confirmado',
+          bg: Colors.green.shade50,
+          border: Colors.green.shade300,
+          text: Colors.green.shade800,
+        );
+      case JobOfferStatus.completed:
+        return (
+          label: 'Finalizada',
+          bg: Colors.teal.shade50,
+          border: Colors.teal.shade200,
+          text: Colors.teal.shade800,
+        );
+      case JobOfferStatus.cancelled:
+        return (
+          label: 'Cancelada',
+          bg: Colors.red.shade50,
+          border: Colors.red.shade200,
+          text: Colors.red.shade700,
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pendingCount = applications.where((a) => a.status == JobApplicationStatus.pending).length;
+    final acceptedApp = applications.where((a) => a.status == JobApplicationStatus.accepted).firstOrNull;
+    final status = _statusStyle(pendingCount);
+    final totalEstimate = offer.pricePerHour * offer.totalHours;
+    final d = offer.startDate;
+    final dateText =
+        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year} • ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: pendingCount > 0 && offer.status == JobOfferStatus.open && !offer.isExpired
+              ? Colors.amber.shade300
+              : Colors.grey.shade200,
+          width: pendingCount > 0 && offer.status == JobOfferStatus.open && !offer.isExpired ? 1.4 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpenDetail,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      offer.title,
+                      style: TextStyle(
+                        fontSize: seniorMode ? 18.5 : 16.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.darkSlate,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: status.bg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: status.border),
+                    ),
+                    child: Text(
+                      status.label,
+                      style: TextStyle(
+                        fontSize: seniorMode ? 13 : 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: status.text,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (offer.isUrgent && offer.status == JobOfferStatus.open && !offer.isExpired) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade300),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.flash_on_rounded, size: 14, color: Colors.orange.shade800),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Urgente (<24h)',
+                        style: TextStyle(
+                          fontSize: seniorMode ? 12.5 : 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today_rounded, size: 15, color: AppTheme.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '$dateText (${offer.totalHours}h)',
+                      style: TextStyle(
+                        fontSize: seniorMode ? 15 : 13.5,
+                        color: AppTheme.darkSlate,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.euro_rounded, size: 15, color: AppTheme.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${offer.pricePerHour.toStringAsFixed(2)} €/h  •  Total ${totalEstimate.toStringAsFixed(0)} €',
+                      style: TextStyle(
+                        fontSize: seniorMode ? 15 : 13.5,
+                        color: AppTheme.slateMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (acceptedApp != null && offer.status == JobOfferStatus.inProgress) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    'Cuidador elegido: ${acceptedApp.caregiverName}',
+                    style: TextStyle(
+                      fontSize: seniorMode ? 14.5 : 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.green.shade900,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              if (offer.isExpired || offer.status == JobOfferStatus.cancelled)
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: onRepublish,
+                        icon: const Icon(Icons.replay_rounded, size: 18),
+                        label: const Text(
+                          'Volver a publicar',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: onOpenDetail,
+                      child: const Text('Ver detalle'),
+                    ),
+                  ],
+                )
+              else
+                SizedBox(
+                  width: double.infinity,
+                  child: pendingCount > 0 && offer.status == JobOfferStatus.open
+                      ? FilledButton.icon(
+                          onPressed: onOpenDetail,
+                          icon: const Icon(Icons.people_alt_rounded, size: 18),
+                          label: Text(
+                            'Revisar $pendingCount candidato${pendingCount == 1 ? '' : 's'}',
+                            style: TextStyle(
+                              fontSize: seniorMode ? 15.5 : 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        )
+                      : OutlinedButton(
+                          onPressed: onOpenDetail,
+                          child: Text(
+                            offer.status == JobOfferStatus.inProgress
+                                ? 'Ver cuidador y chatear'
+                                : 'Ver detalle de la oferta',
+                            style: TextStyle(
+                              fontSize: seniorMode ? 15 : 13.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                ),
+            ],
+          ),
         ),
       ),
     );
