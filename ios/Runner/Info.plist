@@ -68,5 +68,11 @@
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>Necesitamos acceso al micrófono para que puedas enviar notas de voz en el chat.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Necesitamos acceso a la cámara para hacer fotos en el chat, en el diario de cuidados y verificar tu identidad.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Necesitamos acceso a tu galería para compartir fotografías en el chat y en el diario de cuidados.</string>
 	</dict>
 </plist>

@@ -873,13 +873,19 @@ exports.pushOnMessageCreated = onDocumentCreated({
     const chatDoc = await admin.firestore().collection("chats").doc(event.params.chatRoomId).get();
     const chatData = chatDoc.exists ? chatDoc.data() : {};
     if (receiverId === caregiverId) {
-      notificationTitle = "Mensaje de la Familia";
+      notificationTitle = chatData.clientName
+        ? `Mensaje de ${chatData.clientName}`
+        : "Mensaje de la Familia";
     } else {
       notificationTitle = `Mensaje de ${chatData.caregiverName || "tu cuidador/a"}`;
     }
   } catch (_) {}
 
-  await sendPushNotification(receiverId, notificationTitle, message.text || "Tienes un mensaje nuevo.", {
+  const pushBody = message.isDeleted
+    ? "Se ha eliminado un mensaje"
+    : (message.text || "Tienes un mensaje nuevo.");
+
+  await sendPushNotification(receiverId, notificationTitle, pushBody, {
     type: "chat",
     chatRoomId: event.params.chatRoomId,
     senderId: senderId

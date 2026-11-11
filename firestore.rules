@@ -76,12 +76,12 @@ service cloud.firestore {
 
     // 4. Coleccion CHATS
     match /chats/{chatId} {
-      allow read, update: if isAuthenticated() && (
-        request.auth.uid == resource.data.clientId || 
-        request.auth.uid == resource.data.caregiverId || 
+      allow read, write: if isAuthenticated() && (
+        chatId.split("_")[0] == request.auth.uid ||
+        chatId.split("_")[1] == request.auth.uid ||
+        (resource != null && (request.auth.uid == resource.data.clientId || request.auth.uid == resource.data.caregiverId)) ||
         isAdmin()
       );
-      allow create: if isAuthenticated();
       
       match /messages/{messageId} {
         allow read, write: if isAuthenticated() && (

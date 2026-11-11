@@ -42,6 +42,19 @@ service firebase.storage {
       allow write: if isAuthenticated();
     }
 
+    // --- Archivos multimedia del chat (fotos y notas de voz) ---
+    match /chat_media/{roomId}/{allPaths=**} {
+      allow read, write: if isAuthenticated() && (
+        roomId.matches('.*' + request.auth.uid + '.*') ||
+        isAdmin()
+      );
+    }
+
+    // --- Fotos del Diario del Cuidado de reservas ---
+    match /care_journal/{bookingId}/{allPaths=**} {
+      allow read, write: if isAuthenticated();
+    }
+
     // --- Archivos generales de la app ---
     match /app_assets/{allPaths=**} {
       allow read: if true;
