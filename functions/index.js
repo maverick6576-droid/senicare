@@ -935,12 +935,16 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
   try {
     const staleHolds = await admin.firestore().collection("bookings").where("status", "==", "pendingPayment").get();
     for (const holdDoc of staleHolds.docs) {
-      const hb = holdDoc.data();
-      const createdAt = hb.createdAt ? hb.createdAt.toDate() : null;
-      const ageMs = createdAt ? (now.getTime() - createdAt.getTime()) : (35 * 60 * 1000);
-      if (ageMs > 30 * 60 * 1000) {
-        await reopenBookingSlots(hb.caregiverId, hb.day, hb.slot);
-        await holdDoc.ref.delete();
+      try {
+        const hb = holdDoc.data();
+        const createdAt = hb.createdAt ? hb.createdAt.toDate() : null;
+        const ageMs = createdAt ? (now.getTime() - createdAt.getTime()) : (35 * 60 * 1000);
+        if (ageMs > 30 * 60 * 1000) {
+          await reopenBookingSlots(hb.caregiverId, hb.day, hb.slot);
+          await holdDoc.ref.delete();
+        }
+      } catch (itemErr) {
+        console.error(`Cron Error cleaning pendingPayment hold ${holdDoc.id}:`, itemErr);
       }
     }
   } catch (holdErr) {
@@ -954,35 +958,37 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
       .where("status", "==", "pending")
       .get();
     for (const pDoc of pendingSnap.docs) {
-      const pb = pDoc.data();
-      let pDateParts;
-      if (pb.day && pb.day.includes("/")) {
-        const parts = pb.day.split("/");
-        pDateParts = [parts[2], parts[1], parts[0]];
-      } else if (pb.day) {
-        pDateParts = pb.day.split("-");
-      }
-      if (pDateParts && pDateParts.length === 3 && pb.slot) {
-        const startStr = pb.slot.includes("-") ? pb.slot.split("-")[0] : pb.slot;
-        const startParts = startStr.split(":");
-        const scheduledStart = parseBookingStartDateTime(pb.day, pb.slot);
-        if (scheduledStart && now > scheduledStart) {
-          const isPaid = await verifyPaymentIntentIsPaid(stripe, pb);
-          const fullRefund = pb.totalPaid || pb.cost || 0;
-          if (isPaid && pb.paymentIntentId && fullRefund > 0) {
-            await createIdempotentRefund(stripe, {
-              paymentIntentId: pb.paymentIntentId,
-              amountInCents: Math.round(fullRefund * 100),
-              idempotencyKey: `expired_pending_refund_${pDoc.id}`,
+      try {
+        const pb = pDoc.data();
+        let pDateParts;
+        if (pb.day && pb.day.includes("/")) {
+          const parts = pb.day.split("/");
+          pDateParts = [parts[2], parts[1], parts[0]];
+        } else if (pb.day) {
+          pDateParts = pb.day.split("-");
+        }
+        if (pDateParts && pDateParts.length === 3 && pb.slot) {
+          const scheduledStart = parseBookingStartDateTime(pb.day, pb.slot);
+          if (scheduledStart && now > scheduledStart) {
+            const isPaid = await verifyPaymentIntentIsPaid(stripe, pb);
+            const fullRefund = pb.totalPaid || pb.cost || 0;
+            if (isPaid && pb.paymentIntentId && fullRefund > 0) {
+              await createIdempotentRefund(stripe, {
+                paymentIntentId: pb.paymentIntentId,
+                amountInCents: Math.round(fullRefund * 100),
+                idempotencyKey: `expired_pending_refund_${pDoc.id}`,
+              });
+            }
+            await reopenBookingSlots(pb.caregiverId, pb.day, pb.slot);
+            await pDoc.ref.update({
+              status: "cancelled",
+              escrowStatus: isPaid ? "refunded" : "cancelled",
+              cancellationReason: "Expirada sin respuesta del cuidador",
             });
           }
-          await reopenBookingSlots(pb.caregiverId, pb.day, pb.slot);
-          await pDoc.ref.update({
-            status: "cancelled",
-            escrowStatus: isPaid ? "refunded" : "cancelled",
-            cancellationReason: "Expirada sin respuesta del cuidador",
-          });
         }
+      } catch (itemErr) {
+        console.error(`Cron Error expiring pending booking ${pDoc.id}:`, itemErr);
       }
     }
   } catch (pendingErr) {

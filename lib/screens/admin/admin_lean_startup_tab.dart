@@ -25,14 +25,14 @@ class _LeanMetricsData {
   final double avgCac;
   final double pmfScore;
 
-  double get activeClientsRatio => totalClients > 0 ? (activeClients / totalClients).clamp(0.0, 1.0) : 0.76;
-  double get payingClientsRatio => totalClients > 0 ? (payingClients / totalClients).clamp(0.0, 1.0) : 0.54;
-  double get repeatClientsRatio => totalClients > 0 ? (repeatClients / totalClients).clamp(0.0, 1.0) : 0.41;
-  double get refClientsRatio => totalClients > 0 ? (repeatClientsRatio * 0.5).clamp(0.0, 1.0) : 0.22;
+  double get activeClientsRatio => totalClients > 0 ? (activeClients / totalClients).clamp(0.0, 1.0) : 0.0;
+  double get payingClientsRatio => totalClients > 0 ? (payingClients / totalClients).clamp(0.0, 1.0) : 0.0;
+  double get repeatClientsRatio => totalClients > 0 ? (repeatClients / totalClients).clamp(0.0, 1.0) : 0.0;
+  double get refClientsRatio => totalClients > 0 ? (repeatClientsRatio * 0.5).clamp(0.0, 1.0) : 0.0;
 
-  double get activeCaregiversRatio => totalCaregivers > 0 ? (activeCaregivers / totalCaregivers).clamp(0.0, 1.0) : 0.81;
-  double get earningCaregiversRatio => totalCaregivers > 0 ? (earningCaregivers / totalCaregivers).clamp(0.0, 1.0) : 0.62;
-  double get repeatCaregiversRatio => totalCaregivers > 0 ? (repeatCaregivers / totalCaregivers).clamp(0.0, 1.0) : 0.48;
+  double get activeCaregiversRatio => totalCaregivers > 0 ? (activeCaregivers / totalCaregivers).clamp(0.0, 1.0) : 0.0;
+  double get earningCaregiversRatio => totalCaregivers > 0 ? (earningCaregivers / totalCaregivers).clamp(0.0, 1.0) : 0.0;
+  double get repeatCaregiversRatio => totalCaregivers > 0 ? (repeatCaregivers / totalCaregivers).clamp(0.0, 1.0) : 0.0;
   double get refCaregiversRatio => totalCaregivers > 0 ? (repeatCaregiversRatio * 0.6).clamp(0.0, 1.0) : 0.29;
 
   _LeanMetricsData({

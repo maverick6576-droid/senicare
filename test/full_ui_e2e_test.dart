@@ -25,6 +25,7 @@ class MockClientRepository implements ClientRepository {
 void main() {
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
+    AppTheme.useSystemFonts = true;
     DependencyInjection.auth = MockAuthRepository();
     DependencyInjection.caregivers = MockCaregiverRepository();
     DependencyInjection.clients = MockClientRepository();
@@ -32,6 +33,12 @@ void main() {
     DependencyInjection.chats = MockChatRepository();
     DependencyInjection.reviews = MockReviewRepository();
     DependencyInjection.stats = MockStatsRepository();
+    DependencyInjection.jobOffers = MockJobOfferRepository();
+    DependencyInjection.families = MockFamilyRepository();
+  });
+
+  tearDownAll(() {
+    AppTheme.useSystemFonts = false;
   });
 
   testWidgets('Full UI E2E Flow: Registro, Reserva y Valoracion', (WidgetTester tester) async {
@@ -59,17 +66,22 @@ void main() {
     );
 
     // 1. REGISTRO DE CUIDADOR
-    final registerLink = find.text('¿No tienes cuenta? Regístrate aquí');
-    await tester.ensureVisible(registerLink);
-    await tester.tap(registerLink);
+    final registerTab = find.text('Registrarse');
+    await tester.ensureVisible(registerTab);
+    await tester.tap(registerTab);
     await tester.pump(const Duration(milliseconds: 500));
 
-    await tester.tap(find.text('Cuidador'));
+    final caregiverRoleCard = find.text('Cuidador/a');
+    await tester.ensureVisible(caregiverRoleCard);
+    await tester.tap(caregiverRoleCard);
     await tester.pump(const Duration(milliseconds: 500));
 
-    await tester.enterText(find.byType(TextField).at(0), 'nuevo_cuida@test.com');
-    await tester.enterText(find.byType(TextField).at(1), 'password123');
-    await tester.tap(find.text('Registrarse'));
+    await tester.enterText(find.byType(TextFormField).at(0), 'nuevo_cuida@test.com');
+    await tester.enterText(find.byType(TextFormField).at(1), 'password123');
+    await tester.enterText(find.byType(TextFormField).at(2), 'password123');
+    final submitRegisterBtn = find.text('Crear Cuenta Ahora');
+    await tester.ensureVisible(submitRegisterBtn);
+    await tester.tap(submitRegisterBtn);
     await tester.pump(const Duration(seconds: 2));
 
     final caregiverUid = authNotifier.currentUserId ?? 'c1';

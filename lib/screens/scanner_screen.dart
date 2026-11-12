@@ -19,6 +19,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
   bool _isProcessing = false;
   final TextEditingController _pinController = TextEditingController();
 
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
   bool _validateCheckInWindow() {
     final start = widget.booking.scheduledStartTime;
     final end = widget.booking.scheduledEndTime;

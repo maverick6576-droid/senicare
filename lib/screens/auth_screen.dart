@@ -216,7 +216,20 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
-                        child: Image.asset('assets/images/logo.png', height: 88, width: 88),
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          height: 88,
+                          width: 88,
+                          errorBuilder: (_, _, _) => const SizedBox(
+                            height: 88,
+                            width: 88,
+                            child: Icon(
+                              Icons.health_and_safety_rounded,
+                              size: 52,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),

@@ -27,7 +27,20 @@ class DependencyInjection {
     } catch (_) {}
 
     if (!hasFirebase) {
-      debugPrint("CRITICAL: Firebase failed to initialize. The app will likely crash.");
+      debugPrint(
+        "WARNING: Firebase is not initialized. Falling back to Mock repositories.",
+      );
+      auth = MockAuthRepository();
+      caregivers = MockCaregiverRepository();
+      bookings = MockBookingRepository();
+      chats = MockChatRepository();
+      stats = _NoopStatsRepository();
+      reviews = MockReviewRepository();
+      reports = MockReportRepository();
+      clients = MockClientRepository();
+      jobOffers = MockJobOfferRepository();
+      families = MockFamilyRepository();
+      return;
     }
     // Firebase Implementations (using firebase_auth and cloud_firestore)
     auth = FirebaseAuthRepository();
@@ -41,4 +54,22 @@ class DependencyInjection {
     jobOffers = FirestoreJobOfferRepository();
     families = FirestoreFamilyRepository();
   }
+}
+
+class _NoopStatsRepository implements FirestoreStatsRepository {
+  @override
+  Future<int> getAccumulatedHours(String clientId, String caregiverId) async => 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> getCaregiverClientStats(
+    String caregiverId,
+  ) async =>
+      const [];
+
+  @override
+  Future<void> addCompletedHours(
+    String clientId,
+    String caregiverId,
+    int hoursToAdd,
+  ) async {}
 }

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
+  /// Permite desactivar las fuentes remotas de Google Fonts en tests headless (`--no-test-assets`).
+  static bool useSystemFonts = false;
+
   static const Color primary = Color(0xFF0D9488); // Teal corporativo vibrante
   static const Color primaryColor = primary;
   static const Color secondaryColor = Color(0xFF059669); // Esmeralda de confirmación
@@ -47,8 +50,8 @@ class AppTheme {
   }
 
   static ThemeData getTheme(bool seniorMode) {
-    final titleFont = GoogleFonts.outfit();
-    final bodyFont = GoogleFonts.inter();
+    final titleFont = useSystemFonts ? const TextStyle() : GoogleFonts.outfit();
+    final bodyFont = useSystemFonts ? const TextStyle() : GoogleFonts.inter();
 
     return ThemeData(
       useMaterial3: true,
@@ -74,7 +77,7 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: Colors.white,
-          minimumSize: Size(double.infinity, seniorMode ? 64 : 54),
+          minimumSize: Size(0, seniorMode ? 56 : 48),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           textStyle: titleFont.copyWith(fontSize: seniorMode ? 19 : 16, fontWeight: FontWeight.w700, letterSpacing: 0.2),
@@ -85,7 +88,7 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: primary,
           side: const BorderSide(color: primary, width: 1.5),
-          minimumSize: Size(double.infinity, seniorMode ? 64 : 54),
+          minimumSize: Size(0, seniorMode ? 56 : 48),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           textStyle: titleFont.copyWith(fontSize: seniorMode ? 19 : 16, fontWeight: FontWeight.w700),

@@ -3,6 +3,7 @@ name: Deploy Firebase Functions
 on:
   push:
     branches:
+      - main
       - master
     paths:
       - 'functions/**' # Solo se ejecuta si hay cambios en la carpeta de backend
@@ -17,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
 
       - name: Install Dependencies
         run: npm install

@@ -89,7 +89,7 @@ class MacroStripeEscrowAuditor {
         reason: 'La disputa debe resolverse con saldo dividido según acuerdo');
     expect(booking.status, BookingStatus.completed);
     verifiedTransactions++;
-    log('DISPUTE RESOLUTION OK | ID: ${booking.id} | Acuerdo aceptado por importe propuesto: ${agreedAmount}€');
+    log('DISPUTE RESOLUTION OK | ID: ${booking.id} | Acuerdo aceptado por importe propuesto: $agreedAmount€');
   }
 }
 
@@ -370,7 +370,7 @@ class MacroBookingRepository implements BookingRepository {
     notifier.track(
       old.caregiverId,
       'Disputa Abierta',
-      'Se ha abierto una incidencia en la reserva con propuesta de acuerdo por importe de ${proposedAmount}€.',
+      'Se ha abierto una incidencia en la reserva con propuesta de acuerdo por importe de $proposedAmount€.',
     );
     _notify();
   }

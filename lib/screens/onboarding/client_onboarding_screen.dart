@@ -23,6 +23,15 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
   double? _homeLat;
   double? _homeLon;
 
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _addressCtrl.dispose();
+    _patientDetailsCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _recheckEmailInvitation() async {
     setState(() => _isRecheckingEmail = true);
     try {

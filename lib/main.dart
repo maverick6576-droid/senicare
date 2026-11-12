@@ -29,8 +29,13 @@ Future<void> main() async {
     );
     
     try {
+      final serverClientId = dotenv.isInitialized
+          ? dotenv.env['GOOGLE_SERVER_CLIENT_ID']
+          : null;
       await GoogleSignIn.instance.initialize(
-        serverClientId: dotenv.env['GOOGLE_SERVER_CLIENT_ID'] ?? '834223742998-2s46vm8a43tip1tbldssoeom5te5o6al.apps.googleusercontent.com',
+        serverClientId: (serverClientId != null && serverClientId.isNotEmpty)
+            ? serverClientId
+            : '834223742998-2s46vm8a43tip1tbldssoeom5te5o6al.apps.googleusercontent.com',
       );
     } catch (e) {
       debugPrint("Google SignIn init failed: $e");

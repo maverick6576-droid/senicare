@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// Preserved enum casing for backwards-compatibility with stored Firestore messages.
+// ignore: constant_identifier_names
 enum ChatSender { Client, Caregiver }
 
 enum ChatMessageType { text, image, audio, location, call, system }

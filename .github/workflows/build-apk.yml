@@ -29,6 +29,11 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Analyze and run tests
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub --no-test-assets
+
       - name: Create .env file for assets
         run: |
           echo "STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}" > .env

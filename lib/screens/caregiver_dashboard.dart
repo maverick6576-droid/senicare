@@ -1271,36 +1271,40 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     BookingNotifier state,
   ) async {
     final ctrl = TextEditingController(text: b.careNotes);
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('📝 Resumen del Cuidado'),
-        content: TextField(
-          controller: ctrl,
-          maxLines: 4,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Cómo se encuentra el familiar hoy, comidas, estado de ánimo...',
-            border: OutlineInputBorder(),
+    try {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('📝 Resumen del Cuidado'),
+          content: TextField(
+            controller: ctrl,
+            maxLines: 4,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Cómo se encuentra el familiar hoy, comidas, estado de ánimo...',
+              border: OutlineInputBorder(),
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                HapticFeedback.mediumImpact();
+                state.updateCareNotes(b.id, ctrl.text.trim());
+                Navigator.pop(ctx);
+                CustomSnackBar.show(context, message: '📝 Parte diario guardado.', type: SnackBarType.success);
+              },
+              child: const Text('Guardar Nota'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              HapticFeedback.mediumImpact();
-              state.updateCareNotes(b.id, ctrl.text.trim());
-              Navigator.pop(ctx);
-              CustomSnackBar.show(context, message: '📝 Parte diario guardado.', type: SnackBarType.success);
-            },
-            child: const Text('Guardar Nota'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      ctrl.dispose();
+    }
   }
 
   void _showPhotoFullScreen(BuildContext context, String photoUrl) {

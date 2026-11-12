@@ -74,6 +74,20 @@
 		<string>Necesitamos acceso a la cámara para hacer fotos en el chat, en el diario de cuidados y verificar tu identidad.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>Necesitamos acceso a tu galería para compartir fotografías en el chat y en el diario de cuidados.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Necesitamos tu ubicación para mostrar cuidadores cercanos, validar el check-in en el domicilio y compartir ubicaciones en el chat.</string>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>remote-notification</string>
+		</array>
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>https</string>
+			<string>http</string>
+			<string>tel</string>
+			<string>mailto</string>
+			<string>whatsapp</string>
+		</array>
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>

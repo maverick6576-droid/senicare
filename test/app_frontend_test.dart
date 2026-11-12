@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 void main() {
   setUpAll(() {
+    AppTheme.useSystemFonts = true;
     ClientTutorialService.useLocalFileStorage = false;
     CaregiverTutorialService.useLocalFileStorage = false;
     // Override dependencies with Mock implementations for headless testing
@@ -17,6 +18,12 @@ void main() {
     DependencyInjection.reviews = MockReviewRepository();
     DependencyInjection.reports = MockReportRepository();
     DependencyInjection.clients = MockClientRepository();
+    DependencyInjection.jobOffers = MockJobOfferRepository();
+    DependencyInjection.families = MockFamilyRepository();
+  });
+
+  tearDownAll(() {
+    AppTheme.useSystemFonts = false;
   });
 
   Widget createTestApp() {
@@ -44,6 +51,30 @@ void main() {
           update: (_, auth, chatNotifier) {
             chatNotifier!.updateAuth(auth.currentUserId, auth.currentRole);
             return chatNotifier;
+          },
+        ),
+        ChangeNotifierProxyProvider2<AuthNotifier, LocationNotifier, JobOfferNotifier>(
+          create: (_) => JobOfferNotifier(),
+          update: (_, auth, location, jobOfferNotifier) {
+            if (!auth.isAuthenticated || auth.currentUserId == null) {
+              jobOfferNotifier!.clear(notify: false);
+            } else if (auth.currentRole == 'client') {
+              jobOfferNotifier!.initForClient(
+                auth.effectiveClientId ?? auth.currentUserId!,
+              );
+            } else if (auth.currentRole == 'caregiver') {
+              final lat = auth.currentCaregiver?.latitude ?? location.latitude;
+              final lng = auth.currentCaregiver?.longitude ?? location.longitude;
+              if (lat != null && lng != null) {
+                jobOfferNotifier!.initForCaregiver(
+                  lat,
+                  lng,
+                  auth.currentCaregiver?.maxDistanceRadius ?? 50.0,
+                  caregiverId: auth.currentUserId,
+                );
+              }
+            }
+            return jobOfferNotifier!;
           },
         ),
       ],
