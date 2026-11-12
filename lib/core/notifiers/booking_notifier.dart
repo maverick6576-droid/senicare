@@ -226,7 +226,9 @@ class BookingNotifier extends ChangeNotifier {
           int.parse(startParts[0]) * 60 + (startParts.length > 1 ? int.parse(startParts[1]) : 0);
       final endMins =
           int.parse(endParts[0]) * 60 + (endParts.length > 1 ? int.parse(endParts[1]) : 0);
-      final diffHours = ((endMins - startMins).abs() / 60.0).round();
+      var diffMins = endMins - startMins;
+      if (diffMins <= 0) diffMins += 24 * 60;
+      final diffHours = (diffMins / 60.0).round();
       return diffHours < 1 ? 1 : diffHours;
     } catch (e) {
       debugPrint('Error calculating hours for stats: $e');
@@ -256,9 +258,13 @@ class BookingNotifier extends ChangeNotifier {
       b.escrowStatus = useCloud ? 'released_manual' : 'released';
       b.liveStatus = 'completed';
 
-      final hours = _calculateRoundedHours(b.slot);
-      await DependencyInjection.stats
-          .addCompletedHours(b.clientId, b.caregiverId, hours);
+      // En Firebase, la Cloud Function releaseEscrowPayment suma las horas y actualiza stats
+      // en una colección bloqueada para escritura en cliente.
+      if (!useCloud) {
+        final hours = _calculateRoundedHours(b.slot);
+        await DependencyInjection.stats
+            .addCompletedHours(b.clientId, b.caregiverId, hours);
+      }
       notifyListeners();
     }
   }
@@ -445,17 +451,29 @@ class BookingNotifier extends ChangeNotifier {
     }
   }
 
-  Future<void> addTipToBooking(String bookingId, double tipAmount) async {
+  Future<void> addTipToBooking(
+    String bookingId,
+    double tipAmount, {
+    String? customerEmail,
+    String? customerName,
+  }) async {
     if (tipAmount <= 0) return;
+    final bool useCloud = useFirebaseBackend && Firebase.apps.isNotEmpty;
+    if (useCloud) {
+      final paid = await StripeService.payTipWithStripe(
+        bookingId: bookingId,
+        tipAmount: tipAmount,
+        customerEmail: customerEmail,
+        customerName: customerName,
+      );
+      if (!paid) {
+        throw Exception('Pago de propina cancelado.');
+      }
+    }
     final b = bookings.where((b) => b.id == bookingId).firstOrNull;
     if (b != null) {
       b.tipAmount += tipAmount;
       notifyListeners();
-    }
-    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-        'tipAmount': FieldValue.increment(tipAmount),
-      });
     }
   }
 
@@ -572,6 +590,17 @@ class BookingNotifier extends ChangeNotifier {
       comment: comment,
     );
 
+    final bool useCloud = useFirebaseBackend && Firebase.apps.isNotEmpty;
+    if (tipAmount > 0 && useCloud) {
+      final paid = await StripeService.payTipWithStripe(
+        bookingId: firstBooking.id,
+        tipAmount: tipAmount,
+      );
+      if (!paid) {
+        throw Exception('Pago de propina cancelado.');
+      }
+    }
+
     await DependencyInjection.reviews.addReview(firstBooking.caregiverId, review);
 
     if (tipAmount > 0) {
@@ -580,12 +609,10 @@ class BookingNotifier extends ChangeNotifier {
 
     for (var b in bookings) {
       b.isReviewed = true;
-      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
-        final updateMap = <String, dynamic>{'isReviewed': true};
-        if (b.id == firstBooking.id && tipAmount > 0) {
-          updateMap['tipAmount'] = FieldValue.increment(tipAmount);
-        }
-        await FirebaseFirestore.instance.collection('bookings').doc(b.id).update(updateMap);
+      if (useCloud) {
+        await FirebaseFirestore.instance.collection('bookings').doc(b.id).update({
+          'isReviewed': true,
+        });
       }
     }
     notifyListeners();

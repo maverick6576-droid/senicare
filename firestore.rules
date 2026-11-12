@@ -7,7 +7,11 @@ service cloud.firestore {
       return request.auth != null;
     }
     function isAdmin() {
-      return request.auth.token.email == "maverick6576@gmail.com";
+      return isAuthenticated() &&
+        request.auth.token.email_verified == true && (
+          request.auth.token.email == "maverick6576@gmail.com" ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        );
     }
     function isFamilyMember(familyId) {
       return isAuthenticated() && (
@@ -40,34 +44,74 @@ service cloud.firestore {
       );
     }
 
-    // 2. Colecciones publicas/semi-publicas
+    // 2. Colecciones de Usuarios y Administradores
     match /users/{userId} {
       allow read, write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
     }
     match /admins/{adminId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || (isAuthenticated() && request.auth.token.email == adminId);
-    }
-    match /caregivers/{caregiverId} {
-      allow read: if true; 
-      allow write: if isAuthenticated() && (
-        request.auth.uid == caregiverId || 
-        isAdmin() ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["rating", "reviewsCount"]))
+      allow read: if isAuthenticated() && request.auth.token.email_verified == true && (
+        request.auth.token.email == adminId || isAdmin()
       );
-      
+      allow write: if isAdmin();
+
+      match /private/{docId} {
+        allow read, write: if false; // Solo Cloud Functions (secretos TOTP 2FA)
+      }
+    }
+
+    // 3. Cuidadores y Disponibilidad
+    match /caregivers/{caregiverId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.auth.uid == caregiverId &&
+        request.resource.data.get('verified', false) == false &&
+        request.resource.data.get('isVerified', false) == false &&
+        request.resource.data.get('isKycVerified', false) == false &&
+        (!('verificationStatus' in request.resource.data) ||
+          request.resource.data.verificationStatus in ["pending", "unverified", "manual_review"]) &&
+        request.resource.data.get('rating', 0) == 0 &&
+        request.resource.data.get('reviewsCount', 0) == 0
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        request.auth.uid == caregiverId &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          "verified", "isVerified", "rating", "reviewsCount",
+          "stripeAccountId", "isKycVerified", "noShowsCount",
+          "incidentDates", "blockedUntil", "accountStatus"
+        ]) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["verificationStatus"]) ||
+          request.resource.data.verificationStatus in ["pending", "manual_review"])
+      );
+      allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == caregiverId);
+
       match /availability/{date} {
-        allow read: if true;
+        allow read: if isAuthenticated();
         allow write: if isAuthenticated() && (request.auth.uid == caregiverId || isAdmin());
-        
+
         match /slots/{slotId} {
-          allow read: if true;
-          allow write: if isAuthenticated(); // Allow clients to book/rollback slots
+          allow read: if isAuthenticated();
+          allow create, update: if isAuthenticated() && (
+            request.auth.uid == caregiverId ||
+            isAdmin() ||
+            (
+              request.resource.data.keys().hasOnly(["dateTime", "isAvailable"]) &&
+              request.resource.data.isAvailable is bool
+            )
+          );
+          allow delete: if isAuthenticated() && (request.auth.uid == caregiverId || isAdmin());
         }
       }
     }
+
+    // 4. Familias / Clientes e Invitaciones
     match /clients/{clientId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        isFamilyMember(clientId) ||
+        isAdmin() ||
+        exists(/databases/$(database)/documents/caregivers/$(request.auth.uid))
+      );
       allow create: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
       allow update: if isFamilyAdmin(clientId) || isAdmin();
       allow delete: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
@@ -76,42 +120,140 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (resource == null || isFamilyAdmin(resource.data.familyId) || isAdmin());
       allow write: if false; // Solo Cloud Functions (createFamilyInvite / revokeFamilyInvite / joinFamilyByCode)
     }
+
+    // 5. Ofertas de Empleo
     match /job_offers/{offerId} {
-      allow read: if true;
+      allow read: if isAuthenticated();
       allow create: if isFamilyAdmin(request.resource.data.clientId) || isAdmin();
       allow update, delete: if isFamilyAdmin(resource.data.clientId) || isAdmin();
-      
+
       match /applications/{applicationId} {
-        allow read: if isAuthenticated();
-        allow write: if isAuthenticated(); // Caregivers write, Clients read/update status
+        allow read: if isAuthenticated() && (
+          isFamilyMember(get(/databases/$(database)/documents/job_offers/$(offerId)).data.clientId) ||
+          request.auth.uid == applicationId ||
+          resource.data.caregiverId == request.auth.uid ||
+          isAdmin()
+        );
+        allow create: if isAuthenticated() &&
+          request.resource.data.caregiverId == request.auth.uid &&
+          request.resource.data.status == "pending";
+        allow update: if isAuthenticated() && (
+          isAdmin() ||
+          isFamilyAdmin(get(/databases/$(database)/documents/job_offers/$(offerId)).data.clientId) ||
+          (
+            resource.data.caregiverId == request.auth.uid &&
+            request.resource.data.caregiverId == request.auth.uid &&
+            request.resource.data.status == resource.data.status
+          )
+        );
+        allow delete: if isAuthenticated() && (
+          resource.data.caregiverId == request.auth.uid ||
+          isAdmin()
+        );
       }
     }
 
-    // 3. Coleccion BOOKINGS: Privadas y Seguras
+    // 6. Coleccion BOOKINGS: Privadas y Blindadas Financieramente
     match /bookings/{bookingId} {
-      allow read: if isAuthenticated();
-      
-      // Permitimos al Administrador familiar CREAR
+      function noProtectedFinancialMutation() {
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          "cost", "totalPaid", "caregiverPayout", "clientFee", "clientFeeRate",
+          "caregiverCommissionRate", "caregiverCommissionAmount",
+          "paymentIntentId", "paymentStatus", "paymentMethodType", "transferGroup",
+          "tipAmount", "processedTipPaymentIntents", "bookingPin",
+          "clientId", "caregiverId", "offerId"
+        ]);
+      }
+
+      allow read: if isAuthenticated() && (
+        isFamilyMember(resource.data.clientId) ||
+        request.auth.uid == resource.data.caregiverId ||
+        isAdmin()
+      );
+
+      // El cliente solo puede iniciar un bloqueo pendiente de pago (nunca confirmarla ni pagarla en cliente)
       allow create: if isFamilyAdmin(request.resource.data.clientId) &&
-                    (request.resource.data.status == "pendingPayment" || request.resource.data.status == "pending" || request.resource.data.status == "confirmed");
-      
-      // Permitimos actualizar al Administrador familiar o al cuidador (colaboradores solo marcan reseña si no tocan pagos ni estado)
-      allow update: if isAuthenticated() &&
-                    (isFamilyAdmin(resource.data.clientId) ||
-                     request.auth.uid == resource.data.caregiverId ||
-                     (isFamilyMember(resource.data.clientId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isReviewed"]))) &&
-                    (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["cost", "totalPaid", "caregiverPayout", "clientFee", "caregiverCommissionAmount", "escrowStatus", "paymentIntentId", "transferGroup"])) &&
-                    (request.resource.data.status == resource.data.status || 
-                     request.resource.data.status == "cancelled" || 
-                     request.resource.data.status == "cancelledLate" ||
-                     request.resource.data.status == "pending" ||
-                     request.resource.data.status == "confirmed" ||
-                     request.resource.data.status == "completed");
-      
-      allow delete: if isAdmin();
+        request.resource.data.status == "pendingPayment" &&
+        (!('escrowStatus' in request.resource.data) || request.resource.data.escrowStatus == "none") &&
+        (!('paymentStatus' in request.resource.data) || request.resource.data.paymentStatus == "pending") &&
+        request.resource.data.get('tipAmount', 0) == 0;
+
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        noProtectedFinancialMutation() && (
+          // A. Familia Administradora: diario, reseña, o apertura/escalado de disputa válida
+          (isFamilyAdmin(resource.data.clientId) && (
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "careChecklist", "careNotes", "carePhotoUrls", "reviewPromptDismissed", "isReviewed"
+              ])
+            ) ||
+            (
+              resource.data.status in ["confirmed", "completed"] &&
+              !(resource.data.escrowStatus in ["released", "released_manual", "released_auto", "resolved_partial", "refunded", "cancelled", "none"]) &&
+              request.resource.data.status == resource.data.status &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "escrowStatus", "disputeRequested", "disputeAmount",
+                "disputeReason", "disputeDescription", "disputeOpenedAt"
+              ]) &&
+              request.resource.data.escrowStatus in [resource.data.escrowStatus, "disputed"] &&
+              request.resource.data.disputeAmount is number &&
+              request.resource.data.disputeAmount > 0 &&
+              request.resource.data.disputeAmount <= resource.data.cost
+            ) ||
+            (
+              resource.data.escrowStatus == "disputed" &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(["disputeEscalated"]) &&
+              request.resource.data.disputeEscalated == true
+            )
+          )) ||
+          // B. Familiar Colaborador: Diario del Cuidado y Reseñas
+          (isFamilyMember(resource.data.clientId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              "careChecklist", "careNotes", "carePhotoUrls", "reviewPromptDismissed", "isReviewed"
+            ])
+          ) ||
+          // C. Cuidador asignado: aceptar pending->confirmed, seguimiento en curso, check-out tras check-in, escalado
+          (request.auth.uid == resource.data.caregiverId && (
+            (
+              resource.data.status == "pending" &&
+              resource.data.escrowStatus == "held" &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status"]) &&
+              request.resource.data.status == "confirmed"
+            ) ||
+            (
+              resource.data.status == "confirmed" &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "liveStatus", "onTheWayAt", "checkInTime", "isPunctual",
+                "careChecklist", "careNotes", "carePhotoUrls"
+              ])
+            ) ||
+            (
+              resource.data.status == "confirmed" &&
+              resource.data.checkInTime != null &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "liveStatus", "status", "checkOutTime"
+              ]) &&
+              request.resource.data.status == "completed"
+            ) ||
+            (
+              resource.data.escrowStatus == "disputed" &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(["disputeEscalated"]) &&
+              request.resource.data.disputeEscalated == true
+            )
+          ))
+        )
+      );
+
+      allow delete: if isAdmin() || (
+        isFamilyAdmin(resource.data.clientId) &&
+        resource.data.status == "pendingPayment" &&
+        (!('escrowStatus' in resource.data) || resource.data.escrowStatus == "none") &&
+        (!('paymentStatus' in resource.data) || resource.data.paymentStatus == "pending")
+      );
     }
 
-    // 4. Coleccion CHATS
+    // 7. Coleccion CHATS
     match /chats/{chatId} {
       allow read, write: if isAuthenticated() && (
         isFamilyMember(chatId.split("_")[0]) ||
@@ -119,31 +261,49 @@ service cloud.firestore {
         (resource != null && (isFamilyMember(resource.data.clientId) || request.auth.uid == resource.data.caregiverId)) ||
         isAdmin()
       );
-      
+
       match /messages/{messageId} {
         allow read, write: if isAuthenticated() && (
-          isFamilyMember(chatId.split("_")[0]) || 
-          request.auth.uid == chatId.split("_")[1] || 
+          isFamilyMember(chatId.split("_")[0]) ||
+          request.auth.uid == chatId.split("_")[1] ||
           isAdmin()
         );
       }
     }
-    
-    // 5. Colecciones de Sistema
+
+    // 8. Colecciones de Sistema
     match /stats/{docId} {
-      allow read: if true;
+      allow read: if isAuthenticated();
       allow write: if false; // Solo se escribe via Cloud Functions
     }
     match /client_caregiver_stats/{docId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (resource == null && docId.matches('.*' + request.auth.uid + '.*')) ||
+        (resource != null && (isFamilyMember(resource.data.clientId) || request.auth.uid == resource.data.caregiverId))
+      );
+      allow write: if false; // Solo Cloud Functions (addCompletedHours)
     }
     match /reports/{reportId} {
       allow read: if isAdmin();
-      allow write: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        request.resource.data.reporterId == request.auth.uid ||
+        isFamilyMember(request.resource.data.reporterId)
+      );
+      allow update, delete: if isAdmin();
     }
     match /reviews/{reviewId} {
-      allow read: if true;
-      allow write: if isAuthenticated(); // Se debe limitar a clientes que hayan tenido una reserva completada (mejor en Cloud Functions)
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        isFamilyMember(request.resource.data.clientId) &&
+        request.resource.data.rating is number &&
+        request.resource.data.rating >= 1 &&
+        request.resource.data.rating <= 5;
+      allow update, delete: if isAdmin();
+    }
+    match /experiments/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }

@@ -9,6 +9,9 @@ import 'package:senicare/screens/payment_screen.dart';
 import 'package:senicare/widgets/widgets.dart';
 
 class _TestStatsRepo implements FirestoreStatsRepository {
+  int addedHoursCalls = 0;
+  int lastAddedHours = 0;
+
   @override
   Future<int> getAccumulatedHours(String clientId, String caregiverId) async => 0;
 
@@ -23,7 +26,10 @@ class _TestStatsRepo implements FirestoreStatsRepository {
     String clientId,
     String caregiverId,
     int hoursToAdd,
-  ) async {}
+  ) async {
+    addedHoursCalls++;
+    lastAddedHours = hoursToAdd;
+  }
 }
 
 void main() {
@@ -268,6 +274,71 @@ void main() {
         findsWidgets,
       );
       expect(tester.takeException(), isNull);
+    });
+
+    test('Booking.toFirestore conserva clientFeeRate y CheckoutFlowResult sessionId', () {
+      final booking = Booking(
+        id: 'b_fee',
+        clientId: 'fam_1',
+        caregiverId: 'cg_1',
+        caregiverName: 'Lucía',
+        day: '2026-12-20',
+        slot: '10:00-12:00',
+        cost: 24.0,
+        clientFee: 0.72,
+        clientFeeRate: 0.03,
+        caregiverCommissionRate: 0.18,
+        caregiverCommissionAmount: 4.32,
+        caregiverPayout: 19.68,
+        totalPaid: 24.72,
+        status: BookingStatus.pendingPayment,
+        escrowStatus: 'none',
+        createdAt: DateTime(2026, 12, 1),
+      );
+      final map = booking.toFirestore();
+      expect(map['clientFeeRate'], 0.03);
+      expect(map['escrowStatus'], 'none');
+
+      const result = CheckoutFlowResult(
+        outcome: 'success',
+        paymentIntentId: 'pi_123',
+        paymentMethodType: 'bizum',
+        sessionId: 'cs_test_abc',
+      );
+      expect(result.sessionId, 'cs_test_abc');
+      expect(result.paymentIntentId, 'pi_123');
+    });
+
+    test('BookingNotifier.releaseEscrow en modo Mock suma horas nocturnas una sola vez', () async {
+      final statsRepo = _TestStatsRepo();
+      DependencyInjection.stats = statsRepo;
+      final bookingNotifier = BookingNotifier();
+      bookingNotifier.bookings = [
+        Booking(
+          id: 'b_night',
+          clientId: 'fam_1',
+          caregiverId: 'cg_1',
+          caregiverName: 'Lucía',
+          day: '2026-12-20',
+          slot: '22:00-06:00',
+          cost: 80.0,
+          clientFee: 2.40,
+          clientFeeRate: 0.03,
+          caregiverCommissionRate: 0.18,
+          caregiverCommissionAmount: 14.40,
+          caregiverPayout: 65.60,
+          totalPaid: 82.40,
+          status: BookingStatus.completed,
+          escrowStatus: 'held',
+          createdAt: DateTime(2026, 12, 1),
+        ),
+      ];
+
+      await bookingNotifier.releaseEscrow('b_night');
+
+      expect(statsRepo.addedHoursCalls, 1);
+      expect(statsRepo.lastAddedHours, 8);
+      expect(bookingNotifier.bookings.first.escrowStatus, 'released');
     });
   });
 }

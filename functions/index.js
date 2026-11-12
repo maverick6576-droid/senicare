@@ -1,11 +1,142 @@
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 const { defineSecret } = require("firebase-functions/params");
 
 const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
 const webhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
+const MASTER_ADMIN_EMAIL = "maverick6576@gmail.com";
+const STANDARD_CLIENT_FEE_RATE = 0.03;
 
 admin.initializeApp();
+
+async function isAdminCaller(context) {
+  if (!context || !context.auth) return false;
+  const email = (context.auth.token?.email || "").trim().toLowerCase();
+  const verified = context.auth.token?.email_verified === true;
+  if (!email || !verified) return false;
+  if (email === MASTER_ADMIN_EMAIL) return true;
+  const adminDoc = await admin.firestore().collection("admins").doc(email).get();
+  if (adminDoc.exists) return true;
+  const originalEmail = (context.auth.token?.email || "").trim();
+  if (originalEmail !== email) {
+    const exactDoc = await admin.firestore().collection("admins").doc(originalEmail).get();
+    if (exactDoc.exists) return true;
+  }
+  return false;
+}
+
+async function mergeUserClaims(uid, patch) {
+  if (!uid) return;
+  try {
+    const userRecord = await admin.auth().getUser(uid);
+    const existing = userRecord.customClaims || {};
+    const next = { ...existing, ...patch };
+    Object.keys(next).forEach((k) => {
+      if (next[k] === null || next[k] === undefined) delete next[k];
+    });
+    await admin.auth().setCustomUserClaims(uid, next);
+  } catch (e) {
+    console.warn(`Could not update custom claims for ${uid}:`, e.message);
+  }
+}
+
+function decodeBase32(base32Str) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const cleaned = String(base32Str || "").toUpperCase().replace(/=+$/, "").replace(/[^A-Z2-7]/g, "");
+  let bits = 0;
+  let value = 0;
+  const output = [];
+  for (let i = 0; i < cleaned.length; i++) {
+    const idx = alphabet.indexOf(cleaned[i]);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      output.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(output);
+}
+
+function generateTotpAt(secret, epochMs) {
+  const key = decodeBase32(secret);
+  const counter = Math.floor(epochMs / 30000);
+  const counterBuf = Buffer.alloc(8);
+  counterBuf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+  counterBuf.writeUInt32BE(counter >>> 0, 4);
+  const hmac = crypto.createHmac("sha1", key).update(counterBuf).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const binCode =
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff);
+  return String(binCode % 1000000).padStart(6, "0");
+}
+
+function verifyTotpCode(secret, code) {
+  const normalized = String(code || "").trim();
+  if (!/^\d{6}$/.test(normalized) || !secret) return false;
+  const now = Date.now();
+  return [-30000, 0, 30000].some((offset) => {
+    const candidate = generateTotpAt(secret, now + offset);
+    return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(normalized));
+  });
+}
+
+function parseBookingStartDateTime(dayStr, slotStr) {
+  if (!dayStr || !slotStr) return null;
+  let dateParts;
+  if (dayStr.includes("/")) {
+    const parts = dayStr.split("/");
+    dateParts = [parts[2], parts[1], parts[0]];
+  } else {
+    dateParts = dayStr.split("-");
+  }
+  if (!dateParts || dateParts.length !== 3) return null;
+  const startStr = slotStr.includes("-") ? slotStr.split("-")[0].trim() : slotStr.trim();
+  const timeParts = startStr.split(":");
+  const y = parseInt(dateParts[0], 10);
+  const m = parseInt(dateParts[1], 10);
+  const d = parseInt(dateParts[2], 10);
+  const hh = parseInt(timeParts[0], 10);
+  const mm = parseInt(timeParts[1] || "0", 10);
+  if ([y, m, d, hh, mm].some((n) => isNaN(n))) return null;
+  return new Date(y, m - 1, d, hh, mm);
+}
+
+function parseBookingEndDateTime(dayStr, slotStr) {
+  const start = parseBookingStartDateTime(dayStr, slotStr);
+  if (!start) return null;
+  if (slotStr.includes("-")) {
+    const endStr = slotStr.split("-")[1].trim();
+    const endParts = endStr.split(":");
+    const endH = parseInt(endParts[0], 10);
+    const endM = parseInt(endParts[1] || "0", 10);
+    if (isNaN(endH) || isNaN(endM)) return null;
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), endH, endM);
+    if (end.getTime() <= start.getTime()) {
+      end.setDate(end.getDate() + 1);
+    }
+    return end;
+  }
+  return new Date(start.getTime() + 3600 * 1000);
+}
+
+async function verifyPaymentIntentIsPaid(stripe, booking) {
+  if (!booking) return false;
+  if (booking.paymentStatus === "paid") return true;
+  if (!booking.paymentIntentId) return false;
+  try {
+    const pi = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+    return pi && pi.status === "succeeded";
+  } catch (e) {
+    console.warn(`Could not verify PaymentIntent ${booking.paymentIntentId}:`, e.message);
+    return false;
+  }
+}
 
 function formatDateEs(dateStr) {
   if (!dateStr) return "";
@@ -22,10 +153,14 @@ async function addCompletedHours(clientId, caregiverId, bookingSlot) {
   try {
     if (bookingSlot && bookingSlot.includes('-')) {
       const parts = bookingSlot.split('-');
-      const start = parts[0].split(':')[0];
-      const end = parts[1].split(':')[0];
-      hours = Math.abs(parseInt(end) - parseInt(start));
-      if (hours === 0) hours = 1;
+      const startParts = parts[0].trim().split(':');
+      const endParts = parts[1].trim().split(':');
+      const startMins = (parseInt(startParts[0], 10) || 0) * 60 + (parseInt(startParts[1] || "0", 10) || 0);
+      let endMins = (parseInt(endParts[0], 10) || 0) * 60 + (parseInt(endParts[1] || "0", 10) || 0);
+      if (endMins <= startMins) {
+        endMins += 24 * 60;
+      }
+      hours = Math.max(1, Math.round((endMins - startMins) / 60));
     }
   } catch(e) {
     console.error("Error calculating hours:", e);
@@ -314,7 +449,7 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
         let pricePerHour = 0;
         let caregiverName = "";
         let stripeAccountId = "";
-        let clientFeeRate = 0.10;
+        let clientFeeRate = STANDARD_CLIENT_FEE_RATE;
         let urgencyBonusRate = 0.0;
         
         const caregiverDoc = await db.collection("caregivers").doc(caregiverId).get();
@@ -327,13 +462,13 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
         }
 
         if (offerId && applicationId) {
-            const appDoc = await db.collection("jobOffers").doc(offerId).collection("applications").doc(applicationId).get();
+            const appDoc = await db.collection("job_offers").doc(offerId).collection("applications").doc(applicationId).get();
             if (!appDoc.exists) throw new functions.https.HttpsError("not-found", "Application not found");
             pricePerHour = appDoc.data().proposedPrice;
             
-            const offerDoc = await db.collection("jobOffers").doc(offerId).get();
+            const offerDoc = await db.collection("job_offers").doc(offerId).get();
             if (offerDoc.exists) {
-                clientFeeRate = offerDoc.data().clientFeeRate || 0.10;
+                clientFeeRate = offerDoc.data().clientFeeRate || STANDARD_CLIENT_FEE_RATE;
                 urgencyBonusRate = offerDoc.data().urgencyBonusRate || 0.0;
             }
         } else {
@@ -369,11 +504,14 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
                     clientLongitude: clientLongitude || null,
                     cost: cost,
                     clientFee: clientFee,
+                    clientFeeRate: clientFeeRate,
+                    offerId: offerId || null,
                     caregiverCommissionRate: commissionRate,
                     caregiverCommissionAmount: commissionAmount,
                     caregiverPayout: caregiverPayout,
                     totalPaid: totalPaid,
                     status: "pendingPayment",
+                    paymentStatus: "pending",
                     transferGroup: transferGroup,
                     escrowStatus: "none",
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -490,23 +628,39 @@ exports.createPaymentIntent = functions.region("europe-west1").runWith({ secrets
 async function reopenBookingSlots(caregiverId, day, slotRange) {
   if (!caregiverId || !day || !slotRange) return;
   try {
-    const slotsRef = admin.firestore().collection("caregivers").doc(caregiverId)
-      .collection("availability").doc(day).collection("slots");
-    if (slotRange.includes("-")) {
-      const parts = slotRange.split("-");
-      const startHour = parseInt(parts[0].split(":")[0], 10);
-      const endHour = parseInt(parts[1].split(":")[0], 10);
-      if (!isNaN(startHour) && !isNaN(endHour) && endHour > startHour) {
-        const batch = admin.firestore().batch();
-        for (let h = startHour; h < endHour; h++) {
-          const slotId = `${String(h).padStart(2, "0")}:00`;
-          batch.set(slotsRef.doc(slotId), { isAvailable: true }, { merge: true });
+    const cgRef = admin.firestore().collection("caregivers").doc(caregiverId).collection("availability");
+    const formatYmd = (dateObj) => {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+      const d = String(dateObj.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    };
+
+    const startDt = parseBookingStartDateTime(day, slotRange);
+    const endDt = parseBookingEndDateTime(day, slotRange);
+    if (slotRange.includes("-") && startDt && endDt && endDt.getTime() > startDt.getTime()) {
+      const batch = admin.firestore().batch();
+      const totalHours = Math.min(24, Math.max(1, Math.round((endDt.getTime() - startDt.getTime()) / (3600 * 1000))));
+      for (let i = 0; i < totalHours; i++) {
+        const current = new Date(startDt.getTime() + i * 3600 * 1000);
+        const dayStr = formatYmd(current);
+        const hourStr = `${String(current.getHours()).padStart(2, "0")}:00`;
+        const prefixedId = `${dayStr}_${hourStr}`;
+        const slotsRef = cgRef.doc(dayStr).collection("slots");
+        const legacyRef = slotsRef.doc(hourStr);
+        const legacySnap = await legacyRef.get();
+        if (legacySnap.exists) {
+          batch.set(legacyRef, { isAvailable: true }, { merge: true });
         }
-        await batch.commit();
-        return;
+        batch.set(slotsRef.doc(prefixedId), {
+          dateTime: admin.firestore.Timestamp.fromDate(current),
+          isAvailable: true,
+        }, { merge: true });
       }
+      await batch.commit();
+      return;
     }
-    await slotsRef.doc(slotRange).set({ isAvailable: true }, { merge: true });
+    await cgRef.doc(day).collection("slots").doc(`${day}_${slotRange}`).set({ isAvailable: true }, { merge: true });
   } catch (e) {
     console.warn("Error reopening slots:", e.message);
   }
@@ -556,19 +710,23 @@ exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secret
     if (!bookingDoc.exists) throw new functions.https.HttpsError("not-found", "Booking not found.");
     
     const booking = bookingDoc.data();
+    const callerIsAdmin = await isAdminCaller(context);
     
-    // Security check: only the client who made the booking or an admin can release the escrow
-    if (!(await isFamilyAdmin(booking.clientId, context.auth.uid))) {
-      if (context.auth.token.email !== "maverick6576@gmail.com") {
-        throw new functions.https.HttpsError("permission-denied", "No autorizado para liberar este pago.");
-      }
+    // Security check: only family admin or verified platform admin can release escrow
+    if (!(await isFamilyAdmin(booking.clientId, context.auth.uid)) && !callerIsAdmin) {
+      throw new functions.https.HttpsError("permission-denied", "No autorizado para liberar este pago.");
     }
 
     if (booking.escrowStatus !== "held" && booking.escrowStatus !== "pending") {
       throw new functions.https.HttpsError("failed-precondition", "El pago ya ha sido liberado o reembolsado.");
     }
 
-    if (!booking.checkInTime && context.auth.token.email !== "maverick6576@gmail.com") {
+    const isPaid = await verifyPaymentIntentIsPaid(stripe, booking);
+    if (!isPaid) {
+      throw new functions.https.HttpsError("failed-precondition", "El pago aún está pendiente de confirmación bancaria (p. ej. SEPA en curso) y no puede liberarse todavía.");
+    }
+
+    if (!booking.checkInTime && !callerIsAdmin) {
       throw new functions.https.HttpsError("failed-precondition", "No se puede liberar el pago: el cuidador no ha realizado el Check-in (no se ha presentado en el domicilio).");
     }
 
@@ -590,12 +748,14 @@ exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secret
 
     await admin.firestore().collection("bookings").doc(bookingId).update({
       escrowStatus: "released_manual",
-      status: "completed"
+      status: "completed",
+      paymentStatus: "paid",
     });
     await addCompletedHours(booking.clientId, booking.caregiverId, booking.slot);
 
     return { transferId: transfer.id, success: true };
   } catch (error) { 
+    if (error instanceof functions.https.HttpsError) throw error;
     console.error("Error in releaseEscrowPayment:", error);
     throw new functions.https.HttpsError("internal", error.message); 
   }
@@ -604,43 +764,94 @@ exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secret
 exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
-  const { bookingId, reason, isLate } = data;
+  const { bookingId, reason } = data || {};
+  if (!bookingId) throw new functions.https.HttpsError("invalid-argument", "bookingId is required.");
   try {
     const bookingDoc = await admin.firestore().collection("bookings").doc(bookingId).get();
     if (!bookingDoc.exists) throw new functions.https.HttpsError("not-found", "Booking not found.");
     
     const booking = bookingDoc.data();
+    const callerIsAdmin = await isAdminCaller(context);
+    const callerIsCaregiver = booking.caregiverId === context.auth.uid;
+    const callerIsFamily = await isFamilyAdmin(booking.clientId, context.auth.uid);
     
-    // Security check: only involved users can cancel
-    if (booking.caregiverId !== context.auth.uid && !(await isFamilyAdmin(booking.clientId, context.auth.uid))) {
-      if (context.auth.token.email !== "maverick6576@gmail.com") {
-        throw new functions.https.HttpsError("permission-denied", "No autorizado para cancelar esta reserva.");
-      }
+    // Security check: only involved users or verified admin can cancel
+    if (!callerIsCaregiver && !callerIsFamily && !callerIsAdmin) {
+      throw new functions.https.HttpsError("permission-denied", "No autorizado para cancelar esta reserva.");
     }
 
     if (booking.status === "cancelled" || booking.status === "cancelledLate" || booking.escrowStatus === "refunded") {
       return { success: true, alreadyCancelled: true };
     }
 
-    if (!isLate) {
-      // Devolver todo menos un 5% de gastos de gestión (con un mínimo de 1.00€ para cubrir comisiones de pasarela)
-      const managementFee = Math.max(1.00, booking.cost * 0.05);
-      let refundAmount = booking.totalPaid - managementFee;
+    const settledEscrowStatuses = ["released", "released_manual", "released_auto", "resolved_partial", "refunded"];
+    if (booking.status === "completed" || settledEscrowStatuses.includes(booking.escrowStatus)) {
+      throw new functions.https.HttpsError("failed-precondition", "No se puede cancelar una reserva ya completada o liquidada.");
+    }
+    if (booking.checkInTime && !callerIsAdmin) {
+      throw new functions.https.HttpsError("failed-precondition", "El servicio ya ha comenzado con Check-in. Abre una disputa si existe una incidencia.");
+    }
+
+    // Compute lateness strictly on the server (< 24h before start on a confirmed booking cancelled by client)
+    let serverIsLate = false;
+    if (!callerIsCaregiver && booking.status === "confirmed") {
+      const startDt = parseBookingStartDateTime(booking.day, booking.slot);
+      if (startDt) {
+        const hoursUntilStart = (startDt.getTime() - Date.now()) / (3600 * 1000);
+        serverIsLate = hoursUntilStart < 24;
+      } else if (data?.isLate === true && callerIsAdmin) {
+        serverIsLate = true;
+      }
+    }
+
+    const isPaid = await verifyPaymentIntentIsPaid(stripe, booking);
+
+    // Caregiver cancellation or pending (unaccepted) booking -> full refund to client
+    if (callerIsCaregiver || booking.status === "pending" || booking.status === "pendingPayment") {
+      const fullRefund = booking.totalPaid || 0;
+      if (isPaid && booking.paymentIntentId && fullRefund > 0) {
+        await createIdempotentRefund(stripe, {
+          paymentIntentId: booking.paymentIntentId,
+          amountInCents: Math.round(fullRefund * 100),
+          idempotencyKey: `cancel_full_refund_${bookingId}`,
+        });
+      }
+      await admin.firestore().collection("bookings").doc(bookingId).update({
+        status: "cancelled",
+        escrowStatus: isPaid ? "refunded" : "cancelled",
+        cancellationReason: reason || (callerIsCaregiver ? "Cancelada por el cuidador" : "Cancelada antes de aceptación"),
+      });
+      await reopenBookingSlots(booking.caregiverId, booking.day, booking.slot);
+      return { success: true };
+    }
+
+    if (!serverIsLate) {
+      // Cancelación temprana del cliente: devolver todo menos 5% de gastos de gestión (mín. 1.00 €)
+      const managementFee = Math.max(1.00, (booking.cost || 0) * 0.05);
+      let refundAmount = (booking.totalPaid || 0) - managementFee;
       if (refundAmount < 0) refundAmount = 0;
       
-      if (booking.paymentIntentId && refundAmount > 0) {
+      if (isPaid && booking.paymentIntentId && refundAmount > 0) {
         await createIdempotentRefund(stripe, {
           paymentIntentId: booking.paymentIntentId,
           amountInCents: Math.round(refundAmount * 100),
           idempotencyKey: `cancel_refund_${bookingId}`,
         });
       }
-      await admin.firestore().collection("bookings").doc(bookingId).update({ status: "cancelled", escrowStatus: "refunded", cancellationReason: reason });
+      await admin.firestore().collection("bookings").doc(bookingId).update({
+        status: "cancelled",
+        escrowStatus: isPaid ? "refunded" : "cancelled",
+        cancellationReason: reason || "Cancelación temprana del cliente",
+      });
       await reopenBookingSlots(booking.caregiverId, booking.day, booking.slot);
       return { success: true };
     }
-    // Cancelación Tardía (10% de castigo a la mitad de cada uno = 45% limpio)
-    const refundAmount = booking.cost * 0.45;
+
+    // Cancelación Tardía por cliente (< 24h en reserva confirmada): 45% cliente / 45% cuidador
+    if (!isPaid) {
+      throw new functions.https.HttpsError("failed-precondition", "El pago aún está en procesamiento bancario y no admite reparto parcial todavía.");
+    }
+    const refundAmount = (booking.cost || 0) * 0.45;
     if (booking.paymentIntentId && refundAmount > 0) {
       await createIdempotentRefund(stripe, {
         paymentIntentId: booking.paymentIntentId,
@@ -650,7 +861,7 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
     }
     const caregiverDoc = await admin.firestore().collection("caregivers").doc(booking.caregiverId).get();
     if (caregiverDoc.data()?.stripeAccountId && (booking.paymentIntentId || booking.transferGroup)) {
-      const caregiverPayout = booking.cost * 0.45;
+      const caregiverPayout = (booking.cost || 0) * 0.45;
       if (caregiverPayout > 0) {
         await createLinkedStripeTransfer(stripe, {
           amountInCents: Math.round(caregiverPayout * 100),
@@ -661,10 +872,17 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
         });
       }
     }
-    await admin.firestore().collection("bookings").doc(bookingId).update({ status: "cancelledLate", escrowStatus: "resolved_partial", cancellationReason: reason });
+    await admin.firestore().collection("bookings").doc(bookingId).update({
+      status: "cancelledLate",
+      escrowStatus: "resolved_partial",
+      cancellationReason: reason || "Cancelación tardía del cliente",
+    });
     await reopenBookingSlots(booking.caregiverId, booking.day, booking.slot);
     return { success: true };
-  } catch (error) { throw new functions.https.HttpsError("internal", error.message); }
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
 });
 
   // Función para que el cuidador rechace una reserva y se emita el reembolso completo al cliente
@@ -688,8 +906,9 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
       }
 
       // Reembolso total (fue culpa/elección del cuidador)
+      const isPaid = await verifyPaymentIntentIsPaid(stripe, booking);
       const refundAmount = booking.totalPaid || 0;
-      if (booking.paymentIntentId && refundAmount > 0) {
+      if (isPaid && booking.paymentIntentId && refundAmount > 0) {
         await createIdempotentRefund(stripe, {
           paymentIntentId: booking.paymentIntentId,
           amountInCents: Math.round(refundAmount * 100),
@@ -699,7 +918,7 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
 
       await admin.firestore().collection("bookings").doc(bookingId).update({ 
         status: "cancelled", 
-        escrowStatus: "refunded", 
+        escrowStatus: isPaid ? "refunded" : "cancelled", 
         cancellationReason: "Rechazada por el cuidador" 
       });
       await reopenBookingSlots(booking.caregiverId, booking.day, booking.slot);
@@ -746,16 +965,11 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
       if (pDateParts && pDateParts.length === 3 && pb.slot) {
         const startStr = pb.slot.includes("-") ? pb.slot.split("-")[0] : pb.slot;
         const startParts = startStr.split(":");
-        const scheduledStart = new Date(
-          parseInt(pDateParts[0], 10),
-          parseInt(pDateParts[1], 10) - 1,
-          parseInt(pDateParts[2], 10),
-          parseInt(startParts[0], 10),
-          parseInt(startParts[1] || "0", 10)
-        );
-        if (now > scheduledStart) {
+        const scheduledStart = parseBookingStartDateTime(pb.day, pb.slot);
+        if (scheduledStart && now > scheduledStart) {
+          const isPaid = await verifyPaymentIntentIsPaid(stripe, pb);
           const fullRefund = pb.totalPaid || pb.cost || 0;
-          if (pb.paymentIntentId && fullRefund > 0) {
+          if (isPaid && pb.paymentIntentId && fullRefund > 0) {
             await createIdempotentRefund(stripe, {
               paymentIntentId: pb.paymentIntentId,
               amountInCents: Math.round(fullRefund * 100),
@@ -765,7 +979,7 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
           await reopenBookingSlots(pb.caregiverId, pb.day, pb.slot);
           await pDoc.ref.update({
             status: "cancelled",
-            escrowStatus: "refunded",
+            escrowStatus: isPaid ? "refunded" : "cancelled",
             cancellationReason: "Expirada sin respuesta del cuidador",
           });
         }
@@ -776,235 +990,259 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
   }
 
   // 1. Manejo de reservas normales y No-Shows (24h tras fin teórico)
-  const snapshot = await admin.firestore().collection("bookings").where("escrowStatus", "==", "held").where("status", "==", "confirmed").get();
-  
-  for (const doc of snapshot.docs) {
-    const b = doc.data();
+  try {
+    const snapshot = await admin.firestore().collection("bookings").where("escrowStatus", "==", "held").where("status", "==", "confirmed").get();
     
-    // Parsear el día y el horario (Ej: 2026-07-15 y 10:00-14:00)
-    let dateParts;
-    if (b.day.includes('/')) {
-      const parts = b.day.split('/');
-      dateParts = [parts[2], parts[1], parts[0]]; // [yyyy, mm, dd]
-    } else {
-      dateParts = b.day.split('-'); // [yyyy, mm, dd]
-    }
-    const slotParts = b.slot.split('-');
-    
-    if (dateParts.length === 3 && slotParts.length === 2) {
-      const endParts = slotParts[1].split(':');
-      const theoreticalEndTime = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(endParts[0]), parseInt(endParts[1]));
+    for (const doc of snapshot.docs) {
+      const b = doc.data();
+      const theoreticalStartTime = parseBookingStartDateTime(b.day, b.slot);
+      const theoreticalEndTime = parseBookingEndDateTime(b.day, b.slot);
       
-      const payoutTime = new Date(theoreticalEndTime.getTime() + (24 * 60 * 60 * 1000));
-      
-      if (now > payoutTime) {
-        try {
-          if (!b.checkInTime) {
-            // NO-SHOW: Cancelación fulminante (reembolso íntegro al cliente)
-            const fullRefund = b.totalPaid || b.cost || 0;
-            if (b.paymentIntentId && fullRefund > 0) {
-              await createIdempotentRefund(stripe, {
-                paymentIntentId: b.paymentIntentId,
-                amountInCents: Math.round(fullRefund * 100),
-                idempotencyKey: `noshow_refund_${doc.id}`,
-              });
-            }
-            await doc.ref.update({ status: "cancelledLate", escrowStatus: "refunded", cancellationReason: "No-Show" });
-            
-            // Castigo al cuidador (No-Show es una incidencia)
-            await addIncidentToCaregiver(b.caregiverId);
-          } else {
-            // CHECKED IN: Evaluar si llegó tarde
-            const startParts = slotParts[0].split(':');
-            const theoreticalStartTime = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(startParts[0]), parseInt(startParts[1]));
-            const checkInDate = b.checkInTime.toDate();
-            
-            const totalTheoreticalMinutes = (theoreticalEndTime.getTime() - theoreticalStartTime.getTime()) / 60000;
-            const pricePerMinute = b.cost / totalTheoreticalMinutes;
-            
-            const minutesLate = (checkInDate.getTime() - theoreticalStartTime.getTime()) / 60000;
-            
-            if (minutesLate > 15) {
-              // LLEGADA TARDE > 15 mins
-              const amountToDeduct = minutesLate * pricePerMinute;
-              const newCost = Math.max(0, b.cost - amountToDeduct);
-              
-              // Recalcular comision y payout
-              const newCommission = newCost * b.caregiverCommissionRate;
-              const newPayout = newCost - newCommission;
-              const amountToRefund = b.cost - newCost; // Devolver al cliente el costo del tiempo perdido
-              
-              if (b.paymentIntentId && amountToRefund > 0) {
-                await createIdempotentRefund(stripe, {
-                  paymentIntentId: b.paymentIntentId,
-                  amountInCents: Math.round(amountToRefund * 100),
-                  idempotencyKey: `late_checkin_refund_${doc.id}`,
-                });
-              }
-              
-              const caregiverDoc = await admin.firestore().collection("caregivers").doc(b.caregiverId).get();
-              if (caregiverDoc.data()?.stripeAccountId && (b.paymentIntentId || b.transferGroup) && newPayout > 0) {
-                await createLinkedStripeTransfer(stripe, {
-                  amountInCents: Math.round(newPayout * 100),
-                  destination: caregiverDoc.data().stripeAccountId,
-                  paymentIntentId: b.paymentIntentId,
-                  transferGroup: b.transferGroup,
-                  idempotencyKey: `late_checkin_transfer_${doc.id}`,
-                });
-              }
-              
-              await doc.ref.update({ 
-                status: "completed", 
-                escrowStatus: "released_partial", 
-                caregiverPayout: newPayout,
-                caregiverCommissionAmount: newCommission,
-                cost: newCost
-              });
-              await addCompletedHours(b.clientId, b.caregiverId, b.slot);
-              
-            } else {
-              // A TIEMPO
-              const caregiverDoc = await admin.firestore().collection("caregivers").doc(b.caregiverId).get();
-              if (caregiverDoc.data()?.stripeAccountId && (b.paymentIntentId || b.transferGroup) && b.caregiverPayout > 0) {
-                await createLinkedStripeTransfer(stripe, {
-                  amountInCents: Math.round(b.caregiverPayout * 100),
-                  destination: caregiverDoc.data().stripeAccountId,
-                  paymentIntentId: b.paymentIntentId,
-                  transferGroup: b.transferGroup,
-                  idempotencyKey: `auto_release_${doc.id}`,
-                });
-              }
-              await doc.ref.update({ status: "completed", escrowStatus: "released_auto" });
-              await addCompletedHours(b.clientId, b.caregiverId, b.slot);
-            }
-          }
-        } catch (e) { console.error("Cron Error processing booking", b.id, e); }
-      }
-    }
-  }
-  
-  // 2. Manejo de Disputas ignoradas por el cuidador > 24 horas
-  const disputes = await admin.firestore().collection("bookings")
-    .where("escrowStatus", "==", "disputed")
-    .where("disputeEscalated", "==", false).get();
-    
-  for (const doc of disputes.docs) {
-    const b = doc.data();
-    if (b.disputeOpenedAt) {
-      const openedAt = b.disputeOpenedAt.toDate();
-      const timeoutDate = new Date(openedAt.getTime() + (24 * 60 * 60 * 1000));
-      
-      if (now > timeoutDate) {
-         try {
-            // Silencio administrativo de 24h -> Devolver 100% al cliente
-            const disputeRefund = b.totalPaid || b.cost || 0;
-            if (b.paymentIntentId && disputeRefund > 0) {
-              await createIdempotentRefund(stripe, {
-                paymentIntentId: b.paymentIntentId,
-                amountInCents: Math.round(disputeRefund * 100),
-                idempotencyKey: `dispute_timeout_refund_${doc.id}`,
-              });
-            }
-            await doc.ref.update({ escrowStatus: "refunded", status: "completed", cancellationReason: "Disputa resuelta a favor del cliente por inactividad del cuidador" });
-         } catch(e) { console.error("Error timing out dispute", e); }
-      }
-    }
-  }
-  
-  // 3. Fallback: Disputas no escaladas sin disputeOpenedAt (Legacy)
-  const legacyDisputes = await admin.firestore().collection("bookings")
-    .where("escrowStatus", "==", "disputed")
-    .get();
-    
-  for (const doc of legacyDisputes.docs) {
-    const b = doc.data();
-    if (!b.disputeOpenedAt && !b.disputeEscalated) {
-      let dateParts;
-      if (b.day.includes('/')) {
-        const parts = b.day.split('/');
-        dateParts = [parts[2], parts[1], parts[0]]; // [yyyy, mm, dd]
-      } else {
-        dateParts = b.day.split('-'); // [yyyy, mm, dd]
-      }
-      const slotParts = b.slot.split('-');
-      if (dateParts.length === 3 && slotParts.length === 2) {
-        const endParts = slotParts[1].split(':');
-        const theoreticalEndTime = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(endParts[0]), parseInt(endParts[1]));
-        const timeoutDate = new Date(theoreticalEndTime.getTime() + (72 * 60 * 60 * 1000));
+      if (theoreticalStartTime && theoreticalEndTime) {
+        const payoutTime = new Date(theoreticalEndTime.getTime() + (24 * 60 * 60 * 1000));
         
-        if (now > timeoutDate) {
-           try {
-              const legacyRefund = b.totalPaid || b.cost || 0;
-              if (b.paymentIntentId && legacyRefund > 0) {
+        if (now > payoutTime) {
+          try {
+            const isPaid = await verifyPaymentIntentIsPaid(stripe, b);
+            if (!isPaid) {
+              console.log(`Skipping auto-release/refund for ${doc.id}: payment still processing or unpaid.`);
+              continue;
+            }
+            if (!b.checkInTime) {
+              // NO-SHOW: Cancelación fulminante (reembolso íntegro al cliente)
+              const fullRefund = b.totalPaid || b.cost || 0;
+              if (b.paymentIntentId && fullRefund > 0) {
                 await createIdempotentRefund(stripe, {
                   paymentIntentId: b.paymentIntentId,
-                  amountInCents: Math.round(legacyRefund * 100),
-                  idempotencyKey: `legacy_dispute_refund_${doc.id}`,
+                  amountInCents: Math.round(fullRefund * 100),
+                  idempotencyKey: `noshow_refund_${doc.id}`,
                 });
               }
-              await doc.ref.update({ escrowStatus: "refunded", status: "completed", cancellationReason: "Disputa resuelta por inactividad (Legacy)" });
-           } catch(e) { console.error("Error timing out legacy dispute", e); }
+              await doc.ref.update({ status: "cancelledLate", escrowStatus: "refunded", cancellationReason: "No-Show" });
+              
+              // Castigo al cuidador (No-Show es una incidencia)
+              await addIncidentToCaregiver(b.caregiverId);
+            } else {
+              // CHECKED IN: Evaluar si llegó tarde
+              const checkInDate = b.checkInTime.toDate();
+              
+              const totalTheoreticalMinutes = Math.max(1, (theoreticalEndTime.getTime() - theoreticalStartTime.getTime()) / 60000);
+              const pricePerMinute = b.cost / totalTheoreticalMinutes;
+              
+              const minutesLate = (checkInDate.getTime() - theoreticalStartTime.getTime()) / 60000;
+              
+              if (minutesLate > 15) {
+                // LLEGADA TARDE > 15 mins
+                const amountToDeduct = Math.min(b.cost, minutesLate * pricePerMinute);
+                const newCost = Math.max(0, b.cost - amountToDeduct);
+                
+                // Recalcular comision y payout
+                const newCommission = newCost * (b.caregiverCommissionRate || 0.18);
+                const newPayout = newCost - newCommission;
+                const amountToRefund = b.cost - newCost; // Devolver al cliente el costo del tiempo perdido
+                
+                if (b.paymentIntentId && amountToRefund > 0) {
+                  await createIdempotentRefund(stripe, {
+                    paymentIntentId: b.paymentIntentId,
+                    amountInCents: Math.round(amountToRefund * 100),
+                    idempotencyKey: `late_checkin_refund_${doc.id}`,
+                  });
+                }
+                
+                const caregiverDoc = await admin.firestore().collection("caregivers").doc(b.caregiverId).get();
+                if (caregiverDoc.data()?.stripeAccountId && (b.paymentIntentId || b.transferGroup) && newPayout > 0) {
+                  await createLinkedStripeTransfer(stripe, {
+                    amountInCents: Math.round(newPayout * 100),
+                    destination: caregiverDoc.data().stripeAccountId,
+                    paymentIntentId: b.paymentIntentId,
+                    transferGroup: b.transferGroup,
+                    idempotencyKey: `late_checkin_transfer_${doc.id}`,
+                  });
+                }
+                
+                await doc.ref.update({ 
+                  status: "completed", 
+                  escrowStatus: "released_partial", 
+                  paymentStatus: "paid",
+                  caregiverPayout: newPayout,
+                  caregiverCommissionAmount: newCommission,
+                  cost: newCost
+                });
+                await addCompletedHours(b.clientId, b.caregiverId, b.slot);
+                
+              } else {
+                // A TIEMPO
+                const caregiverDoc = await admin.firestore().collection("caregivers").doc(b.caregiverId).get();
+                if (caregiverDoc.data()?.stripeAccountId && (b.paymentIntentId || b.transferGroup) && b.caregiverPayout > 0) {
+                  await createLinkedStripeTransfer(stripe, {
+                    amountInCents: Math.round(b.caregiverPayout * 100),
+                    destination: caregiverDoc.data().stripeAccountId,
+                    paymentIntentId: b.paymentIntentId,
+                    transferGroup: b.transferGroup,
+                    idempotencyKey: `auto_release_${doc.id}`,
+                  });
+                }
+                await doc.ref.update({ status: "completed", escrowStatus: "released_auto", paymentStatus: "paid" });
+                await addCompletedHours(b.clientId, b.caregiverId, b.slot);
+              }
+            }
+          } catch (e) { console.error("Cron Error processing booking", b.id, e); }
         }
       }
     }
+  } catch (releaseCronErr) {
+    console.error("Cron Error querying held confirmed bookings:", releaseCronErr.message);
+  }
+  
+  // 2. Manejo de Disputas ignoradas por el cuidador > 24 horas
+  try {
+    const disputes = await admin.firestore().collection("bookings")
+      .where("escrowStatus", "==", "disputed")
+      .where("disputeEscalated", "==", false).get();
+      
+    for (const doc of disputes.docs) {
+      const b = doc.data();
+      if (b.disputeOpenedAt) {
+        const openedAt = b.disputeOpenedAt.toDate();
+        const timeoutDate = new Date(openedAt.getTime() + (24 * 60 * 60 * 1000));
+        
+        if (now > timeoutDate) {
+           try {
+              const isPaid = await verifyPaymentIntentIsPaid(stripe, b);
+              if (!isPaid) continue;
+              // Silencio administrativo de 24h -> Devolver 100% al cliente
+              const disputeRefund = b.totalPaid || b.cost || 0;
+              if (b.paymentIntentId && disputeRefund > 0) {
+                await createIdempotentRefund(stripe, {
+                  paymentIntentId: b.paymentIntentId,
+                  amountInCents: Math.round(disputeRefund * 100),
+                  idempotencyKey: `dispute_timeout_refund_${doc.id}`,
+                });
+              }
+              await doc.ref.update({ escrowStatus: "refunded", status: "completed", cancellationReason: "Disputa resuelta a favor del cliente por inactividad del cuidador" });
+           } catch(e) { console.error("Error timing out dispute", e); }
+        }
+      }
+    }
+  } catch (disputeQueryErr) {
+    console.error("Cron Error querying active disputes:", disputeQueryErr.message);
+  }
+  
+  // 3. Fallback: Disputas no escaladas sin disputeOpenedAt (Legacy)
+  try {
+    const legacyDisputes = await admin.firestore().collection("bookings")
+      .where("escrowStatus", "==", "disputed")
+      .get();
+      
+    for (const doc of legacyDisputes.docs) {
+      const b = doc.data();
+      if (!b.disputeOpenedAt && !b.disputeEscalated) {
+        const theoreticalEndTime = parseBookingEndDateTime(b.day, b.slot);
+        if (theoreticalEndTime) {
+          const timeoutDate = new Date(theoreticalEndTime.getTime() + (72 * 60 * 60 * 1000));
+          
+          if (now > timeoutDate) {
+             try {
+                const isPaid = await verifyPaymentIntentIsPaid(stripe, b);
+                if (!isPaid) continue;
+                const legacyRefund = b.totalPaid || b.cost || 0;
+                if (b.paymentIntentId && legacyRefund > 0) {
+                  await createIdempotentRefund(stripe, {
+                    paymentIntentId: b.paymentIntentId,
+                    amountInCents: Math.round(legacyRefund * 100),
+                    idempotencyKey: `legacy_dispute_refund_${doc.id}`,
+                  });
+                }
+                await doc.ref.update({ escrowStatus: "refunded", status: "completed", cancellationReason: "Disputa resuelta por inactividad (Legacy)" });
+             } catch(e) { console.error("Error timing out legacy dispute", e); }
+          }
+        }
+      }
+    }
+  } catch (legacyQueryErr) {
+    console.error("Cron Error querying legacy disputes:", legacyQueryErr.message);
   }
   
   return null;
 });
 
 exports.adminResolveDispute = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
-  if (context.auth.token.email !== "maverick6576@gmail.com") throw new functions.https.HttpsError("permission-denied", "Solo administradores.");
+  if (!(await isAdminCaller(context))) {
+    throw new functions.https.HttpsError("permission-denied", "Solo administradores verificados.");
+  }
   
   const stripe = require("stripe")(stripeSecret.value());
   try {
-    const { bookingId, refundToClient, payoutToCaregiver } = data;
+    const { bookingId } = data || {};
+    const refundToClient = Number(data?.refundToClient || 0);
+    const payoutToCaregiver = Number(data?.payoutToCaregiver || 0);
+    if (!bookingId) throw new functions.https.HttpsError("invalid-argument", "bookingId requerido.");
+    if (!Number.isFinite(refundToClient) || refundToClient < 0 || !Number.isFinite(payoutToCaregiver) || payoutToCaregiver < 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Los importes de resolución deben ser válidos y no negativos.");
+    }
+
     const bookingDoc = await admin.firestore().collection("bookings").doc(bookingId).get();
     if (!bookingDoc.exists) throw new functions.https.HttpsError("not-found", "Booking not found.");
     
     const booking = bookingDoc.data();
+    const settledEscrowStatuses = ["released", "released_manual", "released_auto", "resolved_partial", "refunded"];
+    if (settledEscrowStatuses.includes(booking.escrowStatus)) {
+      throw new functions.https.HttpsError("failed-precondition", "Esta reserva ya fue liquidada anteriormente.");
+    }
+
+    const maxAllowed = (booking.totalPaid || booking.cost || 0) + 0.01;
+    if (refundToClient + payoutToCaregiver > maxAllowed) {
+      throw new functions.https.HttpsError("invalid-argument", "La suma de reembolso y pago al cuidador supera el total abonado.");
+    }
+
+    const isPaid = await verifyPaymentIntentIsPaid(stripe, booking);
+    if (!isPaid && (refundToClient > 0 || payoutToCaregiver > 0)) {
+      throw new functions.https.HttpsError("failed-precondition", "El PaymentIntent asociado aún no está cobrado en Stripe.");
+    }
     
     if (refundToClient > 0 && booking.paymentIntentId) {
-      try {
-        await createIdempotentRefund(stripe, {
-          paymentIntentId: booking.paymentIntentId,
-          amountInCents: Math.round(refundToClient * 100),
-          idempotencyKey: `admin_dispute_refund_${bookingId}`,
-        });
-      } catch(e) {
-        console.error("Stripe refund error:", e.message);
-      }
+      await createIdempotentRefund(stripe, {
+        paymentIntentId: booking.paymentIntentId,
+        amountInCents: Math.round(refundToClient * 100),
+        idempotencyKey: `admin_dispute_refund_${bookingId}`,
+      });
     }
     
     if (payoutToCaregiver > 0) {
       const caregiverDoc = await admin.firestore().collection("caregivers").doc(booking.caregiverId).get();
-      if (caregiverDoc.data()?.stripeAccountId && (booking.paymentIntentId || booking.transferGroup)) {
-         try {
-           await createLinkedStripeTransfer(stripe, {
-             amountInCents: Math.round(payoutToCaregiver * 100),
-             destination: caregiverDoc.data().stripeAccountId,
-             paymentIntentId: booking.paymentIntentId,
-             transferGroup: booking.transferGroup,
-             idempotencyKey: `admin_dispute_transfer_${bookingId}`,
-           });
-         } catch(e) {
-           console.error("Stripe transfer error:", e.message);
-         }
+      if (!caregiverDoc.data()?.stripeAccountId) {
+        throw new functions.https.HttpsError("failed-precondition", "El cuidador no tiene cuenta de Stripe configurada para recibir el pago.");
+      }
+      if (booking.paymentIntentId || booking.transferGroup) {
+        await createLinkedStripeTransfer(stripe, {
+          amountInCents: Math.round(payoutToCaregiver * 100),
+          destination: caregiverDoc.data().stripeAccountId,
+          paymentIntentId: booking.paymentIntentId,
+          transferGroup: booking.transferGroup,
+          idempotencyKey: `admin_dispute_transfer_${bookingId}`,
+        });
       }
     }
     
+    const resolvedEscrowStatus = payoutToCaregiver === 0 && refundToClient > 0 ? "refunded" : "resolved_partial";
+    const remainingCommission = Math.max(0, (booking.cost || 0) - refundToClient - payoutToCaregiver);
     await admin.firestore().collection("bookings").doc(bookingId).update({ 
-      escrowStatus: "resolved_partial", 
+      escrowStatus: resolvedEscrowStatus, 
       status: "completed",
       disputeRequested: false,
       caregiverPayout: payoutToCaregiver,
-      caregiverCommissionAmount: booking.cost - refundToClient - payoutToCaregiver
+      caregiverCommissionAmount: remainingCommission
     });
     
-    await addCompletedHours(booking.clientId, booking.caregiverId, booking.slot);
+    if (payoutToCaregiver > 0) {
+      await addCompletedHours(booking.clientId, booking.caregiverId, booking.slot);
+    }
     
     return { success: true };
-  } catch (error) { throw new functions.https.HttpsError("internal", error.message); }
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
 });
 
 
@@ -1012,29 +1250,47 @@ exports.processResolutionAgreement = functions.region("europe-west1").runWith({ 
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
   try {
-    const bookingDoc = await admin.firestore().collection("bookings").doc(data.bookingId).get();
+    const bookingId = data?.bookingId;
+    if (!bookingId) throw new functions.https.HttpsError("invalid-argument", "bookingId requerido.");
+    const bookingDoc = await admin.firestore().collection("bookings").doc(bookingId).get();
     if (!bookingDoc.exists) throw new functions.https.HttpsError("not-found", "Booking not found.");
     
     const booking = bookingDoc.data();
+    const callerIsAdmin = await isAdminCaller(context);
 
-    // Security check: Only involved parties or admin
-    if (booking.caregiverId !== context.auth.uid && !(await isFamilyAdmin(booking.clientId, context.auth.uid))) {
-      if (context.auth.token.email !== "maverick6576@gmail.com") {
-        throw new functions.https.HttpsError("permission-denied", "No autorizado.");
-      }
+    // Security check: Only involved parties or verified admin
+    if (booking.caregiverId !== context.auth.uid && !(await isFamilyAdmin(booking.clientId, context.auth.uid)) && !callerIsAdmin) {
+      throw new functions.https.HttpsError("permission-denied", "No autorizado.");
+    }
+
+    if (booking.escrowStatus !== "disputed") {
+      throw new functions.https.HttpsError("failed-precondition", "La reserva no tiene una disputa abierta activa.");
+    }
+
+    const proposedRefund = Number(booking.disputeAmount);
+    if (!Number.isFinite(proposedRefund) || proposedRefund <= 0 || proposedRefund > (booking.cost || 0)) {
+      throw new functions.https.HttpsError("failed-precondition", "El importe propuesto de disputa no es válido.");
+    }
+
+    const isPaid = await verifyPaymentIntentIsPaid(stripe, booking);
+    if (!isPaid) {
+      throw new functions.https.HttpsError("failed-precondition", "El pago asociado aún no está liquidado en Stripe.");
     }
 
     const caregiverDoc = await admin.firestore().collection("caregivers").doc(booking.caregiverId).get();
-    if (booking.paymentIntentId && booking.disputeAmount > 0) {
+    if (booking.paymentIntentId && proposedRefund > 0) {
       await createIdempotentRefund(stripe, {
         paymentIntentId: booking.paymentIntentId,
-        amountInCents: Math.round(booking.disputeAmount * 100),
-        idempotencyKey: `dispute_agree_refund_${data.bookingId}`,
+        amountInCents: Math.round(proposedRefund * 100),
+        idempotencyKey: `dispute_agree_refund_${bookingId}`,
       });
     }
     
-    const dineroParaElCuidador = Math.max(0, booking.cost - (booking.disputeAmount || 0));
-    const comisionCuidador = dineroParaElCuidador * booking.caregiverCommissionRate;
+    const dineroParaElCuidador = Math.max(0, (booking.cost || 0) - proposedRefund);
+    const commissionRate = (booking.caregiverCommissionRate > 0 && booking.caregiverCommissionRate <= 0.30)
+      ? booking.caregiverCommissionRate
+      : 0.18;
+    const comisionCuidador = dineroParaElCuidador * commissionRate;
     const payoutCuidador = dineroParaElCuidador - comisionCuidador;
     
     if (payoutCuidador > 0) {
@@ -1048,20 +1304,24 @@ exports.processResolutionAgreement = functions.region("europe-west1").runWith({ 
           destination: caregiverDoc.data().stripeAccountId,
           paymentIntentId: booking.paymentIntentId,
           transferGroup: booking.transferGroup,
-          idempotencyKey: `dispute_agree_transfer_${data.bookingId}`,
+          idempotencyKey: `dispute_agree_transfer_${bookingId}`,
         });
       }
     }
     
-    await admin.firestore().collection("bookings").doc(data.bookingId).update({ 
+    await admin.firestore().collection("bookings").doc(bookingId).update({ 
       escrowStatus: "resolved_partial", 
       status: "completed",
+      disputeRequested: false,
       caregiverPayout: payoutCuidador,
       caregiverCommissionAmount: comisionCuidador
     });
     await addCompletedHours(booking.clientId, booking.caregiverId, booking.slot);
     return { success: true };
-  } catch (error) { throw new functions.https.HttpsError("internal", error.message); }
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError("internal", error.message);
+  }
 });
 
 // --- FCM PUSH NOTIFICATIONS TRIGGERS ---
@@ -1340,6 +1600,46 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
   return null;
 });
 
+async function applyTipSettlement(stripe, paymentIntent) {
+  const bookingId = paymentIntent?.metadata?.bookingId;
+  if (!bookingId) return;
+  const amountEur = Math.max(0, (paymentIntent.amount_received || paymentIntent.amount || 0) / 100);
+  if (amountEur <= 0) return;
+
+  const db = admin.firestore();
+  const bookingRef = db.collection("bookings").doc(bookingId);
+  let caregiverId = null;
+
+  const shouldTransfer = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(bookingRef);
+    if (!snap.exists) return false;
+    const b = snap.data() || {};
+    caregiverId = b.caregiverId;
+    const processed = Array.isArray(b.processedTipPaymentIntents) ? b.processedTipPaymentIntents : [];
+    if (processed.includes(paymentIntent.id)) return false;
+
+    tx.update(bookingRef, {
+      tipAmount: admin.firestore.FieldValue.increment(amountEur),
+      processedTipPaymentIntents: admin.firestore.FieldValue.arrayUnion(paymentIntent.id),
+    });
+    return true;
+  });
+
+  if (shouldTransfer && caregiverId) {
+    const cgDoc = await db.collection("caregivers").doc(caregiverId).get();
+    const dest = cgDoc.data()?.stripeAccountId;
+    if (dest) {
+      await createLinkedStripeTransfer(stripe, {
+        amountInCents: Math.round(amountEur * 100),
+        destination: dest,
+        paymentIntentId: paymentIntent.id,
+        transferGroup: paymentIntent.transfer_group || undefined,
+        idempotencyKey: `tip_transfer_${paymentIntent.id}`,
+      });
+    }
+  }
+}
+
 // --- STRIPE WEBHOOK ---
 exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [stripeSecret, webhookSecret] }).https.onRequest(async (req, res) => {
     const stripe = require("stripe")(stripeSecret.value());
@@ -1354,45 +1654,64 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
   
     if (event.type === "payment_intent.succeeded") {
       const rawIntent = event.data.object;
+      let expandedIntent = rawIntent;
       let resolvedMethodType = extractStripePaymentMethodType(rawIntent);
       try {
-        const expanded = await stripe.paymentIntents.retrieve(rawIntent.id, {
+        expandedIntent = await stripe.paymentIntents.retrieve(rawIntent.id, {
           expand: ["latest_charge"],
         });
-        resolvedMethodType = extractStripePaymentMethodType(expanded);
+        resolvedMethodType = extractStripePaymentMethodType(expandedIntent);
       } catch (_) {}
 
+      if (rawIntent.metadata?.type === "tip") {
+        try {
+          await applyTipSettlement(stripe, expandedIntent);
+          return res.json({ received: true });
+        } catch (tipErr) {
+          console.error("Error settling tip via webhook:", tipErr);
+          return res.status(500).send("Tip Settlement Error");
+        }
+      }
+
       try {
-        const querySnapshot = await admin.firestore().collection("bookings")
-          .where("paymentIntentId", "==", rawIntent.id).get();
-        
-        const batch = admin.firestore().batch();
+        const db = admin.firestore();
+        let docs = (await db.collection("bookings").where("paymentIntentId", "==", rawIntent.id).get()).docs;
+        if (docs.length === 0 && typeof rawIntent.metadata?.bookingIds === "string" && rawIntent.metadata.bookingIds.trim()) {
+          const metaIds = rawIntent.metadata.bookingIds.split(",").map((s) => s.trim()).filter(Boolean);
+          const fetched = await Promise.all(metaIds.map((id) => db.collection("bookings").doc(id).get()));
+          docs = fetched.filter((d) => d.exists);
+        }
+
+        const batch = db.batch();
         let totalCalculatedPaid = 0;
         
-        // Validation and Sanitization
-        for (const doc of querySnapshot.docs) {
+        for (const doc of docs) {
           const booking = doc.data();
-          
-          let trueCost = booking.cost; 
-          let trueClientFee = booking.clientFee;
-          let trueCommissionAmount = booking.caregiverCommissionAmount;
-          let truePayout = booking.caregiverPayout;
-          let trueTotalPaid = booking.totalPaid;
-          
-          // Overwrite with mathematical certainty to prevent spoofing
-          trueClientFee = trueCost * 0.10; // Enforce 10% client fee
-          trueTotalPaid = trueCost + trueClientFee;
-          const commissionRate = booking.caregiverCommissionRate || 0.18;
-          trueCommissionAmount = trueCost * commissionRate;
-          truePayout = trueCost - trueCommissionAmount;
+          const trueCost = Number(booking.cost) || 0;
+          const rawFeeRate = Number(booking.clientFeeRate);
+          const expectedFeeRate = (Number.isFinite(rawFeeRate) && rawFeeRate >= STANDARD_CLIENT_FEE_RATE && rawFeeRate <= 0.15)
+            ? rawFeeRate
+            : STANDARD_CLIENT_FEE_RATE;
+
+          const trueClientFee = trueCost * expectedFeeRate;
+          const trueTotalPaid = trueCost + trueClientFee;
+          const rawCommRate = Number(booking.caregiverCommissionRate);
+          const commissionRate = (Number.isFinite(rawCommRate) && rawCommRate >= 0.05 && rawCommRate <= 0.25)
+            ? rawCommRate
+            : 0.18;
+          const trueCommissionAmount = trueCost * commissionRate;
+          const truePayout = trueCost - trueCommissionAmount;
           
           totalCalculatedPaid += trueTotalPaid;
           
-          let newStatus = booking.status === "confirmed" ? "confirmed" : "pending";
+          const newStatus = booking.status === "confirmed" || booking.offerId ? "confirmed" : "pending";
+          const nextEscrow = (!booking.escrowStatus || booking.escrowStatus === "none") ? "held" : booking.escrowStatus;
 
           batch.update(doc.ref, {
             status: newStatus,
             paymentStatus: "paid",
+            escrowStatus: nextEscrow,
+            paymentIntentId: rawIntent.id,
             paymentMethodType: resolvedMethodType,
             clientFee: trueClientFee,
             caregiverCommissionAmount: trueCommissionAmount,
@@ -1401,9 +1720,10 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
           });
         }
         
-        // Verify payment intent amount covers the bookings
+        // Verify payment intent amount covers the bookings (1 cent rounding tolerance per booking)
         const expectedCents = Math.round(totalCalculatedPaid * 100);
-        if (rawIntent.amount < expectedCents && querySnapshot.docs.length > 0) {
+        const toleranceCents = Math.max(2, docs.length * 2);
+        if (rawIntent.amount < (expectedCents - toleranceCents) && docs.length > 0) {
             console.error(`Fraud detected: Paid ${rawIntent.amount} but expected ${expectedCents}.`);
             return res.status(200).send("Payment amount insufficient, bookings not confirmed.");
         }
@@ -1422,7 +1742,10 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
           .where("paymentIntentId", "==", rawIntent.id).get();
         const batch = admin.firestore().batch();
         for (const doc of snap.docs) {
+          const b = doc.data();
           batch.update(doc.ref, {
+            status: b.status === "pendingPayment" ? "pending" : b.status,
+            escrowStatus: (!b.escrowStatus || b.escrowStatus === "none") ? "held" : b.escrowStatus,
             paymentStatus: "processing",
             paymentMethodType: extractStripePaymentMethodType(rawIntent),
           });
@@ -1438,7 +1761,8 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
           .where("paymentIntentId", "==", rawIntent.id).get();
         const batch = admin.firestore().batch();
         for (const doc of snap.docs) {
-          if (doc.data()?.status === "pendingPayment") {
+          const status = doc.data()?.status;
+          if (status === "pendingPayment" || status === "pending") {
             batch.update(doc.ref, { paymentStatus: "failed" });
           }
         }
@@ -1454,14 +1778,22 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
       const rawIds = session.metadata?.bookingIds;
       if (piId && typeof rawIds === "string" && rawIds.trim()) {
         try {
+          const db = admin.firestore();
           const ids = rawIds.split(",").map((s) => s.trim()).filter(Boolean);
-          const batch = admin.firestore().batch();
+          const isPaidNow = session.payment_status === "paid" || session.payment_status === "no_payment_required";
+          const batch = db.batch();
           for (const id of ids) {
+            const ref = db.collection("bookings").doc(id);
+            const snap = await ref.get();
+            if (!snap.exists) continue;
+            const b = snap.data() || {};
             batch.set(
-              admin.firestore().collection("bookings").doc(id),
+              ref,
               {
                 paymentIntentId: piId,
-                paymentStatus: session.payment_status === "paid" ? "paid" : "processing",
+                paymentStatus: isPaidNow ? "paid" : "processing",
+                status: b.status === "pendingPayment" ? (b.offerId ? "confirmed" : "pending") : b.status,
+                escrowStatus: (!b.escrowStatus || b.escrowStatus === "none") ? "held" : b.escrowStatus,
               },
               { merge: true }
             );
@@ -1553,7 +1885,7 @@ exports.pushOnApplicationUpdated = onDocumentUpdated({
 
 
 exports.adminBlockCaregiver = functions.region("europe-west1").https.onCall(async (data, context) => {
-  if (!context.auth || context.auth.token.email !== "maverick6576@gmail.com") throw new functions.https.HttpsError("permission-denied", "Solo administradores.");
+  if (!(await isAdminCaller(context))) throw new functions.https.HttpsError("permission-denied", "Solo administradores verificados.");
   const { caregiverId, days } = data;
   const now = new Date();
   
@@ -1792,6 +2124,7 @@ exports.joinFamilyByCode = functions.region("europe-west1").https.onCall(async (
       { type: "family_member_joined", familyId: result.familyId }
     );
   }
+  await mergeUserClaims(uid, { familyId: result.familyId });
   return result;
 });
 
@@ -1840,6 +2173,7 @@ exports.claimPendingFamilyInvite = functions.region("europe-west1").https.onCall
       { type: "family_member_joined", familyId: result.familyId }
     );
   }
+  await mergeUserClaims(uid, { familyId: result.familyId });
   return result;
 });
 
@@ -1901,6 +2235,7 @@ exports.removeFamilyMember = functions.region("europe-west1").https.onCall(async
     }
   });
 
+  await mergeUserClaims(memberUid, { familyId: null });
   return { success: true };
 });
 
@@ -1950,6 +2285,15 @@ exports.deleteUserAccountRgpd = functions.region("europe-west1").https.onCall(as
     batch.delete(userRef);
     batch.delete(db.collection("caregivers").doc(uid));
     await batch.commit();
+
+    // Eliminar cuenta de Firebase Auth desde servidor para evitar estado huérfano si requiere reautenticación en cliente
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (authErr) {
+      if (authErr?.code !== "auth/user-not-found") {
+        throw authErr;
+      }
+    }
     return { success: true };
   } catch (error) {
     console.error("Error in deleteUserAccountRgpd:", error);
@@ -2138,3 +2482,338 @@ exports.stripeCheckoutRedirect = functions
 </body>
 </html>`);
   });
+
+// =========================================================================
+// SERVER-VERIFIED PAYMENT CONFIRMATION, TIPS, 2FA, CLAIMS & RATINGS
+// =========================================================================
+
+exports.confirmClientBookingPayment = functions
+  .region("europe-west1")
+  .runWith({ secrets: [stripeSecret] })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+    }
+    const bookingIds = Array.isArray(data?.bookingIds)
+      ? data.bookingIds.map((id) => String(id).trim()).filter(Boolean)
+      : [];
+    if (bookingIds.length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "bookingIds requerido.");
+    }
+
+    const sessionId = typeof data?.sessionId === "string" ? data.sessionId.trim() : "";
+    let paymentIntentId = typeof data?.paymentIntentId === "string" ? data.paymentIntentId.trim() : "";
+    const targetStatus = data?.targetStatus === "confirmed" ? "confirmed" : "pending";
+    const transferGroup = typeof data?.transferGroup === "string" ? data.transferGroup.trim() : "";
+
+    const stripe = require("stripe")(stripeSecret.value());
+    let paymentIntent = null;
+    let sessionPaymentStatus = null;
+
+    if (sessionId) {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ["payment_intent.latest_charge"],
+      });
+      sessionPaymentStatus = session.payment_status;
+      if (session.payment_intent && typeof session.payment_intent === "object") {
+        paymentIntent = session.payment_intent;
+        paymentIntentId = paymentIntent.id;
+      } else if (typeof session.payment_intent === "string") {
+        paymentIntentId = session.payment_intent;
+      }
+    }
+
+    if (!paymentIntent && paymentIntentId) {
+      paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ["latest_charge"],
+      });
+    }
+
+    if (!paymentIntent) {
+      throw new functions.https.HttpsError("failed-precondition", "No se encontró el PaymentIntent en Stripe.");
+    }
+
+    const isPaid = paymentIntent.status === "succeeded" || sessionPaymentStatus === "paid";
+    const isProcessing = !isPaid && paymentIntent.status === "processing";
+    if (!isPaid && !isProcessing) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        `El pago todavía no ha sido autorizado por Stripe (estado: ${paymentIntent.status}).`
+      );
+    }
+
+    const db = admin.firestore();
+    const docs = await Promise.all(bookingIds.map((id) => db.collection("bookings").doc(id).get()));
+    let expectedTotalEur = 0;
+
+    for (const snap of docs) {
+      if (!snap.exists) {
+        throw new functions.https.HttpsError("not-found", `Reserva ${snap.id} no encontrada.`);
+      }
+      const b = snap.data() || {};
+      if (!(await isFamilyAdmin(b.clientId, context.auth.uid)) && !(await isAdminCaller(context))) {
+        throw new functions.https.HttpsError("permission-denied", "Solo un Administrador familiar puede confirmar esta reserva.");
+      }
+      if (b.paymentIntentId && b.paymentIntentId !== paymentIntent.id) {
+        throw new functions.https.HttpsError("permission-denied", "El PaymentIntent no corresponde a esta reserva.");
+      }
+      expectedTotalEur += Number(b.totalPaid) || Number(b.cost) || 0;
+    }
+
+    const expectedCents = Math.round(expectedTotalEur * 100);
+    const toleranceCents = Math.max(2, docs.length * 2);
+    if ((paymentIntent.amount || 0) < (expectedCents - toleranceCents)) {
+      throw new functions.https.HttpsError("permission-denied", "El importe pagado en Stripe es inferior al total de la reserva.");
+    }
+
+    const resolvedMethod = extractStripePaymentMethodType(paymentIntent);
+    const resolvedPaymentStatus = isPaid ? "paid" : "processing";
+    const batch = db.batch();
+
+    for (const snap of docs) {
+      const b = snap.data() || {};
+      const nextStatus = (b.status === "pendingPayment" || b.status === "pending")
+        ? targetStatus
+        : b.status;
+      const updatePayload = {
+        status: nextStatus,
+        paymentStatus: resolvedPaymentStatus,
+        paymentIntentId: paymentIntent.id,
+        paymentMethodType: resolvedMethod,
+        escrowStatus: (!b.escrowStatus || b.escrowStatus === "none") ? "held" : b.escrowStatus,
+      };
+      if (transferGroup && !b.transferGroup) {
+        updatePayload.transferGroup = transferGroup;
+      }
+      batch.update(snap.ref, updatePayload);
+    }
+    await batch.commit();
+
+    return {
+      success: true,
+      paymentStatus: resolvedPaymentStatus,
+      paymentIntentId: paymentIntent.id,
+      paymentMethodType: resolvedMethod,
+    };
+  });
+
+exports.createTipPaymentIntent = functions
+  .region("europe-west1")
+  .runWith({ secrets: [stripeSecret] })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+    }
+    const bookingId = typeof data?.bookingId === "string" ? data.bookingId.trim() : "";
+    const tipAmount = Number(data?.tipAmount);
+    if (!bookingId || !Number.isFinite(tipAmount) || tipAmount < 1 || tipAmount > 500) {
+      throw new functions.https.HttpsError("invalid-argument", "La propina debe estar entre 1 € y 500 €.");
+    }
+
+    const db = admin.firestore();
+    const bookingSnap = await db.collection("bookings").doc(bookingId).get();
+    if (!bookingSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Reserva no encontrada.");
+    }
+    const booking = bookingSnap.data() || {};
+    if (!(await isFamilyAdmin(booking.clientId, context.auth.uid))) {
+      throw new functions.https.HttpsError("permission-denied", "Solo un Administrador familiar puede enviar propinas.");
+    }
+
+    const caregiverSnap = await db.collection("caregivers").doc(booking.caregiverId).get();
+    if (!caregiverSnap.exists || !caregiverSnap.data()?.stripeAccountId) {
+      throw new functions.https.HttpsError("failed-precondition", "El cuidador no tiene cuenta bancaria (Stripe) configurada.");
+    }
+
+    const stripe = require("stripe")(stripeSecret.value());
+    const customerInfo = await getOrCreateStripeCustomerAndSession(stripe, context.auth);
+    const amountInCents = Math.round(tipAmount * 100);
+    const transferGroup = `tip_${bookingId}_${Date.now()}`;
+
+    const { paymentIntent, requestedMethod, fallbackUsed } = await createPaymentIntentWithPreference(stripe, {
+      amountInCents,
+      currency: "eur",
+      transferGroup,
+      preferredMethod: typeof data?.preferredMethod === "string" ? data.preferredMethod : "auto",
+      customerId: customerInfo.customerId,
+      metadata: {
+        type: "tip",
+        bookingId,
+        familyId: booking.clientId,
+        caregiverId: booking.caregiverId,
+        paidByUid: context.auth.uid,
+      },
+      description: `SeniCare · Propina 100% íntegra para ${booking.caregiverName || "cuidador"}`,
+    });
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      transferGroup,
+      customerId: customerInfo.customerId || null,
+      customerSessionClientSecret: customerInfo.customerSessionClientSecret || null,
+      ephemeralKeySecret: customerInfo.ephemeralKeySecret || null,
+      requestedMethod,
+      fallbackUsed,
+    };
+  });
+
+exports.confirmTipPayment = functions
+  .region("europe-west1")
+  .runWith({ secrets: [stripeSecret] })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+    }
+    const bookingId = typeof data?.bookingId === "string" ? data.bookingId.trim() : "";
+    const paymentIntentId = typeof data?.paymentIntentId === "string" ? data.paymentIntentId.trim() : "";
+    if (!bookingId || !paymentIntentId) {
+      throw new functions.https.HttpsError("invalid-argument", "bookingId y paymentIntentId son obligatorios.");
+    }
+
+    const stripe = require("stripe")(stripeSecret.value());
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] });
+    if (!pi || pi.status !== "succeeded") {
+      throw new functions.https.HttpsError("failed-precondition", "El pago de la propina no está confirmado en Stripe.");
+    }
+    if (pi.metadata?.type !== "tip" || pi.metadata?.bookingId !== bookingId) {
+      throw new functions.https.HttpsError("permission-denied", "El PaymentIntent no corresponde a esta propina.");
+    }
+
+    await applyTipSettlement(stripe, pi);
+    return {
+      success: true,
+      amountEur: (pi.amount_received || pi.amount || 0) / 100,
+    };
+  });
+
+exports.setupAdmin2FA = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  const email = (context.auth.token?.email || "").trim();
+  const verified = context.auth.token?.email_verified === true;
+  if (!email || !verified) {
+    throw new functions.https.HttpsError("permission-denied", "Tu correo debe estar verificado.");
+  }
+  if (!(await isAdminCaller(context))) {
+    throw new functions.https.HttpsError("permission-denied", "Solo administradores autorizados.");
+  }
+
+  const secret = String(data?.secret || "").trim().toUpperCase();
+  const code = String(data?.code || "").trim();
+  if (!/^[A-Z2-7]{16,64}$/.test(secret)) {
+    throw new functions.https.HttpsError("invalid-argument", "Secreto TOTP inválido.");
+  }
+  if (!verifyTotpCode(secret, code)) {
+    throw new functions.https.HttpsError("invalid-argument", "El código de verificación 2FA es incorrecto.");
+  }
+
+  const db = admin.firestore();
+  const adminRef = db.collection("admins").doc(email);
+  await adminRef.set({
+    email,
+    "2faEnabled": true,
+    secret: admin.firestore.FieldValue.delete(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  await adminRef.collection("private").doc("totp").set({
+    secret,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  await mergeUserClaims(context.auth.uid, { admin: true });
+  return { success: true };
+});
+
+exports.verifyAdmin2FA = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  const email = (context.auth.token?.email || "").trim();
+  if (!email || !(await isAdminCaller(context))) {
+    throw new functions.https.HttpsError("permission-denied", "Solo administradores verificados.");
+  }
+  const code = String(data?.code || "").trim();
+  const db = admin.firestore();
+  const adminRef = db.collection("admins").doc(email);
+  const privateRef = adminRef.collection("private").doc("totp");
+
+  let secret = "";
+  const privateSnap = await privateRef.get();
+  if (privateSnap.exists && privateSnap.data()?.secret) {
+    secret = String(privateSnap.data().secret);
+  } else {
+    const publicSnap = await adminRef.get();
+    if (publicSnap.exists && publicSnap.data()?.secret) {
+      secret = String(publicSnap.data().secret);
+      // Migrar automáticamente el secreto legacy al documento privado
+      await privateRef.set({ secret, migratedAt: admin.firestore.FieldValue.serverTimestamp() });
+      await adminRef.set({ secret: admin.firestore.FieldValue.delete(), "2faEnabled": true }, { merge: true });
+    }
+  }
+
+  if (!secret) {
+    throw new functions.https.HttpsError("failed-precondition", "2FA no configurado para este administrador.");
+  }
+  if (!verifyTotpCode(secret, code)) {
+    throw new functions.https.HttpsError("permission-denied", "Código 2FA incorrecto.");
+  }
+
+  await mergeUserClaims(context.auth.uid, { admin: true });
+  return { success: true };
+});
+
+exports.syncUserClaims = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  }
+  const uid = context.auth.uid;
+  const db = admin.firestore();
+  const patch = {};
+
+  if (await isAdminCaller(context)) {
+    patch.admin = true;
+  } else {
+    patch.admin = null;
+  }
+
+  const userSnap = await db.collection("users").doc(uid).get();
+  const activeFamilyId = userSnap.data()?.activeFamilyId;
+  if (activeFamilyId && (await isFamilyMember(activeFamilyId, uid))) {
+    patch.familyId = activeFamilyId;
+  } else {
+    patch.familyId = null;
+  }
+
+  await mergeUserClaims(uid, patch);
+  return { success: true, familyId: patch.familyId || null, isAdmin: patch.admin === true };
+});
+
+exports.syncCaregiverRatingOnReviewCreated = onDocumentCreated({
+  document: "reviews/{reviewId}",
+  region: "europe-west1"
+}, async (event) => {
+  const review = event.data?.data();
+  if (!review || !review.caregiverId) return null;
+  const rating = Number(review.rating);
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) return null;
+
+  const db = admin.firestore();
+  const caregiverRef = db.collection("caregivers").doc(review.caregiverId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(caregiverRef);
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    const currentRating = Number(data.rating) || 0;
+    const currentReviewsCount = Number(data.reviewsCount) || 0;
+    const newReviewsCount = currentReviewsCount + 1;
+    const newRating = ((currentRating * currentReviewsCount) + rating) / newReviewsCount;
+    tx.update(caregiverRef, {
+      rating: newRating,
+      reviewsCount: newReviewsCount,
+    });
+  });
+  return null;
+});

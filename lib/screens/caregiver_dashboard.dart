@@ -1624,6 +1624,8 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     BookingNotifier bookingState,
   ) async {
     HapticFeedback.selectionClick();
+    final uploaderUid =
+        context.read<AuthNotifier>().currentUserId ?? b.caregiverId;
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -1668,7 +1670,17 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
       final ref = FirebaseStorage.instance
           .ref()
           .child('care_journal/${b.id}/${DateTime.now().millisecondsSinceEpoch}.jpg');
-      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      await ref.putData(
+        bytes,
+        SettableMetadata(
+          contentType: 'image/jpeg',
+          customMetadata: {
+            'uploaderUid': uploaderUid,
+            'clientId': b.clientId,
+            'caregiverId': b.caregiverId,
+          },
+        ),
+      );
       final String photoUrl = await ref.getDownloadURL();
 
       await bookingState.addCarePhotoUrl(b.id, photoUrl);

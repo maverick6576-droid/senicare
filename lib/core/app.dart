@@ -56,21 +56,57 @@ class _SeniCareAppState extends State<SeniCareApp> {
     }
   }
 
+  Widget _buildHomeScreen(AuthNotifier auth) {
+    if (!auth.isAuthenticated) return const AuthScreen();
+    if (auth.currentRole == 'admin') {
+      return auth.isAdminVerified2FA
+          ? const AdminDashboard()
+          : const Admin2FAScreen();
+    }
+    return auth.onboardingComplete
+        ? const MainLayout()
+        : const OnboardingRouterScreen();
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthNotifier>();
     final config = context.watch<ConfigNotifier>();
-    // final state = context.watch<AppState>();
     return MaterialApp(
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       title: 'SeniCare',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.getTheme(config.seniorMode),
-      home: auth.isAuthenticated 
-          ? (auth.currentRole == 'admin' 
-              ? (auth.isAdminVerified2FA ? const AdminDashboard() : const Admin2FAScreen())
-              : (auth.onboardingComplete ? const MainLayout() : const OnboardingRouterScreen()))
-          : const AuthScreen(),
+      home: _buildHomeScreen(auth),
+      onGenerateRoute: (settings) {
+        final rawName = settings.name ?? '/';
+        final uri = Uri.tryParse(rawName);
+        final path = uri?.path ?? rawName;
+        if (path == '/join' &&
+            auth.isAuthenticated &&
+            auth.currentRole == 'client' &&
+            auth.currentUserId != null) {
+          final code = uri?.queryParameters['code'];
+          if (code != null && code.trim().isNotEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              auth.joinFamilyWithCode(code.trim()).then(
+                (_) {},
+                onError: (e) {
+                  debugPrint('Deep-link family join error: $e');
+                },
+              );
+            });
+          }
+        }
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (_) => _buildHomeScreen(auth),
+        );
+      },
+      onUnknownRoute: (settings) => MaterialPageRoute(
+        settings: settings,
+        builder: (_) => _buildHomeScreen(auth),
+      ),
     );
   }
 }

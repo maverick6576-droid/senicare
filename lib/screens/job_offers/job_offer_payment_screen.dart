@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/models/models.dart';
@@ -119,9 +120,12 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
       final fee = subtotal * widget.offer.clientFeeRate;
       final total = subtotal + fee;
 
+      final String transferGroup =
+          'offer_${widget.offer.id}_${DateTime.now().millisecondsSinceEpoch}';
+
       // 2. Create Payment Intent (para checkout en app) o preparar sesión externa (Bizum)
       Map<String, dynamic> paymentIntentData = {
-        'transferGroup': 'offer_${widget.offer.id}_${DateTime.now().millisecondsSinceEpoch}',
+        'transferGroup': transferGroup,
       };
       if (!_selectedPaymentMethod.usesExternalCheckout) {
         try {
@@ -146,6 +150,128 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         }
       }
 
+      // 3. Registrar reservas previas en estado pendingPayment (compatibles con firestore.rules y webhook)
+      final initialPaymentIntentId = paymentIntentData['paymentIntentId']?.toString();
+      final double baseTierRate = FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
+      final double effectiveCommissionRate = (baseTierRate - widget.offer.urgencyBonusRate).clamp(0.05, 0.18);
+      final String generatedPin = (Random().nextInt(9000) + 1000).toString();
+      final List<Booking> draftBookings = [];
+
+      if (widget.offer.isRecurring) {
+        final totalDays = widget.offer.recurringWeeks * 7;
+        for (int i = 0; i < totalDays; i++) {
+          final targetDate = widget.offer.startDate.add(Duration(days: i));
+          if (widget.offer.recurringDaysOfWeek.contains(targetDate.weekday)) {
+            int startHour = 9;
+            int startMinute = 0;
+            if (widget.offer.recurringStartTime.contains(':')) {
+              final timeParts = widget.offer.recurringStartTime.split(':');
+              startHour = int.tryParse(timeParts[0]) ?? 9;
+              startMinute = int.tryParse(timeParts[1]) ?? 0;
+            }
+            final startDateTime = DateTime(targetDate.year, targetDate.month, targetDate.day, startHour, startMinute);
+            final endDateTime = startDateTime.add(Duration(hours: widget.offer.recurringHoursPerDay));
+
+            final cost = widget.offer.recurringHoursPerDay * widget.application.proposedPrice;
+            final clientFee = cost * widget.offer.clientFeeRate;
+            final commissionAmount = cost * effectiveCommissionRate;
+            final payout = cost - commissionAmount;
+
+            draftBookings.add(Booking(
+              id: '',
+              clientId: auth.effectiveClientId ?? '',
+              caregiverId: widget.application.caregiverId,
+              caregiverName: widget.application.caregiverName,
+              day: '${startDateTime.year}-${startDateTime.month.toString().padLeft(2, '0')}-${startDateTime.day.toString().padLeft(2, '0')}',
+              slot: '${startDateTime.hour.toString().padLeft(2, '0')}:${startDateTime.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}',
+              cost: cost,
+              clientFee: clientFee,
+              clientFeeRate: widget.offer.clientFeeRate,
+              caregiverCommissionRate: effectiveCommissionRate,
+              caregiverCommissionAmount: commissionAmount,
+              caregiverPayout: payout,
+              totalPaid: cost + clientFee,
+              status: BookingStatus.pendingPayment,
+              escrowStatus: 'none',
+              bookingPin: generatedPin,
+              createdAt: DateTime.now(),
+              transferGroup: paymentIntentData['transferGroup']?.toString() ?? transferGroup,
+              paymentIntentId: initialPaymentIntentId,
+              paymentMethodType: _selectedPaymentMethod.backendId,
+              paymentStatus: 'pending',
+              clientLatitude: widget.offer.clientLatitude,
+              clientLongitude: widget.offer.clientLongitude,
+              careChecklist: _customChecklist
+                  .asMap()
+                  .entries
+                  .map((e) => CareChecklistItem(id: 'task_${e.key + 1}', title: e.value))
+                  .toList(),
+            ));
+          }
+        }
+      } else {
+        final endDateTime = widget.offer.startDate.add(Duration(hours: widget.offer.totalHours));
+        final cost = widget.offer.totalHours * widget.application.proposedPrice;
+        final clientFee = cost * widget.offer.clientFeeRate;
+        final commissionAmount = cost * effectiveCommissionRate;
+        final payout = cost - commissionAmount;
+
+        draftBookings.add(Booking(
+          id: '',
+          clientId: auth.effectiveClientId ?? '',
+          caregiverId: widget.application.caregiverId,
+          caregiverName: widget.application.caregiverName,
+          day: '${widget.offer.startDate.year}-${widget.offer.startDate.month.toString().padLeft(2, '0')}-${widget.offer.startDate.day.toString().padLeft(2, '0')}',
+          slot: '${widget.offer.startDate.hour.toString().padLeft(2, '0')}:${widget.offer.startDate.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}',
+          cost: cost,
+          clientFee: clientFee,
+          clientFeeRate: widget.offer.clientFeeRate,
+          caregiverCommissionRate: effectiveCommissionRate,
+          caregiverCommissionAmount: commissionAmount,
+          caregiverPayout: payout,
+          totalPaid: cost + clientFee,
+          status: BookingStatus.pendingPayment,
+          escrowStatus: 'none',
+          bookingPin: generatedPin,
+          createdAt: DateTime.now(),
+          transferGroup: paymentIntentData['transferGroup']?.toString() ?? transferGroup,
+          paymentIntentId: initialPaymentIntentId,
+          paymentMethodType: _selectedPaymentMethod.backendId,
+          paymentStatus: 'pending',
+          clientLatitude: widget.offer.clientLatitude,
+          clientLongitude: widget.offer.clientLongitude,
+          careChecklist: _customChecklist
+              .asMap()
+              .entries
+              .map((e) => CareChecklistItem(id: 'task_${e.key + 1}', title: e.value))
+              .toList(),
+        ));
+      }
+
+      final List<String> createdBookingIds = [];
+      Future<void> rollbackDrafts() async {
+        for (final id in createdBookingIds) {
+          try {
+            await DependencyInjection.bookings.deleteBooking(id);
+          } catch (e) {
+            debugPrint('Rollback job offer booking failed ($id): $e');
+          }
+        }
+        createdBookingIds.clear();
+      }
+
+      try {
+        for (final b in draftBookings) {
+          final id = await DependencyInjection.bookings.createBooking(b);
+          createdBookingIds.add(id);
+        }
+      } catch (e) {
+        await rollbackDrafts();
+        _safeSetState(() => _isProcessing = false);
+        _showSnackBar(scaffoldMessenger, 'No se pudo preparar la reserva: $e', Colors.red);
+        return;
+      }
+
       if (!mounted) return;
       final customerName = auth.currentClient?.name ?? auth.currentUserDisplayName;
       final flowResult = await executeClientStripePayment(
@@ -159,9 +285,11 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         customerName: customerName,
         caregiverStripeAccountId: stripeAccountId,
         familyId: clientId,
+        bookingIds: List<String>.from(createdBookingIds),
       );
 
       if (flowResult.outcome == 'cancelled') {
+        await rollbackDrafts();
         _safeSetState(() => _isProcessing = false);
         if (mounted) {
           CustomDialog.showError(
@@ -172,6 +300,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         }
         return;
       } else if (flowResult.outcome == 'error') {
+        await rollbackDrafts();
         _safeSetState(() => _isProcessing = false);
         if (mounted) {
           CustomDialog.showError(
@@ -183,115 +312,32 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         return;
       }
 
-      // 5. Payment Success (or SEPA processing) -> Update DB
+      // 5. Payment Success (or SEPA processing) -> Confirmar en backend y aceptar candidatura
       chargedPaymentIntentId =
           flowResult.paymentIntentId ?? paymentIntentData['paymentIntentId'] as String?;
-      final resolvedMethodType =
-          flowResult.paymentMethodType ?? _selectedPaymentMethod.backendId;
-      final resolvedPaymentStatus =
-          flowResult.outcome == 'processing' ? 'processing' : 'paid';
       if (!mounted) return;
-      // Update application and offer statuses
-      await context.read<JobOfferNotifier>().acceptApplication(widget.offer.id, widget.application.id, widget.application.caregiverId);
+      await context.read<JobOfferNotifier>().acceptApplication(
+            widget.offer.id,
+            widget.application.id,
+            widget.application.caregiverId,
+          );
 
-      // Create booking(s)
-      final paymentIntentId = chargedPaymentIntentId ?? '';
-      final double baseTierRate = FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
-      final double effectiveCommissionRate = (baseTierRate - widget.offer.urgencyBonusRate).clamp(0.05, 0.18);
-      final String generatedPin = (Random().nextInt(9000) + 1000).toString();
-      
-      if (widget.offer.isRecurring) {
-        final List<Booking> bookings = [];
-        final totalDays = widget.offer.recurringWeeks * 7;
-        
-        for (int i = 0; i < totalDays; i++) {
-          final targetDate = widget.offer.startDate.add(Duration(days: i));
-          if (widget.offer.recurringDaysOfWeek.contains(targetDate.weekday)) {
-            int startHour = 9;
-            int startMinute = 0;
-            if (widget.offer.recurringStartTime.contains(':')) {
-              final timeParts = widget.offer.recurringStartTime.split(':');
-              startHour = int.tryParse(timeParts[0]) ?? 9;
-              startMinute = int.tryParse(timeParts[1]) ?? 0;
-            }
-            final startDateTime = DateTime(targetDate.year, targetDate.month, targetDate.day, startHour, startMinute);
-            final endDateTime = startDateTime.add(Duration(hours: widget.offer.recurringHoursPerDay));
-            
-            final cost = widget.offer.recurringHoursPerDay * widget.application.proposedPrice;
-            final clientFee = cost * widget.offer.clientFeeRate;
-            final commissionRate = effectiveCommissionRate;
-            final commissionAmount = cost * commissionRate;
-            final payout = cost - commissionAmount;
-
-            bookings.add(Booking(
-              id: '',
-              clientId: auth.effectiveClientId ?? '',
-              caregiverId: widget.application.caregiverId,
-              caregiverName: widget.application.caregiverName,
-              day: '${startDateTime.year}-${startDateTime.month.toString().padLeft(2, '0')}-${startDateTime.day.toString().padLeft(2, '0')}',
-              slot: '${startDateTime.hour.toString().padLeft(2, '0')}:${startDateTime.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}',
-              cost: cost,
-              clientFee: clientFee,
-              caregiverCommissionRate: commissionRate,
-              caregiverCommissionAmount: commissionAmount,
-              caregiverPayout: payout,
-              totalPaid: cost + clientFee,
-              status: BookingStatus.confirmed,
-              bookingPin: generatedPin,
-              createdAt: DateTime.now(),
-              paymentIntentId: paymentIntentId,
-              paymentMethodType: resolvedMethodType,
-              paymentStatus: resolvedPaymentStatus,
-              clientLatitude: widget.offer.clientLatitude,
-              clientLongitude: widget.offer.clientLongitude,
-              careChecklist: _customChecklist
-                  .asMap()
-                  .entries
-                  .map((e) => CareChecklistItem(id: 'task_${e.key + 1}', title: e.value))
-                  .toList(),
-            ));
-          }
-        }
-        
-        for (var b in bookings) {
-          await DependencyInjection.bookings.createBooking(b);
+      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+        try {
+          await StripeService.confirmClientBookingPayment(
+            bookingIds: createdBookingIds,
+            paymentIntentId: chargedPaymentIntentId,
+            sessionId: flowResult.sessionId,
+            targetStatus: 'confirmed',
+            transferGroup: paymentIntentData['transferGroup']?.toString() ?? transferGroup,
+          );
+        } catch (e) {
+          debugPrint('confirmClientBookingPayment warning (offer webhook reconciles): $e');
         }
       } else {
-        final endDateTime = widget.offer.startDate.add(Duration(hours: widget.offer.totalHours));
-        final cost = widget.offer.totalHours * widget.application.proposedPrice;
-        final clientFee = cost * widget.offer.clientFeeRate;
-        final commissionRate = effectiveCommissionRate;
-        final commissionAmount = cost * commissionRate;
-        final payout = cost - commissionAmount;
-
-        final booking = Booking(
-          id: '',
-          clientId: auth.effectiveClientId ?? '',
-          caregiverId: widget.application.caregiverId,
-          caregiverName: widget.application.caregiverName,
-          day: '${widget.offer.startDate.year}-${widget.offer.startDate.month.toString().padLeft(2, '0')}-${widget.offer.startDate.day.toString().padLeft(2, '0')}',
-          slot: '${widget.offer.startDate.hour.toString().padLeft(2, '0')}:${widget.offer.startDate.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}',
-          cost: cost,
-          clientFee: clientFee,
-          caregiverCommissionRate: commissionRate,
-          caregiverCommissionAmount: commissionAmount,
-          caregiverPayout: payout,
-          totalPaid: cost + clientFee,
-          status: BookingStatus.confirmed,
-          bookingPin: generatedPin,
-          createdAt: DateTime.now(),
-          paymentIntentId: paymentIntentId,
-          paymentMethodType: resolvedMethodType,
-          paymentStatus: resolvedPaymentStatus,
-          clientLatitude: widget.offer.clientLatitude,
-          clientLongitude: widget.offer.clientLongitude,
-          careChecklist: _customChecklist
-              .asMap()
-              .entries
-              .map((e) => CareChecklistItem(id: 'task_${e.key + 1}', title: e.value))
-              .toList(),
-        );
-        await DependencyInjection.bookings.createBooking(booking);
+        for (final id in createdBookingIds) {
+          await DependencyInjection.bookings.updateBookingStatus(id, 'confirmed');
+        }
       }
 
       if (mounted) {
@@ -300,7 +346,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
           context,
           total,
           generatedPin,
-          isProcessingBank: resolvedPaymentStatus == 'processing',
+          isProcessingBank: flowResult.outcome == 'processing',
         );
         if (mounted) {
           Navigator.popUntil(context, (route) => route.isFirst);

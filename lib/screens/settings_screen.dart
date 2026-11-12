@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -126,18 +127,20 @@ class SettingsScreen extends StatelessWidget {
       final userId = authNotifier.currentUserId;
 
       if (userId != null) {
-        if (authNotifier.isSharedFamilyMember) {
-          // Si es miembro unido a una familia compartida, abandona primero sin destruir la cuenta familiar común.
-          await authNotifier.leaveSharedFamily();
-        }
-        try {
+        if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+          // La Cloud Function borra atómicamente membresía familiar, datos RGPD en Firestore y Firebase Auth.
           await FirebaseFunctions.instanceFor(region: 'europe-west1')
               .httpsCallable('deleteUserAccountRgpd')
               .call();
-        } catch (e) {
-          debugPrint('Warning calling deleteUserAccountRgpd: $e');
+          try {
+            await DependencyInjection.auth.signOut();
+          } catch (_) {}
+        } else {
+          if (authNotifier.isSharedFamilyMember) {
+            await authNotifier.leaveSharedFamily();
+          }
+          await DependencyInjection.auth.deleteAccount();
         }
-        await DependencyInjection.auth.deleteAccount();
       }
 
       if (context.mounted) {

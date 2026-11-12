@@ -78,7 +78,10 @@ class AdminValidationsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('caregivers').where('verificationStatus', isEqualTo: 'pending').snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('caregivers')
+          .where('verificationStatus', whereIn: ['pending', 'manual_review'])
+          .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data!.docs;
@@ -248,7 +251,16 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
   String query = '';
 
   Future<void> _deleteUser(String id, String collection) async {
-    await FirebaseFirestore.instance.collection(collection).doc(id).delete();
+    final db = FirebaseFirestore.instance;
+    final batch = db.batch();
+    batch.delete(db.collection(collection).doc(id));
+    if (collection != 'users') {
+      batch.delete(db.collection('users').doc(id));
+    } else {
+      batch.delete(db.collection('caregivers').doc(id));
+      batch.delete(db.collection('clients').doc(id));
+    }
+    await batch.commit();
   }
 
   Future<void> _blockUserDialog(String id) async {
@@ -338,8 +350,21 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
   }
 }
 
-class AdminTeamTab extends StatelessWidget {
+class AdminTeamTab extends StatefulWidget {
   const AdminTeamTab({super.key});
+
+  @override
+  State<AdminTeamTab> createState() => _AdminTeamTabState();
+}
+
+class _AdminTeamTabState extends State<AdminTeamTab> {
+  final TextEditingController _emailController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
 
   Future<void> _addAdmin(String email) async {
     if (email.isEmpty) return;
@@ -357,7 +382,6 @@ class AdminTeamTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = TextEditingController();
     return Column(
       children: [
         Padding(
@@ -366,15 +390,15 @@ class AdminTeamTab extends StatelessWidget {
             children: [
               Expanded(
                 child: TextField(
-                  controller: controller,
+                  controller: _emailController,
                   decoration: const InputDecoration(labelText: 'Nuevo Email Admin', border: OutlineInputBorder()),
                 ),
               ),
               IconButton(
                 icon: const Icon(Icons.add_circle, color: Colors.red, size: 36),
                 onPressed: () {
-                  _addAdmin(controller.text.trim());
-                  controller.clear();
+                  _addAdmin(_emailController.text.trim());
+                  _emailController.clear();
                 },
               ),
             ],
@@ -475,7 +499,15 @@ class _AdminFinancesTabState extends State<AdminFinancesTab> {
               DropdownButton<String>(
                 value: _escrowFilter,
                 hint: const Text('Estado Escrow'),
-                items: ['Todos', 'held', 'released', 'refunded', 'resolved_partial']
+                items: [
+                  'Todos',
+                  'held',
+                  'released_manual',
+                  'released_auto',
+                  'released',
+                  'refunded',
+                  'resolved_partial',
+                ]
                     .map((e) => DropdownMenuItem(value: e, child: Text(e == 'Todos' ? 'Escrow: Todos' : e)))
                     .toList(),
                 onChanged: (val) => setState(() => _escrowFilter = val!),
@@ -561,7 +593,7 @@ class _AdminFinancesTabState extends State<AdminFinancesTab> {
                     caregiverPayout = expectedPayout / 2;
                     double expectedSenicare = totalPaid - expectedPayout;
                     senicareProfit = expectedSenicare / 2;
-                } else if (escrow == 'released') {
+                } else if (escrow == 'released' || escrow == 'released_manual' || escrow == 'released_auto') {
                     caregiverPayout = (data['caregiverPayout'] as num?)?.toDouble() ?? (cost - (cost * cgCommRate));
                     senicareProfit = totalPaid - caregiverPayout;
                 }
@@ -626,8 +658,8 @@ class _AdminFinancesTabState extends State<AdminFinancesTab> {
                             double expectedPayout = (data['caregiverPayout'] as num?)?.toDouble() ?? (cost - (cost * cgCommRate));
                             caregiverPayout = expectedPayout / 2;
                             senicareProfit = totalPaid - refundToClient - caregiverPayout;
-                        } else if (escrow == 'released') {
-                            scenarioName = 'Completado (100%)';
+                        } else if (escrow == 'released' || escrow == 'released_manual' || escrow == 'released_auto') {
+                            scenarioName = escrow == 'released_auto' ? 'Completado (Auto)' : 'Completado (100%)';
                             caregiverPayout = (data['caregiverPayout'] as num?)?.toDouble() ?? (cost - (cost * cgCommRate));
                             senicareProfit = totalPaid - caregiverPayout;
                         } else {

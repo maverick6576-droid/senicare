@@ -135,13 +135,16 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     if (_isSaving) return;
     _isSaving = true;
     await Future.delayed(const Duration(milliseconds: 800)); // debounce
-    await _saveDraft();
+    if (mounted) {
+      await _saveDraft();
+    }
     _isSaving = false;
   }
 
   /// Saves current step data to Firestore immediately
   Future<void> _saveDraft({bool showFeedback = false}) async {
     try {
+      if (!mounted) return;
       final auth = context.read<AuthNotifier>();
       final userId = auth.currentUserId;
       if (userId == null) return;
@@ -173,16 +176,17 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       if (_dniScannedText.isNotEmpty) data['dniScannedText'] = _dniScannedText;
       if (_criminalScannedText.isNotEmpty) data['criminalScannedText'] = _criminalScannedText;
 
-      // Step 4 fields
-      if (_stripeAccountId != null) data['stripeAccountId'] = _stripeAccountId;
-
       await FirebaseFirestore.instance
           .collection('caregivers')
           .doc(userId)
           .set(data, SetOptions(merge: true));
 
       if (showFeedback && mounted) {
-        CustomSnackBar.show(context, message: 'Mensaje', type: SnackBarType.success);
+        CustomSnackBar.show(
+          context,
+          message: 'Borrador guardado automáticamente',
+          type: SnackBarType.success,
+        );
       }
     } catch (e) {
       debugPrint('Auto-save error: $e');
@@ -244,6 +248,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       if (image == null) return;
 
       final savedPath = await _persistFile(image.path);
+      if (!mounted) return;
       setState(() {
         _profileImagePath = savedPath;
         _isLoading = true;
@@ -445,7 +450,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       if (crimTextNorm.contains(part)) matchCrimCount++;
     }
 
-    if (matchDniCount >= 1 && matchCrimCount >= 1) return 'approved';
+    if (matchDniCount >= 1 && matchCrimCount >= 1) return 'manual_review';
     return 'pending';
   }
 
@@ -480,10 +485,9 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         'verificationStatus': validationStatus,
         'onboardingComplete': true,
         'onboardingStep': 3,
-        'stripeAccountId': _stripeAccountId,
         'specialties': _specialties,
-        'latitude': _homeLat ?? 41.3851,
-        'longitude': _homeLon ?? 2.1734,
+        if (_homeLat != null) 'latitude': _homeLat,
+        if (_homeLon != null) 'longitude': _homeLon,
         'lastUpdated': FieldValue.serverTimestamp(),
       };
 
@@ -493,8 +497,8 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
           .set(data, SetOptions(merge: true));
 
       if (mounted) {
-        if (validationStatus == 'approved') {
-          CustomSnackBar.show(context, message: '¡Verificación exitosa! Perfil aprobado automáticamente.', type: SnackBarType.success);
+        if (validationStatus == 'manual_review') {
+          CustomSnackBar.show(context, message: 'Documentación prevalidada. Pendiente de aprobación final del equipo SeniCare.', type: SnackBarType.success);
         } else {
           CustomSnackBar.show(context, message: 'Registro completado. Identidad pendiente de validación manual.', type: SnackBarType.info);
         }
@@ -566,11 +570,14 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
             onPressed: () async {
               await _saveDraft();
               if (!context.mounted) return;
-              final auth = context.read<AuthNotifier>();
-              auth.onboardingComplete = true;
-              auth.forceRefresh();
+              CustomSnackBar.show(
+                context,
+                message: 'Borrador guardado. Podrás continuar tu registro la próxima vez que entres.',
+                type: SnackBarType.info,
+              );
+              await DependencyInjection.auth.signOut();
             },
-            child: const Text('Terminar luego'),
+            child: const Text('Guardar y salir'),
           ),
         ],
       ),

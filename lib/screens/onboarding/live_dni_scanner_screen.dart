@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:io';
 
 class LiveDniScannerScreen extends StatefulWidget {
   const LiveDniScannerScreen({super.key});
@@ -25,15 +24,34 @@ class _LiveDniScannerScreenState extends State<LiveDniScannerScreen> {
 
   Future<void> _initCamera() async {
     try {
+      if (kIsWeb) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('El escáner en vivo solo está disponible en Android/iOS.')),
+          );
+          Navigator.pop(context);
+        }
+        return;
+      }
       final cameras = await availableCameras();
-      if (cameras.isEmpty) return;
+      if (cameras.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No se encontró ninguna cámara disponible en el dispositivo.')),
+          );
+          Navigator.pop(context);
+        }
+        return;
+      }
       final camera = cameras.first;
 
       _cameraController = CameraController(
         camera,
         ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
+        imageFormatGroup: defaultTargetPlatform == TargetPlatform.android
+            ? ImageFormatGroup.nv21
+            : ImageFormatGroup.bgra8888,
       );
 
       await _cameraController!.initialize();
@@ -47,7 +65,13 @@ class _LiveDniScannerScreenState extends State<LiveDniScannerScreen> {
         _processImage(image, camera);
       });
     } catch (e) {
-      print('Error initializing camera: $e');
+      debugPrint('Error initializing camera: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir la cámara: $e')),
+        );
+        Navigator.pop(context);
+      }
     }
   }
 

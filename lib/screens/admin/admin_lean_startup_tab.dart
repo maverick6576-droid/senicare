@@ -58,24 +58,24 @@ class _LeanMetricsData {
 
   factory _LeanMetricsData.defaultData() {
     return _LeanMetricsData(
-      coveredOffersRate: 84.2,
-      totalOffers: 19,
-      coveredOffers: 16,
-      escrowSuccessRate: 98.5,
-      totalBookings: 67,
-      completedBookings: 66,
-      avgResponseHours: 1.4,
-      totalClients: 1240,
-      activeClients: 942,
-      payingClients: 669,
-      repeatClients: 508,
-      totalCaregivers: 890,
-      activeCaregivers: 720,
-      earningCaregivers: 551,
-      repeatCaregivers: 427,
-      avgLtv: 180.0,
-      avgCac: 24.0,
-      pmfScore: 40.0,
+      coveredOffersRate: 0.0,
+      totalOffers: 0,
+      coveredOffers: 0,
+      escrowSuccessRate: 0.0,
+      totalBookings: 0,
+      completedBookings: 0,
+      avgResponseHours: 0.0,
+      totalClients: 0,
+      activeClients: 0,
+      payingClients: 0,
+      repeatClients: 0,
+      totalCaregivers: 0,
+      activeCaregivers: 0,
+      earningCaregivers: 0,
+      repeatCaregivers: 0,
+      avgLtv: 0.0,
+      avgCac: 0.0,
+      pmfScore: 0.0,
     );
   }
 }
@@ -122,11 +122,15 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
         final data = doc.data();
         final status = data['status'] as String? ?? '';
         final candidates = data['candidates'] as List? ?? [];
-        if (status == 'covered' || status == 'completed' || status == 'in_progress' || candidates.isNotEmpty) {
+        if (status == 'covered' ||
+            status == 'completed' ||
+            status == 'inProgress' ||
+            status == 'in_progress' ||
+            candidates.isNotEmpty) {
           coveredOffers++;
         }
       }
-      final coveredRate = totalOffers > 0 ? (coveredOffers / totalOffers) * 100.0 : 84.2;
+      final coveredRate = totalOffers > 0 ? (coveredOffers / totalOffers) * 100.0 : 0.0;
 
       // 2. Éxito en Escrow y Reservas
       final totalBookings = bookingsSnap.docs.length;
@@ -159,9 +163,9 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
         }
       }
 
-      final escrowSuccessRate = totalBookings > 0 
-          ? (((totalBookings - disputedBookings) / totalBookings) * 100.0).clamp(0.0, 100.0) 
-          : 98.5;
+      final escrowSuccessRate = totalBookings > 0
+          ? (((totalBookings - disputedBookings) / totalBookings) * 100.0).clamp(0.0, 100.0)
+          : 0.0;
 
       // 3. Clientes AARRR
       final totalClients = clientsSnap.docs.length;
@@ -180,7 +184,9 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
       int repeatCaregivers = 0;
       for (var doc in caregiversSnap.docs) {
         final data = doc.data();
-        final validated = data['isVerified'] == true || data['status'] == 'validated';
+        final validated = data['isVerified'] == true ||
+            data['verified'] == true ||
+            data['verificationStatus'] == 'approved';
         if (validated) activeCaregivers++;
       }
       if (activeCaregivers == 0) activeCaregivers = caregiverBookingCounts.length;
@@ -190,11 +196,11 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
       });
 
       // 5. PMF y Unit Economics
-      final avgLtv = totalClients > 0 && totalRevenue > 0 ? (totalRevenue / totalClients) : 180.0;
-      const avgCac = 24.0;
-      final pmfScore = repeatClients > 0 && totalClients > 0 
+      final avgLtv = totalClients > 0 ? (totalRevenue / totalClients) : 0.0;
+      const avgCac = 0.0;
+      final pmfScore = totalClients > 0
           ? ((repeatClients / totalClients) * 100.0).clamp(0.0, 100.0)
-          : 40.0;
+          : 0.0;
 
       return _LeanMetricsData(
         coveredOffersRate: coveredRate,
@@ -203,15 +209,15 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
         escrowSuccessRate: escrowSuccessRate,
         totalBookings: totalBookings,
         completedBookings: completedBookings,
-        avgResponseHours: 1.4,
-        totalClients: totalClients > 0 ? totalClients : 1240,
-        activeClients: totalClients > 0 ? activeClients : 942,
-        payingClients: totalClients > 0 ? payingClients : 669,
-        repeatClients: totalClients > 0 ? repeatClients : 508,
-        totalCaregivers: totalCaregivers > 0 ? totalCaregivers : 890,
-        activeCaregivers: totalCaregivers > 0 ? activeCaregivers : 720,
-        earningCaregivers: totalCaregivers > 0 ? earningCaregivers : 551,
-        repeatCaregivers: totalCaregivers > 0 ? repeatCaregivers : 427,
+        avgResponseHours: 0.0,
+        totalClients: totalClients,
+        activeClients: activeClients,
+        payingClients: payingClients,
+        repeatClients: repeatClients,
+        totalCaregivers: totalCaregivers,
+        activeCaregivers: activeCaregivers,
+        earningCaregivers: earningCaregivers,
+        repeatCaregivers: repeatCaregivers,
         avgLtv: avgLtv,
         avgCac: avgCac,
         pmfScore: pmfScore,

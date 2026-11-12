@@ -306,11 +306,9 @@ class _CaregiverProfileEditScreenState
         criminalUrl = await _uploadFile(_criminalPath!, 'caregiver_docs') ?? '';
       }
 
-      String newStatus = _profile!.verificationStatus;
-      bool? verifiedOverride;
+      String? updatedVerificationStatus;
       if (_dniFrontPath != null || _criminalPath != null) {
-        newStatus = _validateIdentity();
-        verifiedOverride = newStatus == 'approved';
+        updatedVerificationStatus = _validateIdentity();
       }
 
       final hasImage = imageUrl.isNotEmpty &&
@@ -341,11 +339,7 @@ class _CaregiverProfileEditScreenState
         'imageUrl': imageUrl,
         'dniUrl': dniUrl,
         'criminalRecordUrl': criminalUrl,
-        'verificationStatus': newStatus,
-        if (verifiedOverride != null) ...{
-          'isVerified': verifiedOverride,
-          'verified': verifiedOverride,
-        },
+        'verificationStatus': ?updatedVerificationStatus,
         'onboardingComplete': onboardingComplete,
       };
 
@@ -777,7 +771,7 @@ class _CaregiverProfileEditScreenState
     }
 
     if (matchDniCount >= 1 && matchCrimCount >= 1) {
-      return 'approved';
+      return 'manual_review';
     }
     return 'pending';
   }

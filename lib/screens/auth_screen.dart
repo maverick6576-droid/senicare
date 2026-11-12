@@ -19,6 +19,14 @@ class _AuthScreenState extends State<AuthScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -38,7 +46,6 @@ class _AuthScreenState extends State<AuthScreen> {
       if (isLogin) {
         await DependencyInjection.auth.signInWithEmail(email, password);
       } else {
-        if (mounted) context.read<AuthNotifier>().setRole(selectedRole);
         await DependencyInjection.auth.signUpWithEmail(email, password, selectedRole);
       }
       if (mounted) await context.read<AuthNotifier>().reloadRole();
@@ -56,7 +63,6 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => isLoading = true);
     try {
-      if (mounted) context.read<AuthNotifier>().setRole(selectedRole);
       await DependencyInjection.auth.signInWithGoogle(selectedRole, isLogin: isLogin);
       if (mounted) await context.read<AuthNotifier>().reloadRole();
     } catch (e) {
@@ -71,7 +77,6 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _signInWithApple() async {
     setState(() => isLoading = true);
     try {
-      if (mounted) context.read<AuthNotifier>().setRole(selectedRole);
       await DependencyInjection.auth.signInWithApple(selectedRole, isLogin: isLogin);
       if (mounted) await context.read<AuthNotifier>().reloadRole();
     } catch (e) {

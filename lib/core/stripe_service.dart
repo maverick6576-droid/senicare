@@ -558,4 +558,118 @@ class StripeService {
       return false;
     }
   }
+
+  static Future<Map<String, dynamic>> confirmClientBookingPayment({
+    required List<String> bookingIds,
+    String? paymentIntentId,
+    String? sessionId,
+    String targetStatus = 'pending',
+    String? transferGroup,
+  }) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('confirmClientBookingPayment');
+    final response = await callable.call({
+      'bookingIds': bookingIds,
+      if (paymentIntentId != null && paymentIntentId.isNotEmpty)
+        'paymentIntentId': paymentIntentId,
+      if (sessionId != null && sessionId.isNotEmpty) 'sessionId': sessionId,
+      'targetStatus': targetStatus,
+      if (transferGroup != null && transferGroup.isNotEmpty)
+        'transferGroup': transferGroup,
+    });
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  static Future<Map<String, dynamic>> createTipPaymentIntent({
+    required String bookingId,
+    required double tipAmount,
+    String preferredMethod = 'auto',
+  }) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('createTipPaymentIntent');
+    final response = await callable.call({
+      'bookingId': bookingId,
+      'tipAmount': tipAmount,
+      'preferredMethod': preferredMethod,
+    });
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  static Future<Map<String, dynamic>> confirmTipPayment({
+    required String bookingId,
+    required String paymentIntentId,
+  }) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('confirmTipPayment');
+    final response = await callable.call({
+      'bookingId': bookingId,
+      'paymentIntentId': paymentIntentId,
+    });
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// Cobra la propina en Stripe mediante PaymentSheet y liquida el registro
+  /// en Firestore/Transfer Connect a través de `confirmTipPayment`.
+  static Future<bool> payTipWithStripe({
+    required String bookingId,
+    required double tipAmount,
+    String? customerEmail,
+    String? customerName,
+  }) async {
+    await init();
+    final intentData = await createTipPaymentIntent(
+      bookingId: bookingId,
+      tipAmount: tipAmount,
+    );
+    final clientSecret = intentData['clientSecret']?.toString() ?? '';
+    final paymentIntentId = intentData['paymentIntentId']?.toString() ?? '';
+    if (clientSecret.isEmpty || paymentIntentId.isEmpty) {
+      throw Exception('No se pudo preparar el pago de la propina.');
+    }
+
+    await initPaymentSheet(
+      intentData,
+      customerEmail: customerEmail,
+      customerName: customerName,
+    );
+
+    final outcome = await presentPaymentSheet();
+    if (outcome == 'cancelled') {
+      return false;
+    }
+    if (outcome != 'success') {
+      throw Exception('No se pudo completar el cobro de la propina en Stripe.');
+    }
+
+    await confirmTipPayment(
+      bookingId: bookingId,
+      paymentIntentId: paymentIntentId,
+    );
+    return true;
+  }
+
+  static Future<void> setupAdmin2FA({
+    required String secret,
+    required String code,
+  }) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('setupAdmin2FA');
+    await callable.call({
+      'secret': secret,
+      'code': code,
+    });
+  }
+
+  static Future<void> verifyAdmin2FA({required String code}) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('verifyAdmin2FA');
+    await callable.call({'code': code});
+  }
+
+  static Future<Map<String, dynamic>> syncUserClaims() async {
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('syncUserClaims');
+    final response = await callable.call();
+    return Map<String, dynamic>.from(response.data as Map);
+  }
 }

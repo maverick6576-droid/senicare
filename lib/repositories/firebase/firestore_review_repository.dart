@@ -54,24 +54,7 @@ class FirestoreReviewRepository implements ReviewRepository {
       'comment': review.comment,
       'createdAt': FieldValue.serverTimestamp(),
     });
-
-    final profileRef = _firestore.collection('caregivers').doc(caregiverId);
-    
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(profileRef);
-      if (!snapshot.exists) return;
-      
-      final data = snapshot.data()!;
-      final currentRating = (data['rating'] as num?)?.toDouble() ?? 0.0;
-      final currentReviewsCount = (data['reviewsCount'] as num?)?.toInt() ?? 0;
-      
-      final newReviewsCount = currentReviewsCount + 1;
-      final newRating = ((currentRating * currentReviewsCount) + review.rating) / newReviewsCount;
-      
-      transaction.update(profileRef, {
-        'rating': newRating,
-        'reviewsCount': newReviewsCount,
-      });
-    });
+    // La valoración media (rating y reviewsCount) en caregivers/{caregiverId}
+    // se recalcula de forma segura en Cloud Function (syncCaregiverRatingOnReviewCreated).
   }
 }

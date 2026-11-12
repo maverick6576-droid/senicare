@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:otp/otp.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/widgets/widgets.dart';
 
@@ -29,36 +28,41 @@ class _Admin2FAScreenState extends State<Admin2FAScreen> {
     _check2FAStatus();
   }
 
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
+  }
+
   Future<void> _check2FAStatus() async {
-    try {
-      Firebase.app(); // Throws if not initialized
-    } catch (e) {
-      _adminEmail = 'test@admin.com';
-      setState(() {
-        _isSetupMode = false;
-        _isLoading = false;
-      });
+    if (Firebase.apps.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isSetupMode = false;
+        });
+      }
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.email == null) {
-      DependencyInjection.auth.signOut();
+      await DependencyInjection.auth.signOut();
       return;
     }
-    
+
     _adminEmail = user.email;
 
     try {
       final doc = await FirebaseFirestore.instance.collection('admins').doc(_adminEmail).get();
+      if (!mounted) return;
       if (doc.exists && doc.data()?['2faEnabled'] == true) {
-        _secret = doc.data()?['secret'] ?? '';
         setState(() {
           _isSetupMode = false;
           _isLoading = false;
         });
       } else {
-        // Necesita configurar 2FA
+        // Necesita configurar 2FA (el secreto se valida y guarda cifrado en subcolección privada desde Cloud Function)
         _secret = _generateBase32Secret();
         setState(() {
           _isSetupMode = true;
@@ -67,7 +71,7 @@ class _Admin2FAScreenState extends State<Admin2FAScreen> {
       }
     } catch (e) {
       debugPrint('Error comprobando 2FA: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -81,19 +85,20 @@ class _Admin2FAScreenState extends State<Admin2FAScreen> {
     final code = _codeController.text.trim();
     if (code.length != 6) return;
 
-    final isValid = _verifyCode(code);
-    if (isValid) {
-      setState(() => _isLoading = true);
-      // Guardar el secret en Firestore
-      await FirebaseFirestore.instance.collection('admins').doc(_adminEmail).set({
-        'secret': _secret,
-        '2faEnabled': true,
-        'email': _adminEmail,
-      }, SetOptions(merge: true));
-
-      _markVerified();
-    } else {
-      CustomSnackBar.show(context, message: 'Código incorrecto.', type: SnackBarType.info);
+    setState(() => _isLoading = true);
+    try {
+      await StripeService.setupAdmin2FA(secret: _secret, code: code);
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      if (mounted) _markVerified();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        CustomSnackBar.show(
+          context,
+          message: 'Código incorrecto o sin permisos de administrador.',
+          type: SnackBarType.error,
+        );
+      }
     }
   }
 
@@ -101,28 +106,27 @@ class _Admin2FAScreenState extends State<Admin2FAScreen> {
     final code = _codeController.text.trim();
     if (code.length != 6) return;
 
-    if (_verifyCode(code)) {
-      _markVerified();
-    } else {
-      CustomSnackBar.show(context, message: 'Código incorrecto.', type: SnackBarType.info);
+    setState(() => _isLoading = true);
+    try {
+      await StripeService.verifyAdmin2FA(code: code);
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      if (mounted) _markVerified();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        CustomSnackBar.show(
+          context,
+          message: 'Código 2FA incorrecto.',
+          type: SnackBarType.error,
+        );
+      }
     }
-  }
-
-  bool _verifyCode(String code) {
-    // Tolerancia de ventana para TOTP
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final generatedCode = OTP.generateTOTPCodeString(_secret, now, algorithm: Algorithm.SHA1, isGoogle: true);
-    final previousCode = OTP.generateTOTPCodeString(_secret, now - 30000, algorithm: Algorithm.SHA1, isGoogle: true);
-    final nextCode = OTP.generateTOTPCodeString(_secret, now + 30000, algorithm: Algorithm.SHA1, isGoogle: true);
-
-    return code == generatedCode || code == previousCode || code == nextCode;
   }
 
   void _markVerified() {
     final state = context.read<AuthNotifier>();
     state.isAdminVerified2FA = true;
     state.forceRefresh();
-    // La UI cambiará automáticamente en app.dart / main_layout.dart
   }
 
   @override

@@ -134,6 +134,13 @@ class MockAuthRepository implements AuthRepository {
 
   @override
   Future<String?> getUserRole(String uid) async {
+    if (_currentUser == uid && _currentUserRole == 'admin') {
+      return 'admin';
+    }
+    final caregiver = await DependencyInjection.caregivers.getCaregiver(uid);
+    if (caregiver != null) return 'caregiver';
+    final client = await DependencyInjection.clients.getClient(uid);
+    if (client != null) return 'client';
     return _currentUserRole;
   }
 

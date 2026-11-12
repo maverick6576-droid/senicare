@@ -375,11 +375,13 @@ class CheckoutFlowResult {
   final String outcome; // 'success' | 'processing' | 'cancelled' | 'error'
   final String? paymentIntentId;
   final String? paymentMethodType;
+  final String? sessionId;
 
   const CheckoutFlowResult({
     required this.outcome,
     this.paymentIntentId,
     this.paymentMethodType,
+    this.sessionId,
   });
 }
 
@@ -572,6 +574,7 @@ class _ExternalCheckoutVerificationDialogState
             outcome: 'success',
             paymentIntentId: resolvedPi,
             paymentMethodType: methodType,
+            sessionId: widget.sessionId,
           ),
         );
         return;
@@ -582,6 +585,7 @@ class _ExternalCheckoutVerificationDialogState
             outcome: 'processing',
             paymentIntentId: resolvedPi,
             paymentMethodType: methodType,
+            sessionId: widget.sessionId,
           ),
         );
         return;

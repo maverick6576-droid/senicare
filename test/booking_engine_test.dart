@@ -167,5 +167,58 @@ void main() {
       expect(updatedBooking.escrowStatus, 'held', reason: 'Los fondos deben mantenerse retenidos por la plataforma');
       expect(updatedBooking.cancellationReason, 'Cancelado tarde');
     });
+
+    test('6. [Turnos nocturnos] scheduledEndTime cruza medianoche correctamente en 22:00-06:00', () {
+      final overnightBooking = Booking(
+        id: 'book_night_1',
+        clientId: 'client_1',
+        caregiverId: 'caregiver_1',
+        caregiverName: 'María García',
+        day: '2026-12-20',
+        slot: '22:00-06:00',
+        cost: 80.0,
+        clientFee: 2.4,
+        caregiverCommissionRate: 0.18,
+        caregiverCommissionAmount: 14.4,
+        caregiverPayout: 65.6,
+        totalPaid: 82.4,
+      );
+
+      final start = overnightBooking.scheduledStartTime;
+      final end = overnightBooking.scheduledEndTime;
+
+      expect(start, DateTime(2026, 12, 20, 22, 0));
+      expect(end, DateTime(2026, 12, 21, 6, 0));
+      expect(end!.difference(start!).inHours, 8);
+      expect(overnightBooking.isExpired, false);
+    });
+
+    test('7. [Disponibilidad] mergeDayTimeSlots conserva franjas base aunque haya 1 hora bloqueada en Firestore', () {
+      final merged = FirestoreCaregiverRepository.mergeDayTimeSlots(
+        '2026-12-20',
+        [
+          TimeSlot(
+            id: '2026-12-20_10:00',
+            dateTime: DateTime(2026, 12, 20, 10, 0),
+            isAvailable: false,
+          ),
+          TimeSlot(
+            id: '2026-12-20_22:00',
+            dateTime: DateTime(2026, 12, 20, 22, 0),
+            isAvailable: true,
+          ),
+        ],
+      );
+
+      expect(merged.length, 11);
+      final slot9 = merged.firstWhere((s) => s.dateTime.hour == 9);
+      final slot10 = merged.firstWhere((s) => s.dateTime.hour == 10);
+      final slot18 = merged.firstWhere((s) => s.dateTime.hour == 18);
+      final slot22 = merged.firstWhere((s) => s.dateTime.hour == 22);
+      expect(slot9.isAvailable, true);
+      expect(slot10.isAvailable, false);
+      expect(slot18.isAvailable, true);
+      expect(slot22.isAvailable, true);
+    });
   });
 }

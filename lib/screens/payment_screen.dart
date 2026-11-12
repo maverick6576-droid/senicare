@@ -2,6 +2,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 import 'package:senicare/core/core.dart';
@@ -294,6 +295,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           slot: slotRangeStr,
           cost: groupCost,
           clientFee: groupClientFee,
+          clientFeeRate: 0.03,
           caregiverCommissionRate: caregiverCommissionRate,
           caregiverCommissionAmount: groupCommission,
           caregiverPayout: groupPayout,
@@ -306,6 +308,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           clientLongitude: location.longitude,
           bookingPin: generatedPin,
           status: BookingStatus.pendingPayment,
+          escrowStatus: 'none',
           careChecklist: _customChecklist
               .asMap()
               .entries
@@ -362,11 +365,25 @@ class _PaymentScreenState extends State<PaymentScreen> {
     switch (flowResult.outcome) {
       case 'success':
       case 'processing':
-        for (final id in _createdBookingIds) {
+        if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
           try {
-            await DependencyInjection.bookings.updateBookingStatus(id, 'pending');
+            await StripeService.confirmClientBookingPayment(
+              bookingIds: List<String>.from(_createdBookingIds),
+              paymentIntentId: flowResult.paymentIntentId ?? paymentIntentId,
+              sessionId: flowResult.sessionId,
+              targetStatus: 'pending',
+              transferGroup: transferGroup,
+            );
           } catch (e) {
-            debugPrint('Failed to update booking status to pending: $e');
+            debugPrint('confirmClientBookingPayment warning (webhook reconciles): $e');
+          }
+        } else {
+          for (final id in _createdBookingIds) {
+            try {
+              await DependencyInjection.bookings.updateBookingStatus(id, 'pending');
+            } catch (e) {
+              debugPrint('Failed to update booking status to pending: $e');
+            }
           }
         }
         _createdBookingIds.clear();

@@ -311,7 +311,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (rawText.isEmpty) return;
 
     final sender = isClient ? ChatSender.Client : ChatSender.Caregiver;
-    final senderId = isClient ? widget.clientId : widget.caregiverId;
+    final senderId = context.read<AuthNotifier>().currentUserId ??
+        (isClient ? widget.clientId : widget.caregiverId);
     final receiverId = isClient ? widget.caregiverId : widget.clientId;
     final reply = _replyingTo;
 
@@ -413,6 +414,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool isClient,
     required bool allowContactSharing,
   }) async {
+    final currentAuthUid = context.read<AuthNotifier>().currentUserId;
     _recordTimer?.cancel();
     final duration = max(1, _recordingSeconds);
     String? path;
@@ -455,7 +457,8 @@ class _ChatScreenState extends State<ChatScreen> {
           sender: sender,
           text: '🎤 Nota de voz ($mins:$secs)',
           timestamp: DateTime.now(),
-          senderId: isClient ? widget.clientId : widget.caregiverId,
+          senderId: currentAuthUid ??
+              (isClient ? widget.clientId : widget.caregiverId),
           receiverId: isClient ? widget.caregiverId : widget.clientId,
           type: ChatMessageType.audio,
           mediaUrl: url,
@@ -628,6 +631,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool isClient,
     required bool allowContactSharing,
   }) async {
+    final currentAuthUid = context.read<AuthNotifier>().currentUserId;
     try {
       final picker = ImagePicker();
       final picked = await picker.pickImage(
@@ -706,7 +710,8 @@ class _ChatScreenState extends State<ChatScreen> {
           sender: sender,
           text: caption.isNotEmpty ? caption : '📷 Foto',
           timestamp: DateTime.now(),
-          senderId: isClient ? widget.clientId : widget.caregiverId,
+          senderId: currentAuthUid ??
+              (isClient ? widget.clientId : widget.caregiverId),
           receiverId: isClient ? widget.caregiverId : widget.clientId,
           type: ChatMessageType.image,
           mediaUrl: url,
@@ -733,6 +738,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool isClient,
     required bool hasConfirmedBooking,
   }) async {
+    final currentAuthUid = context.read<AuthNotifier>().currentUserId;
     if (!hasConfirmedBooking) {
       CustomSnackBar.show(
         context,
@@ -765,7 +771,8 @@ class _ChatScreenState extends State<ChatScreen> {
           sender: sender,
           text: '📍 Ubicación compartida',
           timestamp: DateTime.now(),
-          senderId: isClient ? widget.clientId : widget.caregiverId,
+          senderId: currentAuthUid ??
+              (isClient ? widget.clientId : widget.caregiverId),
           receiverId: isClient ? widget.caregiverId : widget.clientId,
           type: ChatMessageType.location,
           latitude: pos.latitude,
@@ -1333,7 +1340,8 @@ class _ChatScreenState extends State<ChatScreen> {
           icon: const Icon(Icons.videocam_rounded, color: AppTheme.primary),
           onPressed: () {
             HapticFeedback.lightImpact();
-            final senderId = isClient ? widget.clientId : widget.caregiverId;
+            final senderId = context.read<AuthNotifier>().currentUserId ??
+                (isClient ? widget.clientId : widget.caregiverId);
             final receiverId = isClient ? widget.caregiverId : widget.clientId;
             _sendMessageObject(
               ChatMessage(

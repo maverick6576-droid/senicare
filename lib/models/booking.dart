@@ -49,6 +49,7 @@ class Booking {
   BookingStatus status;
   final double cost;
   final double clientFee;
+  final double? clientFeeRate;
   final double caregiverCommissionRate;
   final double caregiverCommissionAmount;
   final double caregiverPayout;
@@ -104,7 +105,18 @@ class Booking {
       if (slot.contains('-')) {
         final endStr = slot.split('-')[1].trim();
         final timeParts = endStr.split(':');
-        return DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
+        var endDt = DateTime(
+          dayDate.year,
+          dayDate.month,
+          dayDate.day,
+          int.parse(timeParts[0]),
+          int.parse(timeParts[1]),
+        );
+        final startDt = scheduledStartTime;
+        if (startDt != null && !endDt.isAfter(startDt)) {
+          endDt = endDt.add(const Duration(days: 1));
+        }
+        return endDt;
       } else {
         final timeParts = slot.trim().split(':');
         return DateTime(dayDate.year, dayDate.month, dayDate.day, int.parse(timeParts[0]) + 1, int.parse(timeParts[1]));
@@ -192,6 +204,7 @@ class Booking {
     this.status = BookingStatus.pending,
     required this.cost,
     required this.clientFee,
+    this.clientFeeRate,
     required this.caregiverCommissionRate,
     required this.caregiverCommissionAmount,
     required this.caregiverPayout,
@@ -250,6 +263,7 @@ class Booking {
         ),
         cost: (data['cost'] ?? 0).toDouble(),
         clientFee: (data['clientFee'] ?? 0).toDouble(),
+        clientFeeRate: (data['clientFeeRate'] as num?)?.toDouble(),
         caregiverCommissionRate: (data['caregiverCommissionRate'] ?? 0).toDouble(),
         caregiverCommissionAmount: (data['caregiverCommissionAmount'] ?? 0).toDouble(),
         caregiverPayout: (data['caregiverPayout'] ?? 0).toDouble(),
@@ -318,6 +332,7 @@ class Booking {
       'status': status.toString().split('.').last,
       'cost': cost,
       'clientFee': clientFee,
+      if (clientFeeRate != null) 'clientFeeRate': clientFeeRate,
       'caregiverCommissionRate': caregiverCommissionRate,
       'caregiverCommissionAmount': caregiverCommissionAmount,
       'caregiverPayout': caregiverPayout,

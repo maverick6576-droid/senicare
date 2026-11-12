@@ -7,52 +7,88 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Función auxiliar: solo el administrador maestro
+    // Función auxiliar: administrador verificado (root o custom claim asignado por Cloud Functions)
     function isAdmin() {
-      return isAuthenticated() && request.auth.token.email == 'maverick6576@gmail.com';
+      return isAuthenticated() &&
+        request.auth.token.email_verified == true && (
+          request.auth.token.email == 'maverick6576@gmail.com' ||
+          request.auth.token.admin == true
+        );
+    }
+
+    // Miembro autorizado de una sala de chat (cliente dueño, familiar conectado vía claim, o cuidador)
+    function isChatRoomParticipant(roomId) {
+      return isAuthenticated() && (
+        roomId.matches('^' + request.auth.uid + '_.*') ||
+        roomId.matches('.*_' + request.auth.uid + '$') ||
+        (request.auth.token.familyId != null && roomId.matches('^' + request.auth.token.familyId + '_.*'))
+      );
     }
 
     // --- Fotos de perfil de cuidadores ---
-    // Cualquier cuidador autenticado puede subir su propia foto de perfil.
-    match /caregiver_avatars/{allPaths=**} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+    // Solo el propietario ({uid}_...) o un administrador puede subir/modificar su avatar.
+    match /caregiver_avatars/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (
+        fileName.matches(request.auth.uid + '_.*') ||
+        isAdmin()
+      ) && (request.resource == null || request.resource.size < 15 * 1024 * 1024);
     }
 
     // --- Documentos de verificación (DNI, Penales) ---
-    // Solo el propio cuidador autenticado puede subir sus documentos.
-    // El nombre de archivo contiene el UID: {uid}_timestamp.ext
+    // Solo el propio cuidador o un administrador puede leer o subir sus documentos.
     match /caregiver_docs/{fileName} {
       allow read: if isAuthenticated() && (
-        // El cuidador puede leer sus propios documentos (nombre empieza con su uid)
         fileName.matches(request.auth.uid + '_.*') ||
-        // El admin puede leer todos
         isAdmin()
       );
       allow write: if isAuthenticated() && (
-        // Solo puede subir archivos que empiecen con su propio uid
         fileName.matches(request.auth.uid + '_.*') ||
         isAdmin()
-      );
+      ) && (request.resource == null || request.resource.size < 20 * 1024 * 1024);
     }
 
-    // --- Fotos de perfil de clientes ---
-    match /client_avatars/{allPaths=**} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+    // --- Fotos de perfil de clientes / familias ---
+    match /client_avatars/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (
+        fileName.matches(request.auth.uid + '_.*') ||
+        (request.auth.token.familyId != null && fileName.matches(request.auth.token.familyId + '_.*')) ||
+        isAdmin()
+      ) && (request.resource == null || request.resource.size < 15 * 1024 * 1024);
     }
 
     // --- Archivos multimedia del chat (fotos y notas de voz) ---
     match /chat_media/{roomId}/{allPaths=**} {
-      allow read, write: if isAuthenticated() && (
-        roomId.matches('.*' + request.auth.uid + '.*') ||
-        isAdmin()
-      );
+      allow read: if isChatRoomParticipant(roomId) || isAdmin();
+      allow write: if (isChatRoomParticipant(roomId) || isAdmin())
+        && (request.resource == null || request.resource.size < 25 * 1024 * 1024);
     }
 
     // --- Fotos del Diario del Cuidado de reservas ---
+    // Valida metadata de reserva (clientId/caregiverId/familyId) para impedir acceso a terceros.
     match /care_journal/{bookingId}/{allPaths=**} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAdmin() || (
+        isAuthenticated() &&
+        resource != null &&
+        resource.metadata != null && (
+          resource.metadata.caregiverId == request.auth.uid ||
+          resource.metadata.clientId == request.auth.uid ||
+          (request.auth.token.familyId != null && resource.metadata.clientId == request.auth.token.familyId)
+        )
+      );
+      allow write: if isAdmin() || (
+        isAuthenticated() &&
+        request.resource != null &&
+        request.resource.metadata != null &&
+        request.resource.metadata.uploaderUid == request.auth.uid &&
+        (
+          request.resource.metadata.caregiverId == request.auth.uid ||
+          request.resource.metadata.clientId == request.auth.uid ||
+          (request.auth.token.familyId != null && request.resource.metadata.clientId == request.auth.token.familyId)
+        ) &&
+        request.resource.size < 15 * 1024 * 1024
+      );
     }
 
     // --- Archivos generales de la app ---

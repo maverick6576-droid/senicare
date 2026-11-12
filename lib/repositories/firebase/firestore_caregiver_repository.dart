@@ -103,8 +103,39 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
     await _collection.doc(id).set(data, SetOptions(merge: true));
   }
 
-  /// Returns ONLY the slots stored in Firestore for the given caregiver/date.
-  /// Does NOT fall back to mock data, which was hiding real data bugs.
+  /// Combina el horario base (09:00 - 18:00) con cualquier excepción o franja
+  /// personalizada almacenada en Firestore para el día indicado.
+  static List<TimeSlot> mergeDayTimeSlots(
+    String date,
+    List<TimeSlot> storedSlots,
+  ) {
+    final Map<String, TimeSlot> byHourKey = {};
+    for (final slot in storedSlots) {
+      final hourKey =
+          '${slot.dateTime.hour.toString().padLeft(2, '0')}:${slot.dateTime.minute.toString().padLeft(2, '0')}';
+      byHourKey[hourKey] = slot;
+    }
+
+    final Map<String, TimeSlot> merged = {};
+    for (int i = 9; i <= 18; i++) {
+      final hourString = '${i.toString().padLeft(2, '0')}:00';
+      merged[hourString] = byHourKey[hourString] ??
+          TimeSlot(
+            id: '${date}_$hourString',
+            dateTime: DateTime.parse('${date}T$hourString:00'),
+            isAvailable: true,
+          );
+    }
+    for (final entry in byHourKey.entries) {
+      merged.putIfAbsent(entry.key, () => entry.value);
+    }
+
+    final slots = merged.values.toList();
+    slots.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    return slots;
+  }
+
+  /// Returns base schedule merged with Firestore slot overrides for the given caregiver/date.
   @override
   Future<List<TimeSlot>> fetchTimeSlots(String caregiverId, String date) async {
     try {
@@ -115,24 +146,8 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
           .collection('slots')
           .get();
 
-      if (snapshot.docs.isNotEmpty) {
-        final slots = snapshot.docs.map((doc) => TimeSlot.fromFirestore(doc)).toList();
-        slots.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-        return slots;
-      }
-
-      // Generación por defecto (09:00 - 18:00) si no hay excepciones manuales creadas en Firestore,
-      // garantizando que cualquier cuidador verificado pueda recibir reservas de inmediato.
-      final List<TimeSlot> defaultSlots = [];
-      for (int i = 9; i <= 18; i++) {
-        final hourString = '${i.toString().padLeft(2, '0')}:00';
-        defaultSlots.add(TimeSlot(
-          id: '${date}_$hourString',
-          dateTime: DateTime.parse('${date}T$hourString:00'),
-          isAvailable: true,
-        ));
-      }
-      return defaultSlots;
+      final stored = snapshot.docs.map((doc) => TimeSlot.fromFirestore(doc)).toList();
+      return mergeDayTimeSlots(date, stored);
     } catch (e) {
       debugPrint('Error fetching timeslots from Firestore: $e');
       rethrow;

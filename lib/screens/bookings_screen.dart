@@ -3280,6 +3280,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     Booking b,
     BookingNotifier state,
   ) async {
+    final uploaderUid = context.read<AuthNotifier>().currentUserId ?? b.clientId;
     final ImageSource? source = await showModalBottomSheet<ImageSource>(
       context: context,
       backgroundColor: Colors.white,
@@ -3327,7 +3328,17 @@ class _BookingsScreenState extends State<BookingsScreen> {
       final ref = FirebaseStorage.instance
           .ref()
           .child('care_journal/${b.id}/${DateTime.now().millisecondsSinceEpoch}.jpg');
-      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      await ref.putData(
+        bytes,
+        SettableMetadata(
+          contentType: 'image/jpeg',
+          customMetadata: {
+            'uploaderUid': uploaderUid,
+            'clientId': b.clientId,
+            'caregiverId': b.caregiverId,
+          },
+        ),
+      );
       final url = await ref.getDownloadURL();
       await state.addCarePhotoUrl(b.id, url);
       if (context.mounted) {
@@ -3839,10 +3850,16 @@ class _BookingsScreenState extends State<BookingsScreen> {
             FilledButton(
               onPressed: () async {
                 HapticFeedback.mediumImpact();
+                final auth = context.read<AuthNotifier>();
                 Navigator.pop(ctx);
                 await _runBookingAction(
                   b.id,
-                  () => state.addTipToBooking(b.id, selectedTip),
+                  () => state.addTipToBooking(
+                    b.id,
+                    selectedTip,
+                    customerEmail: auth.currentUserEmail,
+                    customerName: auth.currentUserDisplayName,
+                  ),
                   successMessage:
                       '☕ ¡Gracias! Has enviado +${selectedTip.toInt()} € íntegros a ${b.caregiverName}.',
                 );

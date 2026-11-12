@@ -28,6 +28,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
     );
 
     if (result != null && result.files.single.path != null) {
+      if (!mounted) return;
       setState(() {
         _isLoading = true;
         if (isDni) {
@@ -42,18 +43,20 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
 
       if (isDni) {
         validation = await MLKitService.validateDNI(path, user.name);
+        if (!mounted) return;
         setState(() => _dniStatus = validation.message);
       } else {
         validation = await MLKitService.validateCriminalRecord(path, user.name);
+        if (!mounted) return;
         setState(() => _criminalRecordStatus = validation.message);
       }
 
-      // If approved or manual review, update backend
+      // If pre-validated or manual review, send to admin validation queue (never self-approve)
       if (validation.isApproved || validation.isManualReview) {
-        String newStatus = validation.isApproved ? 'verified' : 'manual_review';
-        await _updateVerificationStatus(user, newStatus);
+        await _updateVerificationStatus(user, 'manual_review');
       }
 
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -65,10 +68,9 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
     if (useFirebaseBackend) {
       await FirebaseFirestore.instance.collection('caregivers').doc(profile.id).update({
         'verificationStatus': newStatus,
-        'isVerified': newStatus == 'verified',
       });
     }
-    // Update local state
+    // Update local state preservando todos los campos existentes del perfil
     final updatedProfile = CaregiverProfile(
       id: profile.id,
       name: profile.name,
@@ -78,11 +80,25 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       rating: profile.rating,
       reviewsCount: profile.reviewsCount,
       distance: profile.distance,
+      latitude: profile.latitude,
+      longitude: profile.longitude,
       imageUrl: profile.imageUrl,
       specialties: profile.specialties,
-      verified: newStatus == 'verified',
+      verified: profile.verified,
       availableSlots: profile.availableSlots,
+      dniUrl: profile.dniUrl,
+      criminalRecordUrl: profile.criminalRecordUrl,
+      maxDistanceRadius: profile.maxDistanceRadius,
+      homeAddress: profile.homeAddress,
       verificationStatus: newStatus,
+      stripeAccountId: profile.stripeAccountId,
+      onboardingComplete: profile.onboardingComplete,
+      isKycVerified: profile.isKycVerified,
+      hasSeenCaregiverTutorial: profile.hasSeenCaregiverTutorial,
+      noShowsCount: profile.noShowsCount,
+      incidentDates: profile.incidentDates,
+      blockedUntil: profile.blockedUntil,
+      accountStatus: profile.accountStatus,
     );
     caregiverState.updateCaregiverProfileLocal(updatedProfile);
   }

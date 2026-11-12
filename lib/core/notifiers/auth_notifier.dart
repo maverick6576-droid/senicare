@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/repositories/repositories.dart';
@@ -117,6 +119,16 @@ class AuthNotifier extends ChangeNotifier {
     }
   }
 
+  Future<void> _syncClaimsAndRefreshToken() async {
+    if (!useFirebaseBackend || Firebase.apps.isEmpty) return;
+    try {
+      await StripeService.syncUserClaims();
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    } catch (e) {
+      debugPrint('syncUserClaims warning: $e');
+    }
+  }
+
   Future<FamilyJoinResult> joinFamilyWithCode(String codeOrUrl) async {
     final uid = currentUserId;
     if (uid == null || uid.isEmpty) {
@@ -129,6 +141,7 @@ class AuthNotifier extends ChangeNotifier {
       displayName: currentUserDisplayName,
     );
     activeFamilyId = result.familyId;
+    await _syncClaimsAndRefreshToken();
     await refreshFamilyProfile();
     return result;
   }
@@ -143,6 +156,7 @@ class AuthNotifier extends ChangeNotifier {
     );
     activeFamilyId = null;
     currentClient = null;
+    await _syncClaimsAndRefreshToken();
     await reloadRole();
   }
   CaregiverProfile? currentCaregiver;
@@ -178,58 +192,65 @@ class AuthNotifier extends ChangeNotifier {
     final uid = currentUserId;
     if (uid == null) return;
 
-    // 1. Verificar primero si existe un perfil de cuidador en la base de datos
-    final caregiver = await DependencyInjection.caregivers.getCaregiver(uid);
-    final hasCaregiverProfile = caregiver != null;
-    
-    if (hasCaregiverProfile) {
-      currentRole = 'caregiver';
-      currentCaregiver = caregiver;
-      onboardingComplete = caregiver.onboardingComplete;
-    } else {
-      // Retry loop to handle DB write latency (race condition during signup)
-      String? role;
-      int retries = 0;
-      while (role == null && retries < 12) {
-        if (currentUserId != uid) return; // Auth state changed during reload
-        role = await DependencyInjection.auth.getUserRole(uid);
-        if (role == null) {
-          await Future.delayed(const Duration(milliseconds: 500));
-          retries++;
-        }
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      try {
+        await FirebaseAuth.instance.currentUser?.reload();
+      } catch (e) {
+        debugPrint('Auth user reload warning: $e');
       }
+    }
 
-      if (role != null) {
-        currentRole = role;
-      }
-
-      // Check onboarding status
-      if (currentRole == 'client') {
-        final resolvedFamilyId =
-            await DependencyInjection.families.resolveActiveFamilyId(
-          uid: uid,
-          email: currentUserEmail,
-          displayName: currentUserDisplayName,
-          emailVerified: isCurrentUserEmailVerified,
-        );
-        activeFamilyId = resolvedFamilyId;
-        final targetClientId = resolvedFamilyId ?? uid;
-        currentClient = await DependencyInjection.families
-                .fetchFreshFamilyProfile(targetClientId) ??
-            await DependencyInjection.clients.getClient(targetClientId);
-        onboardingComplete = currentClient?.onboardingComplete ?? false;
-      } else if (currentRole == 'caregiver') {
-        try {
-          currentCaregiver = await DependencyInjection.caregivers.getCaregiver(uid);
-          onboardingComplete = currentCaregiver?.onboardingComplete ?? false;
-        } catch (e) {
-          onboardingComplete = false;
-          currentCaregiver = null;
+    // 1. Verificar rol explícito en Auth/Users/Admins (Admin tiene prioridad)
+    String? role;
+    int retries = 0;
+    while (role == null && retries < 12) {
+      if (currentUserId != uid) return;
+      role = await DependencyInjection.auth.getUserRole(uid);
+      if (role == null) {
+        final cgCheck = await DependencyInjection.caregivers.getCaregiver(uid);
+        if (cgCheck != null) {
+          role = 'caregiver';
+          currentCaregiver = cgCheck;
+          break;
         }
-      } else if (currentRole == 'admin') {
-        // Admin might not have a profile, skip
-        isAdminVerified2FA = false; // Requiere verificación por defecto
+        await Future.delayed(const Duration(milliseconds: 500));
+        retries++;
       }
+    }
+
+    if (currentUserId != uid) return;
+    if (role != null) {
+      currentRole = role;
+    }
+
+    if (currentRole == 'caregiver') {
+      try {
+        currentCaregiver ??= await DependencyInjection.caregivers.getCaregiver(uid);
+        onboardingComplete = currentCaregiver?.onboardingComplete ?? false;
+      } catch (e) {
+        onboardingComplete = false;
+        currentCaregiver = null;
+      }
+    } else if (currentRole == 'client') {
+      final resolvedFamilyId =
+          await DependencyInjection.families.resolveActiveFamilyId(
+        uid: uid,
+        email: currentUserEmail,
+        displayName: currentUserDisplayName,
+        emailVerified: isCurrentUserEmailVerified,
+      );
+      activeFamilyId = resolvedFamilyId;
+      final targetClientId = resolvedFamilyId ?? uid;
+      currentClient = await DependencyInjection.families
+              .fetchFreshFamilyProfile(targetClientId) ??
+          await DependencyInjection.clients.getClient(targetClientId);
+      onboardingComplete = currentClient?.onboardingComplete ?? false;
+      if (isSharedFamilyMember) {
+        await _syncClaimsAndRefreshToken();
+      }
+    } else if (currentRole == 'admin') {
+      isAdminVerified2FA = false;
+      await _syncClaimsAndRefreshToken();
     }
 
     notifyListeners();
@@ -245,6 +266,7 @@ class AuthNotifier extends ChangeNotifier {
     currentUserId = null;
     currentRole = 'client';
     onboardingComplete = false;
+    isAdminVerified2FA = false;
     activeFamilyId = null;
     currentClient = null;
     currentCaregiver = null;
