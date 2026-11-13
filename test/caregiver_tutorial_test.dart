@@ -63,8 +63,8 @@ void main() {
   });
 
   tearDown(() {
-    CaregiverTutorialService.useLocalFileStorage = true;
-    ClientTutorialService.useLocalFileStorage = true;
+    CaregiverTutorialService.useLocalFileStorage = false;
+    ClientTutorialService.useLocalFileStorage = false;
   });
 
   Widget buildMainLayoutApp({

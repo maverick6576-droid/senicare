@@ -417,6 +417,11 @@ void main() {
     });
 
     testWidgets('AuthScreen bloquea registro si no se aceptan Términos y Privacidad', (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       final auth = AuthNotifier();
       final config = ConfigNotifier();
 
@@ -440,6 +445,7 @@ void main() {
 
       final btn = find.text('Crear Cuenta Ahora');
       await tester.ensureVisible(btn);
+      await tester.pumpAndSettle();
       await tester.tap(btn);
       await tester.pump(const Duration(milliseconds: 300));
 

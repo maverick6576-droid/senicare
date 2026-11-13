@@ -331,22 +331,27 @@ void main() {
 
       // Switch to Historial and check expired offer + Republish button.
       await tester.tap(find.text('Historial (1)'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 450));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('Oferta ya pasada'),
         150,
-        scrollable: find.byType(Scrollable).last,
+        scrollable: find.descendant(
+          of: find.byType(TabBarView),
+          matching: find.byType(Scrollable),
+        ).last,
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.text('Oferta ya pasada'), findsOneWidget);
       expect(find.text('Fecha pasada'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Volver a publicar'),
         150,
-        scrollable: find.byType(Scrollable).last,
+        scrollable: find.descendant(
+          of: find.byType(TabBarView),
+          matching: find.byType(Scrollable),
+        ).last,
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.text('Volver a publicar'), findsOneWidget);
       expect(tester.takeException(), isNull);
 

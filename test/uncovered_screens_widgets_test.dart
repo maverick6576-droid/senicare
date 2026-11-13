@@ -112,19 +112,15 @@ class _FakeHttpClientResponse extends Stream<List<int>> implements HttpClientRes
 }
 
 void main() {
-  late HttpOverrides? previousOverrides;
-
   setUpAll(() {
     AppTheme.useSystemFonts = true;
     ClientTutorialService.useLocalFileStorage = false;
     CaregiverTutorialService.useLocalFileStorage = false;
-    previousOverrides = HttpOverrides.current;
     HttpOverrides.global = _SilentHttpOverrides();
   });
 
   tearDownAll(() {
-    HttpOverrides.global = previousOverrides;
-    AppTheme.useSystemFonts = false;
+    AppTheme.useSystemFonts = true;
   });
 
   void resetDI() {
@@ -290,12 +286,17 @@ void main() {
     });
 
     testWidgets('LiveDniScannerScreen handles missing camera gracefully on headless VM', (tester) async {
-      const channel = MethodChannel('plugins.flutter.io/camera');
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
-        if (call.method == 'availableCameras') return <dynamic>[];
-        return null;
-      });
-      addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+      const channels = [
+        MethodChannel('plugins.flutter.io/camera'),
+        MethodChannel('plugins.flutter.io/camera_android'),
+      ];
+      for (final channel in channels) {
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'availableCameras') return <dynamic>[];
+          return null;
+        });
+        addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+      }
 
       await tester.pumpWidget(
         MaterialApp(

@@ -84,6 +84,11 @@ void main() {
 
   group('Headless Frontend UI Tests', () {
     testWidgets('Flujo de Usuario Normal (Login y Navegación) - Sin Simulador', (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       // Pre-poblar el mock client para evitar la pantalla de onboarding
       await DependencyInjection.clients.updateClient('mock_user_123', {
         'name': 'Test Client',
@@ -107,6 +112,7 @@ void main() {
       
       // Pulsar Entrar
       await tester.ensureVisible(loginButton);
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(loginButton, warnIfMissed: false);
       await tester.pump(); // Start the tap
       await tester.pump(const Duration(seconds: 2)); // Wait for async AuthNotifier
@@ -140,7 +146,9 @@ void main() {
         // Verificar que hay botón de reservar
         final reservarButton = find.byType(ElevatedButton).last;
         if (reservarButton.evaluate().isNotEmpty) {
-          await tester.tap(reservarButton);
+          await tester.ensureVisible(reservarButton);
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.tap(reservarButton, warnIfMissed: false);
           await tester.pump(const Duration(seconds: 1));
           
           // Cerrar BottomSheet
@@ -151,6 +159,11 @@ void main() {
     });
 
     testWidgets('Flujo de Administrador (Login y Dashboard) - Sin Simulador', (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       await DependencyInjection.clients.updateClient('admin_user_id', {'name': 'Admin User', 'onboardingComplete': true});
 
       // Sobrescribir el rol a 'admin' para este usuario mock
@@ -168,6 +181,7 @@ void main() {
       await tester.enterText(passwordField, '123456');
       
       await tester.ensureVisible(loginButton);
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(loginButton, warnIfMissed: false);
       await tester.pump();
       await tester.pump(const Duration(seconds: 2));

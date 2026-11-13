@@ -38,10 +38,15 @@ void main() {
   });
 
   tearDownAll(() {
-    AppTheme.useSystemFonts = false;
+    AppTheme.useSystemFonts = true;
   });
 
   testWidgets('Full UI E2E Flow: Registro, Reserva y Valoracion', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final authNotifier = AuthNotifier();
     final locationNotifier = LocationNotifier();
     final configNotifier = ConfigNotifier();
@@ -68,11 +73,13 @@ void main() {
     // 1. REGISTRO DE CUIDADOR
     final registerTab = find.text('Registrarse');
     await tester.ensureVisible(registerTab);
+    await tester.pumpAndSettle();
     await tester.tap(registerTab);
     await tester.pump(const Duration(milliseconds: 500));
 
     final caregiverRoleCard = find.text('Cuidador/a');
     await tester.ensureVisible(caregiverRoleCard);
+    await tester.pumpAndSettle();
     await tester.tap(caregiverRoleCard);
     await tester.pump(const Duration(milliseconds: 500));
 
@@ -81,10 +88,12 @@ void main() {
     await tester.enterText(find.byType(TextFormField).at(2), 'password123');
     final legalCheckbox = find.byType(CheckboxListTile);
     await tester.ensureVisible(legalCheckbox);
+    await tester.pumpAndSettle();
     await tester.tap(legalCheckbox);
     await tester.pump(const Duration(milliseconds: 200));
     final submitRegisterBtn = find.text('Crear Cuenta Ahora');
     await tester.ensureVisible(submitRegisterBtn);
+    await tester.pumpAndSettle();
     await tester.tap(submitRegisterBtn);
     await tester.pump(const Duration(seconds: 2));
 
