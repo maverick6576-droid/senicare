@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
@@ -89,6 +90,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
   /// Load any previously saved draft from Firestore
   Future<void> _loadExistingData() async {
     try {
+      if (!useFirebaseBackend || Firebase.apps.isEmpty) return;
       final auth = context.read<AuthNotifier>();
       final userId = auth.currentUserId;
       if (userId == null) return;
@@ -171,6 +173,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
   Future<void> _saveDraft({bool showFeedback = false}) async {
     try {
       if (!mounted) return;
+      if (!useFirebaseBackend || Firebase.apps.isEmpty) return;
       final auth = context.read<AuthNotifier>();
       final userId = auth.currentUserId;
       if (userId == null) return;

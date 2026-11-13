@@ -319,7 +319,7 @@ void main() {
       await tester.tap(find.text('Abrir Escáner'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
 
       expect(find.byType(LiveDniScannerScreen), findsNothing);
       expect(find.text('Abrir Escáner'), findsOneWidget);

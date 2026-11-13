@@ -305,7 +305,9 @@ void main() {
 
         // Cleaning filters brings María back
         await tester.tap(find.text('Limpiar'));
+        await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
         expect(find.text('María Fernández'), findsOneWidget);
       },
     );

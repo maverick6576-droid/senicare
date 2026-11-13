@@ -120,6 +120,7 @@ void main() {
     final clientUid = authNotifier.currentUserId ?? 'cl1';
 
     // 3. CLIENTE BUSCA CUIDADOR
+    await caregiverNotifier.refreshCaregivers();
     caregiverNotifier.setSearchQuery('Carlos');
     await tester.pump(const Duration(milliseconds: 1000));
     

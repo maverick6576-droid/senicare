@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -13,10 +14,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 class FCMService {
-  static final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+  static FirebaseMessaging get _firebaseMessaging => FirebaseMessaging.instance;
   static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
+    if (!useFirebaseBackend || Firebase.apps.isEmpty) {
+      return;
+    }
     if (!kIsWeb) {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     }
@@ -65,6 +69,9 @@ class FCMService {
 
   static Future<String?> getToken() async {
     try {
+      if (!useFirebaseBackend || Firebase.apps.isEmpty) {
+        return null;
+      }
       if (kIsWeb) {
         const defineVapid = String.fromEnvironment('FCM_WEB_VAPID_KEY');
         final envVapid = dotenv.isInitialized ? dotenv.env['FCM_WEB_VAPID_KEY'] : null;

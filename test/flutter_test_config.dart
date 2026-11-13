@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:senicare/core/core.dart';
 
 class _GlobalTestHttpOverrides extends HttpOverrides {
@@ -92,6 +93,7 @@ class _FakeHttpClientResponse extends Stream<List<int>> implements HttpClientRes
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   AppTheme.useSystemFonts = true;
+  GoogleFonts.config.allowRuntimeFetching = false;
   ClientTutorialService.useLocalFileStorage = false;
   CaregiverTutorialService.useLocalFileStorage = false;
   HttpOverrides.global = _GlobalTestHttpOverrides();

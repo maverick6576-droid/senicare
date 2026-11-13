@@ -23,7 +23,7 @@ void main() {
   });
 
   tearDownAll(() {
-    AppTheme.useSystemFonts = false;
+    AppTheme.useSystemFonts = true;
   });
 
   Widget createTestApp() {

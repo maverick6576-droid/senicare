@@ -45,7 +45,7 @@ void main() {
   });
 
   tearDownAll(() {
-    AppTheme.useSystemFonts = false;
+    AppTheme.useSystemFonts = true;
   });
 
   group('Bloque 3 - AppTheme & Senior Mode button constraints', () {
@@ -447,7 +447,8 @@ void main() {
       await tester.ensureVisible(btn);
       await tester.pumpAndSettle();
       await tester.tap(btn);
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(
         find.text('Debes aceptar los Términos de Servicio y la Política de Privacidad para crear tu cuenta.'),
