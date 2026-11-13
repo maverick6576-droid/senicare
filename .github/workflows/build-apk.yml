@@ -42,13 +42,18 @@ jobs:
           flutter test --no-pub --no-test-assets
 
       - name: Decode Android Keystore (if configured)
-        if: ${{ secrets.SENICARE_KEYSTORE_BASE64 != '' }}
+        env:
+          SENICARE_KEYSTORE_BASE64: ${{ secrets.SENICARE_KEYSTORE_BASE64 }}
+          SENICARE_KEYSTORE_PASSWORD: ${{ secrets.SENICARE_KEYSTORE_PASSWORD }}
+          SENICARE_KEY_ALIAS: ${{ secrets.SENICARE_KEY_ALIAS }}
+          SENICARE_KEY_PASSWORD: ${{ secrets.SENICARE_KEY_PASSWORD }}
+        if: env.SENICARE_KEYSTORE_BASE64 != ''
         run: |
-          echo "${{ secrets.SENICARE_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+          echo "$SENICARE_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           echo "SENICARE_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/app/upload-keystore.jks" >> $GITHUB_ENV
-          echo "SENICARE_KEYSTORE_PASSWORD=${{ secrets.SENICARE_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "SENICARE_KEY_ALIAS=${{ secrets.SENICARE_KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "SENICARE_KEY_PASSWORD=${{ secrets.SENICARE_KEY_PASSWORD }}" >> $GITHUB_ENV
+          echo "SENICARE_KEYSTORE_PASSWORD=$SENICARE_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+          echo "SENICARE_KEY_ALIAS=$SENICARE_KEY_ALIAS" >> $GITHUB_ENV
+          echo "SENICARE_KEY_PASSWORD=$SENICARE_KEY_PASSWORD" >> $GITHUB_ENV
 
       - name: Build APK & Play Store App Bundle (AAB)
         run: |
