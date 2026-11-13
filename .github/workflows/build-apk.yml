@@ -50,17 +50,17 @@ jobs:
         if: always()
         run: |
           python3 -c "
-          import re
           try:
               with open('test_output.log', 'r', encoding='utf-8', errors='ignore') as f:
-                  content = f.read()
-              matches = re.findall(r'(══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞═[\s\S]*?════════════════════════════════════════════════════════════════════════════════════════════════════)', content)
-              for idx, m in enumerate(matches[:10]):
-                  summary = ' -- '.join([l.strip() for l in m.split('\n')[1:6] if l.strip()])
-                  print(f'::error title=Failure_{idx+1}::{summary}')
-              failed_tests = re.findall(r'(\d+:\d+ \+\d+ -\d+: .*)', content)
-              for t in failed_tests[:15]:
-                  print(f'::error title=TestFailed::{t}')
+                  lines = f.readlines()
+              for i, line in enumerate(lines):
+                  if '══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK' in line:
+                      start = max(0, i - 5)
+                      end = min(len(lines), i + 35)
+                      snippet = ' -- '.join([l.strip() for l in lines[start:end] if l.strip()])
+                      print(f'::error title=FailureDetail::{snippet[:600]}')
+                  if ' [E]' in line or '(failed)' in line:
+                      print(f'::error title=FailedTest::{line.strip()}')
           except Exception as e:
               print(f'::error::Failed to parse test log: {e}')
           "
