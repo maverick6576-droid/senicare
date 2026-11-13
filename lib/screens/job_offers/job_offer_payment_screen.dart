@@ -118,44 +118,36 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
 
       final subtotal = widget.offer.totalHours * widget.application.proposedPrice;
       final fee = subtotal * widget.offer.clientFeeRate;
-      final total = subtotal + fee;
+      double total = subtotal + fee;
 
-      final String transferGroup =
-          'offer_${widget.offer.id}_${DateTime.now().millisecondsSinceEpoch}';
-
-      // 2. Create Payment Intent (para checkout en app) o preparar sesión externa (Bizum)
-      Map<String, dynamic> paymentIntentData = {
-        'transferGroup': transferGroup,
-      };
-      if (!_selectedPaymentMethod.usesExternalCheckout) {
-        try {
-          final created = await StripeService.createPaymentIntentOnly(
-            amountInCents: (total * 100).round(),
-            currency: 'eur',
-            caregiverStripeAccountId: stripeAccountId,
-            preferredMethod: _selectedPaymentMethod.backendId,
-            familyId: clientId,
-            description: 'SeniCare · ${widget.offer.title}',
-          );
-          if (created == null || created['clientSecret'] == null) {
-            _safeSetState(() => _isProcessing = false);
-            _showSnackBar(scaffoldMessenger, 'Error inesperado al crear el pago.', Colors.red);
-            return;
-          }
-          paymentIntentData = created;
-        } catch (e) {
-          _safeSetState(() => _isProcessing = false);
-          _showSnackBar(scaffoldMessenger, e.toString().replaceAll('Exception: ', ''), Colors.red);
-          return;
-        }
-      }
-
-      // 3. Registrar reservas previas en estado pendingPayment (compatibles con firestore.rules y webhook)
-      final initialPaymentIntentId = paymentIntentData['paymentIntentId']?.toString();
+      final List<Map<String, dynamic>> serverSessions = [];
+      final List<Booking> draftBookings = [];
       final double baseTierRate = FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
       final double effectiveCommissionRate = (baseTierRate - widget.offer.urgencyBonusRate).clamp(0.05, 0.18);
-      final String generatedPin = (Random().nextInt(9000) + 1000).toString();
-      final List<Booking> draftBookings = [];
+      String generatedPin = (Random().nextInt(9000) + 1000).toString();
+      final List<String> createdBookingIds = [];
+      Map<String, dynamic> paymentIntentData = {
+        'transferGroup': 'offer_${widget.offer.id}_${DateTime.now().millisecondsSinceEpoch}',
+      };
+      String transferGroup = paymentIntentData['transferGroup'].toString();
+
+      Future<void> rollbackDrafts() async {
+        if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+          await StripeService.cancelPendingCheckout(
+            List<String>.from(createdBookingIds),
+          );
+          createdBookingIds.clear();
+          return;
+        }
+        for (final id in createdBookingIds) {
+          try {
+            await DependencyInjection.bookings.deleteBooking(id);
+          } catch (e) {
+            debugPrint('Rollback job offer booking failed ($id): $e');
+          }
+        }
+        createdBookingIds.clear();
+      }
 
       if (widget.offer.isRecurring) {
         final totalDays = widget.offer.recurringWeeks * 7;
@@ -171,6 +163,14 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
             }
             final startDateTime = DateTime(targetDate.year, targetDate.month, targetDate.day, startHour, startMinute);
             final endDateTime = startDateTime.add(Duration(hours: widget.offer.recurringHoursPerDay));
+            final dayStr = '${startDateTime.year}-${startDateTime.month.toString().padLeft(2, '0')}-${startDateTime.day.toString().padLeft(2, '0')}';
+            final slotStr = '${startDateTime.hour.toString().padLeft(2, '0')}:${startDateTime.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
+
+            serverSessions.add({
+              'day': dayStr,
+              'slot': slotStr,
+              'totalHours': widget.offer.recurringHoursPerDay,
+            });
 
             final cost = widget.offer.recurringHoursPerDay * widget.application.proposedPrice;
             final clientFee = cost * widget.offer.clientFeeRate;
@@ -182,8 +182,8 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
               clientId: auth.effectiveClientId ?? '',
               caregiverId: widget.application.caregiverId,
               caregiverName: widget.application.caregiverName,
-              day: '${startDateTime.year}-${startDateTime.month.toString().padLeft(2, '0')}-${startDateTime.day.toString().padLeft(2, '0')}',
-              slot: '${startDateTime.hour.toString().padLeft(2, '0')}:${startDateTime.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}',
+              day: dayStr,
+              slot: slotStr,
               cost: cost,
               clientFee: clientFee,
               clientFeeRate: widget.offer.clientFeeRate,
@@ -195,8 +195,8 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
               escrowStatus: 'none',
               bookingPin: generatedPin,
               createdAt: DateTime.now(),
-              transferGroup: paymentIntentData['transferGroup']?.toString() ?? transferGroup,
-              paymentIntentId: initialPaymentIntentId,
+              transferGroup: transferGroup,
+              paymentIntentId: null,
               paymentMethodType: _selectedPaymentMethod.backendId,
               paymentStatus: 'pending',
               clientLatitude: widget.offer.clientLatitude,
@@ -211,6 +211,15 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         }
       } else {
         final endDateTime = widget.offer.startDate.add(Duration(hours: widget.offer.totalHours));
+        final dayStr = '${widget.offer.startDate.year}-${widget.offer.startDate.month.toString().padLeft(2, '0')}-${widget.offer.startDate.day.toString().padLeft(2, '0')}';
+        final slotStr = '${widget.offer.startDate.hour.toString().padLeft(2, '0')}:${widget.offer.startDate.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
+
+        serverSessions.add({
+          'day': dayStr,
+          'slot': slotStr,
+          'totalHours': widget.offer.totalHours,
+        });
+
         final cost = widget.offer.totalHours * widget.application.proposedPrice;
         final clientFee = cost * widget.offer.clientFeeRate;
         final commissionAmount = cost * effectiveCommissionRate;
@@ -221,8 +230,8 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
           clientId: auth.effectiveClientId ?? '',
           caregiverId: widget.application.caregiverId,
           caregiverName: widget.application.caregiverName,
-          day: '${widget.offer.startDate.year}-${widget.offer.startDate.month.toString().padLeft(2, '0')}-${widget.offer.startDate.day.toString().padLeft(2, '0')}',
-          slot: '${widget.offer.startDate.hour.toString().padLeft(2, '0')}:${widget.offer.startDate.minute.toString().padLeft(2, '0')}-${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}',
+          day: dayStr,
+          slot: slotStr,
           cost: cost,
           clientFee: clientFee,
           clientFeeRate: widget.offer.clientFeeRate,
@@ -234,8 +243,8 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
           escrowStatus: 'none',
           bookingPin: generatedPin,
           createdAt: DateTime.now(),
-          transferGroup: paymentIntentData['transferGroup']?.toString() ?? transferGroup,
-          paymentIntentId: initialPaymentIntentId,
+          transferGroup: transferGroup,
+          paymentIntentId: null,
           paymentMethodType: _selectedPaymentMethod.backendId,
           paymentStatus: 'pending',
           clientLatitude: widget.offer.clientLatitude,
@@ -248,28 +257,49 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         ));
       }
 
-      final List<String> createdBookingIds = [];
-      Future<void> rollbackDrafts() async {
-        for (final id in createdBookingIds) {
-          try {
-            await DependencyInjection.bookings.deleteBooking(id);
-          } catch (e) {
-            debugPrint('Rollback job offer booking failed ($id): $e');
+      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+        try {
+          final created = await StripeService.createSecureBooking(
+            caregiverId: widget.application.caregiverId,
+            offerId: widget.offer.id,
+            applicationId: widget.application.id,
+            familyId: clientId,
+            preferredMethod: _selectedPaymentMethod.backendId,
+            useCheckoutSession: _selectedPaymentMethod.usesExternalCheckout,
+            sessions: serverSessions,
+            clientLatitude: widget.offer.clientLatitude,
+            clientLongitude: widget.offer.clientLongitude,
+            checklist: _customChecklist,
+          );
+          paymentIntentData = created;
+          transferGroup = created['transferGroup']?.toString() ?? transferGroup;
+          generatedPin = created['bookingPin']?.toString() ?? generatedPin;
+          final serverTotal = (created['totalEur'] as num?)?.toDouble();
+          if (serverTotal != null && serverTotal > 0) {
+            total = serverTotal;
           }
+          final rawIds = created['bookingIds'] as List<dynamic>? ?? [];
+          createdBookingIds.addAll(rawIds.map((e) => e.toString()).where((e) => e.isNotEmpty));
+          if (createdBookingIds.isEmpty) {
+            throw Exception('El servidor no devolvió reservas válidas.');
+          }
+        } catch (e) {
+          _safeSetState(() => _isProcessing = false);
+          _showSnackBar(scaffoldMessenger, e.toString().replaceFirst('Exception: ', ''), Colors.red);
+          return;
         }
-        createdBookingIds.clear();
-      }
-
-      try {
-        for (final b in draftBookings) {
-          final id = await DependencyInjection.bookings.createBooking(b);
-          createdBookingIds.add(id);
+      } else {
+        try {
+          for (final b in draftBookings) {
+            final id = await DependencyInjection.bookings.createBooking(b);
+            createdBookingIds.add(id);
+          }
+        } catch (e) {
+          await rollbackDrafts();
+          _safeSetState(() => _isProcessing = false);
+          _showSnackBar(scaffoldMessenger, 'No se pudo preparar la reserva: $e', Colors.red);
+          return;
         }
-      } catch (e) {
-        await rollbackDrafts();
-        _safeSetState(() => _isProcessing = false);
-        _showSnackBar(scaffoldMessenger, 'No se pudo preparar la reserva: $e', Colors.red);
-        return;
       }
 
       if (!mounted) return;

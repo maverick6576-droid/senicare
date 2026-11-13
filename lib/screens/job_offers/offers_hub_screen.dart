@@ -1254,8 +1254,8 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
 
     final isVerified = caregiver.verified || caregiver.verificationStatus == 'approved';
     final missingDocs = <String>[];
-    if (caregiver.dniUrl.trim().isEmpty) missingDocs.add('DNI');
-    if (caregiver.criminalRecordUrl.trim().isEmpty) missingDocs.add('Antecedentes');
+    if (!caregiver.hasDni) missingDocs.add('DNI');
+    if (!caregiver.hasCriminalRecord) missingDocs.add('Antecedentes');
     if (!caregiver.hasStripeAccount) missingDocs.add('Cuenta de cobro');
 
     if (caregiver.verificationStatus == 'rejected') {

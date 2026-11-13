@@ -109,8 +109,13 @@ class _MapScreenState extends State<MapScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: MapConfig.tileUrlTemplate,
                 userAgentPackageName: 'com.senicare.app',
+              ),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(MapConfig.tileAttribution),
+                ],
               ),
               if (_currentUserLocation != null)
                 CircleLayer(

@@ -437,8 +437,9 @@ class _CaregiverCalendarScreenState extends State<CaregiverCalendarScreen> {
                         itemCount: _slots.length,
                         itemBuilder: (context, index) {
                           final slot = _slots[index];
+                          final endHour = (slot.dateTime.hour + 1) % 24;
                           final timeStr =
-                              '${slot.dateTime.hour.toString().padLeft(2, '0')}:00 — ${(slot.dateTime.hour + 1).toString().padLeft(2, '0')}:00';
+                              '${slot.dateTime.hour.toString().padLeft(2, '0')}:00 — ${endHour.toString().padLeft(2, '0')}:00';
                           return SwitchListTile(
                             title: Text(timeStr,
                                 style: TextStyle(fontSize: 16 * fontMult)),

@@ -117,11 +117,13 @@ class _LiveDniScannerScreenState extends State<LiveDniScannerScreen> {
       }
 
       if (dniFound) {
-        // Stop stream and take picture
         await _cameraController!.stopImageStream();
         final xFile = await _cameraController!.takePicture();
         if (mounted) {
-          Navigator.pop(context, {'path': xFile.path, 'text': 'DNI/NIE Detectado: $foundDni'});
+          Navigator.pop(context, {
+            'path': xFile.path,
+            'text': 'DNI/NIE Detectado: $foundDni\n${recognizedText.text}',
+          });
         }
       }
     } catch (e) {
@@ -137,8 +139,16 @@ class _LiveDniScannerScreenState extends State<LiveDniScannerScreen> {
         await _cameraController!.stopImageStream();
       }
       final xFile = await _cameraController!.takePicture();
+      String ocrText = '';
+      try {
+        final recognized = await _textRecognizer.processImage(InputImage.fromFilePath(xFile.path));
+        ocrText = recognized.text;
+      } catch (_) {}
       if (mounted) {
-        Navigator.pop(context, {'path': xFile.path, 'text': 'Captura manual (sin verificar)'});
+        Navigator.pop(context, {
+          'path': xFile.path,
+          'text': ocrText.isNotEmpty ? ocrText : 'Captura manual',
+        });
       }
     } catch (e) {
       debugPrint(e.toString());

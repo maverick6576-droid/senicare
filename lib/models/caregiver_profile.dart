@@ -13,11 +13,14 @@ class CaregiverProfile {
   final double? latitude;
   final double? longitude;
   final String imageUrl;
+  final String voiceIntroUrl;
   final List<String> specialties;
   final bool verified;
   final Map<String, List<String>> availableSlots;
   final String dniUrl;
   final String criminalRecordUrl;
+  final bool hasDniSubmitted;
+  final bool hasCriminalSubmitted;
   final double maxDistanceRadius;
   final String homeAddress;
   final String verificationStatus;
@@ -27,6 +30,8 @@ class CaregiverProfile {
   final bool hasSeenCaregiverTutorial;
   final int noShowsCount;
 
+  bool get hasDni => dniUrl.trim().isNotEmpty || hasDniSubmitted;
+  bool get hasCriminalRecord => criminalRecordUrl.trim().isNotEmpty || hasCriminalSubmitted;
   bool get hasStripeAccount => stripeAccountId != null && stripeAccountId!.isNotEmpty;
   bool get isSuperCaregiver => (verified || verificationStatus == 'approved') && rating >= 4.7 && reviewsCount >= 2 && noShowsCount == 0;
   int get retentionRate => rating >= 4.9 ? 97 : (rating >= 4.7 ? 94 : (rating >= 4.5 ? 90 : 86));
@@ -39,7 +44,7 @@ class CaregiverProfile {
         combined.contains('enferm') ||
         combined.contains('geriatr') ||
         combined.contains('alzheimer') ||
-        criminalRecordUrl.isNotEmpty;
+        hasCriminalRecord;
   }
   final List<DateTime> incidentDates;
   final DateTime? blockedUntil;
@@ -57,11 +62,14 @@ class CaregiverProfile {
     this.latitude,
     this.longitude,
     required this.imageUrl,
+    this.voiceIntroUrl = '',
     required this.specialties,
     required this.verified,
     required this.availableSlots,
     this.dniUrl = '',
     this.criminalRecordUrl = '',
+    bool? hasDniSubmitted,
+    bool? hasCriminalSubmitted,
     this.maxDistanceRadius = 10.0,
     this.homeAddress = '',
     this.verificationStatus = 'unverified',
@@ -73,11 +81,14 @@ class CaregiverProfile {
     this.incidentDates = const [],
     this.blockedUntil,
     this.accountStatus = 'active',
-  });
+  })  : hasDniSubmitted = hasDniSubmitted ?? dniUrl.trim().isNotEmpty,
+        hasCriminalSubmitted = hasCriminalSubmitted ?? criminalRecordUrl.trim().isNotEmpty;
 
   factory CaregiverProfile.fromFirestore(DocumentSnapshot doc) {
     try {
       Map<String, dynamic> data = doc.data() as Map<String, dynamic>? ?? {};
+      final dni = data['dniUrl']?.toString() ?? '';
+      final criminal = data['criminalRecordUrl']?.toString() ?? '';
       return CaregiverProfile(
         id: doc.id,
         name: data['name']?.toString() ?? 'Sin nombre',
@@ -88,13 +99,16 @@ class CaregiverProfile {
         reviewsCount: data['reviewsCount'] ?? 0,
         distance: data['distance']?.toString() ?? '',
         imageUrl: data['imageUrl']?.toString() ?? '',
+        voiceIntroUrl: data['voiceIntroUrl']?.toString() ?? '',
         specialties: List<String>.from(data['specialties'] ?? []),
         verified: data['isVerified'] ?? data['verified'] ?? false,
-        availableSlots: (data['availableSlots'] as Map<String, dynamic>? ?? {}).map(
+        availableSlots: (data['availableSlots'] as Map? ?? const {}).map(
           (k, e) => MapEntry(k.toString(), List<String>.from(e as List)),
         ),
-        dniUrl: data['dniUrl']?.toString() ?? '',
-        criminalRecordUrl: data['criminalRecordUrl']?.toString() ?? '',
+        dniUrl: dni,
+        criminalRecordUrl: criminal,
+        hasDniSubmitted: data['hasDniSubmitted'] == true || dni.trim().isNotEmpty,
+        hasCriminalSubmitted: data['hasCriminalSubmitted'] == true || criminal.trim().isNotEmpty,
         latitude: (data['latitude'] as num?)?.toDouble(),
         longitude: (data['longitude'] as num?)?.toDouble(),
         maxDistanceRadius: (data['maxDistanceRadius'] as num?)?.toDouble() ?? 10.0,
@@ -149,11 +163,12 @@ class CaregiverProfile {
       'reviewsCount': reviewsCount,
       'distance': distance,
       'imageUrl': imageUrl,
+      'voiceIntroUrl': voiceIntroUrl,
       'specialties': specialties,
       'isVerified': verified,
       'availableSlots': availableSlots,
-      'dniUrl': dniUrl,
-      'criminalRecordUrl': criminalRecordUrl,
+      'hasDniSubmitted': hasDni,
+      'hasCriminalSubmitted': hasCriminalRecord,
       'latitude': latitude,
       'longitude': longitude,
       'maxDistanceRadius': maxDistanceRadius,

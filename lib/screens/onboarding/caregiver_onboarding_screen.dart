@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -92,10 +93,24 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       final userId = auth.currentUserId;
       if (userId == null) return;
 
-      final doc = await FirebaseFirestore.instance.collection('caregivers').doc(userId).get();
+      final cgRef = FirebaseFirestore.instance.collection('caregivers').doc(userId);
+      final doc = await cgRef.get();
       if (!doc.exists) return;
 
       final data = doc.data()!;
+      Map<String, dynamic> privateData = {};
+      try {
+        final privDoc = await cgRef.collection('private').doc('verification').get();
+        if (privDoc.exists && privDoc.data() != null) {
+          privateData = privDoc.data()!;
+        }
+      } catch (_) {}
+
+      final loadedDni = (privateData['dniUrl'] ?? data['dniUrl'])?.toString() ?? '';
+      final loadedCriminal = (privateData['criminalRecordUrl'] ?? data['criminalRecordUrl'])?.toString() ?? '';
+      final loadedDniScan = (privateData['dniScannedText'] ?? data['dniScannedText'])?.toString() ?? '';
+      final loadedCrimScan = (privateData['criminalScannedText'] ?? data['criminalScannedText'])?.toString() ?? '';
+
       if (mounted) {
         setState(() {
           if (data['name'] != null) _nameCtrl.text = data['name'];
@@ -109,16 +124,16 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
             _profileImageUrl = data['imageUrl'];
             _profileImagePath = data['imageUrl']; // show from URL
           }
-          if (data['dniUrl'] != null && data['dniUrl'] != '') {
-            _dniUrl = data['dniUrl'];
-            _dniFrontPath = data['dniUrl'];
+          if (loadedDni.isNotEmpty) {
+            _dniUrl = loadedDni;
+            _dniFrontPath = loadedDni;
           }
-          if (data['criminalRecordUrl'] != null && data['criminalRecordUrl'] != '') {
-            _criminalUrl = data['criminalRecordUrl'];
-            _criminalPath = data['criminalRecordUrl'];
+          if (loadedCriminal.isNotEmpty) {
+            _criminalUrl = loadedCriminal;
+            _criminalPath = loadedCriminal;
           }
-          if (data['dniScannedText'] != null) _dniScannedText = data['dniScannedText'];
-          if (data['criminalScannedText'] != null) _criminalScannedText = data['criminalScannedText'];
+          if (loadedDniScan.isNotEmpty) _dniScannedText = loadedDniScan;
+          if (loadedCrimScan.isNotEmpty) _criminalScannedText = loadedCrimScan;
           if (data['stripeAccountId'] != null) _stripeAccountId = data['stripeAccountId'];
           if (data['specialties'] != null) _specialties = List<String>.from(data['specialties']);
           // Restore step progress
@@ -130,15 +145,26 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     }
   }
 
-  /// Auto-saves current state to Firestore as a draft (debounced via _isSaving flag)
+  bool _pendingSave = false;
+
+  /// Auto-saves current state to Firestore as a draft (debounced & queued via _pendingSave)
   Future<void> _autoSaveDraft() async {
-    if (_isSaving) return;
-    _isSaving = true;
-    await Future.delayed(const Duration(milliseconds: 800)); // debounce
-    if (mounted) {
-      await _saveDraft();
+    if (_isSaving) {
+      _pendingSave = true;
+      return;
     }
-    _isSaving = false;
+    _isSaving = true;
+    try {
+      do {
+        _pendingSave = false;
+        await Future.delayed(const Duration(milliseconds: 800)); // debounce
+        if (mounted) {
+          await _saveDraft();
+        }
+      } while (_pendingSave && mounted);
+    } finally {
+      _isSaving = false;
+    }
   }
 
   /// Saves current step data to Firestore immediately
@@ -149,7 +175,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       final userId = auth.currentUserId;
       if (userId == null) return;
 
-      final parsedPrice = double.tryParse(_priceCtrl.text) ?? 0.0;
+      final parsedPrice = double.tryParse(_priceCtrl.text.trim().replaceAll(',', '.')) ?? 0.0;
 
       final data = <String, dynamic>{
         'onboardingStep': _currentStep,
@@ -170,16 +196,22 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       if (_homeLon != null) data['longitude'] = _homeLon;
       if (_specialties.isNotEmpty) data['specialties'] = _specialties;
 
-      // Step 3 fields
-      if (_dniUrl != null) data['dniUrl'] = _dniUrl;
-      if (_criminalUrl != null) data['criminalRecordUrl'] = _criminalUrl;
-      if (_dniScannedText.isNotEmpty) data['dniScannedText'] = _dniScannedText;
-      if (_criminalScannedText.isNotEmpty) data['criminalScannedText'] = _criminalScannedText;
+      // Step 3 fields (flags públicos + documentos privados en subcolección protegida)
+      if (_dniUrl != null) data['hasDniSubmitted'] = _dniUrl!.isNotEmpty;
+      if (_criminalUrl != null) data['hasCriminalSubmitted'] = _criminalUrl!.isNotEmpty;
 
-      await FirebaseFirestore.instance
-          .collection('caregivers')
-          .doc(userId)
-          .set(data, SetOptions(merge: true));
+      final cgRef = FirebaseFirestore.instance.collection('caregivers').doc(userId);
+      await cgRef.set(data, SetOptions(merge: true));
+
+      final privateData = <String, dynamic>{};
+      if (_dniUrl != null) privateData['dniUrl'] = _dniUrl;
+      if (_criminalUrl != null) privateData['criminalRecordUrl'] = _criminalUrl;
+      if (_dniScannedText.isNotEmpty) privateData['dniScannedText'] = _dniScannedText;
+      if (_criminalScannedText.isNotEmpty) privateData['criminalScannedText'] = _criminalScannedText;
+      if (privateData.isNotEmpty) {
+        privateData['lastUpdated'] = FieldValue.serverTimestamp();
+        await cgRef.collection('private').doc('verification').set(privateData, SetOptions(merge: true));
+      }
 
       if (showFeedback && mounted) {
         CustomSnackBar.show(
@@ -193,8 +225,15 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     }
   }
 
+  bool get _supportsMobileOcr =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
   Future<String> _persistFile(String originalPath) async {
-    if (originalPath.startsWith('http')) return originalPath;
+    if (kIsWeb || originalPath.isEmpty || originalPath.startsWith('http')) {
+      return originalPath;
+    }
     final file = File(originalPath);
     if (!await file.exists()) return originalPath;
 
@@ -206,8 +245,13 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     return newFile.path;
   }
 
-  /// Uploads a file to Firebase Storage and returns the download URL
-  Future<String?> _uploadFileToStorage(String path, String folder) async {
+  /// Uploads a file (mobile path or web/desktop bytes) to Firebase Storage.
+  Future<String?> _uploadFileToStorage(
+    String path,
+    String folder, {
+    Uint8List? bytes,
+    String? originalName,
+  }) async {
     try {
       if (path.startsWith('http')) return path;
 
@@ -215,10 +259,23 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       final auth = context.read<AuthNotifier>();
       final userId = auth.currentUserId ?? 'unknown';
 
-      final file = File(path);
-      if (!await file.exists()) return null;
+      Uint8List? uploadBytes = bytes;
+      if (uploadBytes == null) {
+        if (path.isEmpty) return null;
+        if (!kIsWeb) {
+          final file = File(path);
+          if (!await file.exists()) return null;
+          uploadBytes = await file.readAsBytes();
+        } else {
+          uploadBytes = await XFile(path).readAsBytes();
+        }
+      }
 
-      final ext = p.extension(path).isNotEmpty ? p.extension(path).toLowerCase() : '.jpg';
+      final nameHint = (originalName != null && originalName.isNotEmpty)
+          ? originalName
+          : path;
+      final ext =
+          p.extension(nameHint).isNotEmpty ? p.extension(nameHint).toLowerCase() : '.jpg';
       final fileName = '${userId}_${DateTime.now().millisecondsSinceEpoch}$ext';
 
       SettableMetadata? metadata;
@@ -231,7 +288,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       }
 
       final ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
-      await ref.putFile(file, metadata);
+      await ref.putData(uploadBytes, metadata);
       return await ref.getDownloadURL();
     } catch (e) {
       debugPrint('Upload error: $e');
@@ -247,6 +304,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       final image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
       if (image == null) return;
 
+      final bytes = await image.readAsBytes();
       final savedPath = await _persistFile(image.path);
       if (!mounted) return;
       setState(() {
@@ -255,9 +313,17 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       });
 
       // Upload immediately
-      final url = await _uploadFileToStorage(savedPath, 'caregiver_avatars');
+      final url = await _uploadFileToStorage(
+        savedPath,
+        'caregiver_avatars',
+        bytes: bytes,
+        originalName: image.name,
+      );
       if (url != null) {
-        setState(() => _profileImageUrl = url);
+        setState(() {
+          _profileImageUrl = url;
+          if (kIsWeb) _profileImagePath = url;
+        });
         await _saveDraft(showFeedback: true);
       }
     } catch (e) {
@@ -268,6 +334,10 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
   }
 
   Future<void> _scanDniLive() async {
+    if (kIsWeb) {
+      await _pickDniFile();
+      return;
+    }
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const LiveDniScannerScreen()),
@@ -275,10 +345,10 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     if (result != null && result is Map) {
       setState(() => _isLoading = true);
       try {
-        final savedPath = await _persistFile(result['path']);
+        final savedPath = await _persistFile(result['path'].toString());
         setState(() {
           _dniFrontPath = savedPath;
-          _dniScannedText = result['text'] ?? '';
+          _dniScannedText = (result['text'] ?? '').toString();
         });
 
         // Upload immediately
@@ -295,60 +365,142 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     }
   }
 
+  Future<void> _pickDniFile() async {
+    setState(() => _isLoading = true);
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final picked = result.files.single;
+      final bytes = picked.bytes;
+      final rawPath = kIsWeb ? '' : (picked.path ?? '');
+      final savedPath = rawPath.isNotEmpty ? await _persistFile(rawPath) : picked.name;
+      final isPdf = p.extension(picked.name).toLowerCase() == '.pdf';
+
+      String extracted = '';
+      if (isPdf) {
+        extracted = await _extractTextFromPdfBytes(
+          bytes ?? (rawPath.isNotEmpty ? await File(rawPath).readAsBytes() : Uint8List(0)),
+        );
+      } else if (_supportsMobileOcr && savedPath.isNotEmpty) {
+        extracted = await _extractTextFromImagePath(savedPath);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _dniFrontPath = savedPath;
+        _dniScannedText = extracted;
+      });
+
+      final url = await _uploadFileToStorage(
+        savedPath,
+        'caregiver_docs',
+        bytes: bytes,
+        originalName: picked.name,
+      );
+      if (url != null && mounted) {
+        setState(() {
+          _dniUrl = url;
+          if (kIsWeb || isPdf) _dniFrontPath = url;
+        });
+        await _saveDraft(showFeedback: true);
+      }
+    } catch (e) {
+      debugPrint('DNI file pick error: $e');
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo cargar el documento de identidad.',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _pickCriminalRecord() async {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Hacer foto'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                try {
-                  final image = await _picker.pickImage(source: ImageSource.camera, imageQuality: 70);
-                  if (image == null) return;
-                  final savedPath = await _persistFile(image.path);
-                  setState(() {
-                    _criminalPath = savedPath;
-                    _criminalIsPdf = false;
-                    _isLoading = true;
-                  });
-                  await _extractTextFromImage(savedPath);
-                  final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
-                  if (url != null) {
-                    setState(() => _criminalUrl = url);
-                    await _saveDraft(showFeedback: true);
+            if (!kIsWeb)
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Hacer foto'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  if (mounted) setState(() => _isLoading = true);
+                  try {
+                    final image = await _picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+                    if (image == null) return;
+                    final bytes = await image.readAsBytes();
+                    final savedPath = await _persistFile(image.path);
+                    setState(() {
+                      _criminalPath = savedPath;
+                      _criminalIsPdf = false;
+                    });
+                    await _extractTextFromImage(savedPath);
+                    final url = await _uploadFileToStorage(
+                      savedPath,
+                      'caregiver_docs',
+                      bytes: bytes,
+                      originalName: image.name,
+                    );
+                    if (url != null) {
+                      setState(() => _criminalUrl = url);
+                      await _saveDraft(showFeedback: true);
+                    }
+                  } catch (e) {
+                    debugPrint('Criminal photo error: $e');
+                  } finally {
+                    if (mounted) setState(() => _isLoading = false);
                   }
-                } catch (e) {
-                  debugPrint('Criminal photo error: $e');
-                } finally {
-                  if (mounted) setState(() => _isLoading = false);
-                }
-              },
-            ),
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.picture_as_pdf),
               title: const Text('Subir Archivo PDF'),
               onTap: () async {
                 Navigator.pop(ctx);
+                if (mounted) setState(() => _isLoading = true);
                 try {
-                  FilePickerResult? result = await FilePicker.pickFiles(
+                  final result = await FilePicker.pickFiles(
                     type: FileType.custom,
                     allowedExtensions: ['pdf'],
+                    withData: true,
                   );
-                  if (result != null && result.files.single.path != null) {
-                    final savedPath = await _persistFile(result.files.single.path!);
+                  if (result != null && result.files.isNotEmpty) {
+                    final picked = result.files.single;
+                    final rawPath = kIsWeb ? '' : (picked.path ?? '');
+                    final savedPath = rawPath.isNotEmpty ? await _persistFile(rawPath) : picked.name;
                     setState(() {
                       _criminalPath = savedPath;
                       _criminalIsPdf = true;
-                      _isLoading = true;
                     });
-                    await _extractTextFromPdf(savedPath);
-                    final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
+                    final bytes = picked.bytes ??
+                        (rawPath.isNotEmpty ? await File(rawPath).readAsBytes() : null);
+                    if (bytes != null) {
+                      final text = await _extractTextFromPdfBytes(bytes);
+                      if (mounted) setState(() => _criminalScannedText = text);
+                    } else if (savedPath.isNotEmpty) {
+                      await _extractTextFromPdf(savedPath);
+                    }
+                    final url = await _uploadFileToStorage(
+                      savedPath,
+                      'caregiver_docs',
+                      bytes: bytes,
+                      originalName: picked.name,
+                    );
                     if (url != null) {
-                      setState(() => _criminalUrl = url);
+                      setState(() {
+                        _criminalUrl = url;
+                        if (kIsWeb) _criminalPath = url;
+                      });
                       await _saveDraft(showFeedback: true);
                     }
                   }
@@ -364,19 +516,28 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
               title: const Text('Subir Imagen'),
               onTap: () async {
                 Navigator.pop(ctx);
+                if (mounted) setState(() => _isLoading = true);
                 try {
                   final image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
                   if (image == null) return;
+                  final bytes = await image.readAsBytes();
                   final savedPath = await _persistFile(image.path);
                   setState(() {
                     _criminalPath = savedPath;
                     _criminalIsPdf = false;
-                    _isLoading = true;
                   });
                   await _extractTextFromImage(savedPath);
-                  final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
+                  final url = await _uploadFileToStorage(
+                    savedPath,
+                    'caregiver_docs',
+                    bytes: bytes,
+                    originalName: image.name,
+                  );
                   if (url != null) {
-                    setState(() => _criminalUrl = url);
+                    setState(() {
+                      _criminalUrl = url;
+                      if (kIsWeb) _criminalPath = url;
+                    });
                     await _saveDraft(showFeedback: true);
                   }
                 } catch (e) {
@@ -392,32 +553,49 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     );
   }
 
-  Future<void> _extractTextFromPdf(String path) async {
+  Future<String> _extractTextFromPdfBytes(Uint8List bytes) async {
+    if (bytes.isEmpty) return '';
     try {
-      final file = File(path);
-      final bytes = await file.readAsBytes();
       final PdfDocument document = PdfDocument(inputBytes: bytes);
-      String text = PdfTextExtractor(document).extractText();
+      final text = PdfTextExtractor(document).extractText();
       document.dispose();
-      setState(() => _criminalScannedText = text);
+      return text;
     } catch (e) {
-      debugPrint('PDF extraction error: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      debugPrint('PDF bytes extraction error: $e');
+      return '';
     }
   }
 
-  Future<void> _extractTextFromImage(String path) async {
+  Future<void> _extractTextFromPdf(String path) async {
+    try {
+      if (kIsWeb) return;
+      final file = File(path);
+      final bytes = await file.readAsBytes();
+      final text = await _extractTextFromPdfBytes(bytes);
+      if (mounted) setState(() => _criminalScannedText = text);
+    } catch (e) {
+      debugPrint('PDF extraction error: $e');
+    }
+  }
+
+  Future<String> _extractTextFromImagePath(String path) async {
+    if (!_supportsMobileOcr) return '';
     try {
       final inputImage = InputImage.fromFilePath(path);
       final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
       final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-      setState(() => _criminalScannedText = recognizedText.text);
-      textRecognizer.close();
+      await textRecognizer.close();
+      return recognizedText.text;
     } catch (e) {
       debugPrint('Image extraction error: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      return '';
+    }
+  }
+
+  Future<void> _extractTextFromImage(String path) async {
+    final text = await _extractTextFromImagePath(path);
+    if (mounted && text.isNotEmpty) {
+      setState(() => _criminalScannedText = text);
     }
   }
 
@@ -468,7 +646,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         }
       }
 
-      final parsedPrice = double.tryParse(_priceCtrl.text) ?? 8.0;
+      final parsedPrice = double.tryParse(_priceCtrl.text.trim().replaceAll(',', '.')) ?? 8.0;
       final validationStatus = _validateIdentity();
 
       final data = {
@@ -478,10 +656,8 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         'homeAddress': _addressCtrl.text.trim(),
         'maxDistanceRadius': _radius,
         'imageUrl': _profileImageUrl ?? '',
-        'dniUrl': _dniUrl ?? '',
-        'criminalRecordUrl': _criminalUrl ?? '',
-        'dniScannedText': _dniScannedText,
-        'criminalScannedText': _criminalScannedText,
+        'hasDniSubmitted': (_dniUrl ?? '').isNotEmpty,
+        'hasCriminalSubmitted': (_criminalUrl ?? '').isNotEmpty,
         'verificationStatus': validationStatus,
         'onboardingComplete': true,
         'onboardingStep': 3,
@@ -491,10 +667,15 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         'lastUpdated': FieldValue.serverTimestamp(),
       };
 
-      await FirebaseFirestore.instance
-          .collection('caregivers')
-          .doc(userId)
-          .set(data, SetOptions(merge: true));
+      final cgRef = FirebaseFirestore.instance.collection('caregivers').doc(userId);
+      await cgRef.set(data, SetOptions(merge: true));
+      await cgRef.collection('private').doc('verification').set({
+        'dniUrl': _dniUrl ?? '',
+        'criminalRecordUrl': _criminalUrl ?? '',
+        'dniScannedText': _dniScannedText,
+        'criminalScannedText': _criminalScannedText,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       if (mounted) {
         if (validationStatus == 'manual_review') {
@@ -620,9 +801,10 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                                 backgroundImage: _profileImagePath != null
                                     ? (_profileImagePath!.startsWith('http')
                                         ? CachedNetworkImageProvider(_profileImagePath!) as ImageProvider
-                                        : FileImage(File(_profileImagePath!)))
+                                        : (!kIsWeb ? FileImage(File(_profileImagePath!)) as ImageProvider : null))
                                     : null,
-                                child: _profileImagePath == null
+                                child: _profileImagePath == null ||
+                                        (kIsWeb && !_profileImagePath!.startsWith('http'))
                                     ? const Icon(Icons.camera_alt, size: 40)
                                     : null,
                               ),
@@ -849,21 +1031,39 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                       // DNI Section
                       const Text('1. Documento de Identidad (DNI/NIE)', style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade100,
-                          foregroundColor: Colors.blue.shade900,
-                        ),
-                        onPressed: _scanDniLive,
-                        icon: const Icon(Icons.document_scanner),
-                        label: const Text('Escanear DNI/NIE (Cámara)'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (!kIsWeb)
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue.shade100,
+                                foregroundColor: Colors.blue.shade900,
+                              ),
+                              onPressed: _scanDniLive,
+                              icon: const Icon(Icons.document_scanner),
+                              label: const Text('Escanear DNI/NIE (Cámara)'),
+                            ),
+                          OutlinedButton.icon(
+                            onPressed: _pickDniFile,
+                            icon: const Icon(Icons.upload_file),
+                            label: Text(kIsWeb ? 'Subir DNI/NIE (Imagen o PDF)' : 'Subir archivo o galería'),
+                          ),
+                        ],
                       ),
                       if (_dniFrontPath != null) ...[
                         const SizedBox(height: 8),
-                        if (!_dniFrontPath!.startsWith('http'))
-                          Image.file(File(_dniFrontPath!), height: 100)
-                        else
-                          CachedNetworkImage(imageUrl: _dniFrontPath!, height: 100),
+                        if (_dniFrontPath!.toLowerCase().contains('.pdf'))
+                          const ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.picture_as_pdf, color: Colors.redAccent),
+                            title: Text('Documento PDF seleccionado'),
+                          )
+                        else if (_dniFrontPath!.startsWith('http'))
+                          CachedNetworkImage(imageUrl: _dniFrontPath!, height: 100)
+                        else if (!kIsWeb)
+                          Image.file(File(_dniFrontPath!), height: 100),
                         const SizedBox(height: 4),
                         Row(
                           children: [

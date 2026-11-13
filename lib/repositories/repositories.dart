@@ -17,6 +17,7 @@ export 'interfaces/report_repository.dart';
 export 'interfaces/client_repository.dart';
 export 'interfaces/job_offer_repository.dart';
 export 'interfaces/family_repository.dart';
+export 'interfaces/stats_repository.dart';
 export 'mock/mock_auth_repository.dart';
 export 'mock/mock_booking_repository.dart';
 export 'mock/mock_caregiver_repository.dart';

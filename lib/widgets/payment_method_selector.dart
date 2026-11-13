@@ -405,23 +405,28 @@ Future<CheckoutFlowResult> executeClientStripePayment({
 
   // 1. Pago externo vía Stripe Checkout (ej. Bizum con confirmación en app del banco)
   if (method.usesExternalCheckout) {
-    final session = await StripeService.createAlternativeCheckoutSession(
-      amountInCents: (totalEur * 100).round(),
-      currency: 'eur',
-      preferredMethod: method.backendId,
-      title: itemLabel,
-      caregiverStripeAccountId: caregiverStripeAccountId,
-      familyId: familyId,
-      transferGroup: transferGroup,
-      bookingIds: bookingIds,
-    );
+    final existingUrl = paymentIntentData['url']?.toString() ?? '';
+    final existingSessionId = paymentIntentData['sessionId']?.toString() ?? '';
+    final Map<String, dynamic> session = (existingUrl.isNotEmpty && existingSessionId.isNotEmpty)
+        ? paymentIntentData
+        : await StripeService.createAlternativeCheckoutSession(
+            amountInCents: (totalEur * 100).round(),
+            currency: 'eur',
+            preferredMethod: method.backendId,
+            title: itemLabel,
+            caregiverStripeAccountId: caregiverStripeAccountId,
+            familyId: familyId,
+            transferGroup: transferGroup,
+            bookingIds: bookingIds,
+          );
     final url = session['url']?.toString() ?? '';
     final sessionId = session['sessionId']?.toString() ?? '';
+    final effectivePiId = session['paymentIntentId']?.toString() ?? piId;
     final launched = await StripeService.launchCheckoutUrl(url);
     if (!launched || !context.mounted) {
       return CheckoutFlowResult(
         outcome: 'error',
-        paymentIntentId: piId,
+        paymentIntentId: effectivePiId,
         paymentMethodType: method.backendId,
       );
     }
@@ -430,7 +435,7 @@ Future<CheckoutFlowResult> executeClientStripePayment({
       context: context,
       sessionId: sessionId,
       methodName: method.labelForPlatform(Theme.of(context).platform),
-      fallbackPaymentIntentId: piId,
+      fallbackPaymentIntentId: effectivePiId,
     );
   }
 

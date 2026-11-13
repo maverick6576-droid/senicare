@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:senicare/repositories/interfaces/stats_repository.dart';
 
-class FirestoreStatsRepository {
-  final CollectionReference _collection = FirebaseFirestore.instance.collection('client_caregiver_stats');
+class FirestoreStatsRepository implements StatsRepository {
+  final FirebaseFirestore _firestore;
+  FirestoreStatsRepository({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  CollectionReference get _collection => _firestore.collection('client_caregiver_stats');
 
   String _getDocId(String clientId, String caregiverId) {
     return '${clientId}_$caregiverId';
   }
 
+  @override
   Future<int> getAccumulatedHours(String clientId, String caregiverId) async {
     try {
       final docId = _getDocId(clientId, caregiverId);
@@ -23,6 +29,7 @@ class FirestoreStatsRepository {
     }
   }
 
+  @override
   Future<List<Map<String, dynamic>>> getCaregiverClientStats(String caregiverId) async {
     try {
       final query = await _collection.where('caregiverId', isEqualTo: caregiverId).get();
@@ -33,6 +40,7 @@ class FirestoreStatsRepository {
     }
   }
 
+  @override
   Future<void> addCompletedHours(String clientId, String caregiverId, int hoursToAdd) async {
     try {
       final docId = _getDocId(clientId, caregiverId);

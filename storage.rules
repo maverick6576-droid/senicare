@@ -32,20 +32,43 @@ service firebase.storage {
       allow write: if isAuthenticated() && (
         fileName.matches(request.auth.uid + '_.*') ||
         isAdmin()
-      ) && (request.resource == null || request.resource.size < 15 * 1024 * 1024);
+      ) && (
+        request.resource == null || (
+          request.resource.size < 15 * 1024 * 1024 &&
+          request.resource.contentType.matches('image/.*')
+        )
+      );
     }
 
     // --- Documentos de verificación (DNI, Penales) ---
-    // Solo el propio cuidador o un administrador puede leer o subir sus documentos.
+    // Solo el propio cuidador o un administrador puede leer o subir sus documentos;
+    // tras aprobación, el cuidador no puede borrar/reemplazar los documentos auditados.
+    function isApprovedCaregiver(uid) {
+      return firestore.exists(/databases/(default)/documents/caregivers/$(uid)) &&
+        firestore.get(/databases/(default)/documents/caregivers/$(uid)).data.get('verificationStatus', '') == 'approved';
+    }
+
     match /caregiver_docs/{fileName} {
       allow read: if isAuthenticated() && (
         fileName.matches(request.auth.uid + '_.*') ||
         isAdmin()
       );
-      allow write: if isAuthenticated() && (
-        fileName.matches(request.auth.uid + '_.*') ||
-        isAdmin()
-      ) && (request.resource == null || request.resource.size < 20 * 1024 * 1024);
+      allow create, update: if isAdmin() || (
+        isAuthenticated() &&
+        fileName.matches(request.auth.uid + '_.*') &&
+        !isApprovedCaregiver(request.auth.uid) &&
+        request.resource != null &&
+        request.resource.size < 20 * 1024 * 1024 &&
+        (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType == 'application/pdf'
+        )
+      );
+      allow delete: if isAdmin() || (
+        isAuthenticated() &&
+        fileName.matches(request.auth.uid + '_.*') &&
+        !isApprovedCaregiver(request.auth.uid)
+      );
     }
 
     // --- Fotos de perfil de clientes / familias ---
@@ -55,40 +78,63 @@ service firebase.storage {
         fileName.matches(request.auth.uid + '_.*') ||
         (request.auth.token.familyId != null && fileName.matches(request.auth.token.familyId + '_.*')) ||
         isAdmin()
-      ) && (request.resource == null || request.resource.size < 15 * 1024 * 1024);
+      ) && (
+        request.resource == null || (
+          request.resource.size < 15 * 1024 * 1024 &&
+          request.resource.contentType.matches('image/.*')
+        )
+      );
     }
 
-    // --- Archivos multimedia del chat (fotos y notas de voz) ---
+    // --- Archivos multimedia del chat (fotos, vídeos, PDF y notas de voz) ---
     match /chat_media/{roomId}/{allPaths=**} {
       allow read: if isChatRoomParticipant(roomId) || isAdmin();
-      allow write: if (isChatRoomParticipant(roomId) || isAdmin())
-        && (request.resource == null || request.resource.size < 25 * 1024 * 1024);
+      allow write: if (isChatRoomParticipant(roomId) || isAdmin()) && (
+        request.resource == null || (
+          request.resource.size < 25 * 1024 * 1024 &&
+          (
+            request.resource.contentType.matches('image/.*') ||
+            request.resource.contentType.matches('audio/.*') ||
+            request.resource.contentType.matches('video/.*') ||
+            request.resource.contentType == 'application/pdf'
+          )
+        )
+      );
     }
 
     // --- Fotos del Diario del Cuidado de reservas ---
-    // Valida metadata de reserva (clientId/caregiverId/familyId) para impedir acceso a terceros.
+    // Verifica en Firestore la participación real en `bookings/{bookingId}` (no en metadata modificable por el cliente).
+    function isBookingJournalParticipant(bookingId) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/bookings/$(bookingId)) && (
+          firestore.get(/databases/(default)/documents/bookings/$(bookingId)).data.caregiverId == request.auth.uid ||
+          firestore.get(/databases/(default)/documents/bookings/$(bookingId)).data.clientId == request.auth.uid ||
+          (
+            request.auth.token.familyId != null &&
+            firestore.get(/databases/(default)/documents/bookings/$(bookingId)).data.clientId == request.auth.token.familyId
+          ) ||
+          (
+            firestore.exists(/databases/(default)/documents/clients/$(firestore.get(/databases/(default)/documents/bookings/$(bookingId)).data.clientId)) && (
+              firestore.get(/databases/(default)/documents/clients/$(firestore.get(/databases/(default)/documents/bookings/$(bookingId)).data.clientId)).data.get('ownerUid', '') == request.auth.uid ||
+              request.auth.uid in firestore.get(/databases/(default)/documents/clients/$(firestore.get(/databases/(default)/documents/bookings/$(bookingId)).data.clientId)).data.get('memberUids', [])
+            )
+          )
+        );
+    }
+
     match /care_journal/{bookingId}/{allPaths=**} {
-      allow read: if isAdmin() || (
-        isAuthenticated() &&
-        resource != null &&
-        resource.metadata != null && (
-          resource.metadata.caregiverId == request.auth.uid ||
-          resource.metadata.clientId == request.auth.uid ||
-          (request.auth.token.familyId != null && resource.metadata.clientId == request.auth.token.familyId)
+      allow read: if isAdmin() || isBookingJournalParticipant(bookingId);
+      allow create, update: if isAdmin() || (
+        isBookingJournalParticipant(bookingId) &&
+        request.resource != null &&
+        request.resource.size < 15 * 1024 * 1024 &&
+        (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType.matches('video/.*') ||
+          request.resource.contentType == 'application/pdf'
         )
       );
-      allow write: if isAdmin() || (
-        isAuthenticated() &&
-        request.resource != null &&
-        request.resource.metadata != null &&
-        request.resource.metadata.uploaderUid == request.auth.uid &&
-        (
-          request.resource.metadata.caregiverId == request.auth.uid ||
-          request.resource.metadata.clientId == request.auth.uid ||
-          (request.auth.token.familyId != null && request.resource.metadata.clientId == request.auth.token.familyId)
-        ) &&
-        request.resource.size < 15 * 1024 * 1024
-      );
+      allow delete: if isAdmin();
     }
 
     // --- Archivos generales de la app ---

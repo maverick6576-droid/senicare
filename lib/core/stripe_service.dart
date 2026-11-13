@@ -70,7 +70,7 @@ extension ClientPaymentMethodX on ClientPaymentMethod {
     }
   }
 
-  bool get usesExternalCheckout => this == ClientPaymentMethod.bizum;
+  bool get usesExternalCheckout => this == ClientPaymentMethod.bizum || kIsWeb;
 
   bool get isDelayedBankMethod => this == ClientPaymentMethod.sepaDebit;
 
@@ -185,18 +185,21 @@ class StripeService {
     }
   }
 
-  /// Creates a PaymentIntent by calling the Firebase Cloud Function.
-  static Future<Map<String, dynamic>?> createSecureBooking({
+  /// Crea reservas de pago atómicamente en servidor (precios, descuentos, PIN y Stripe Intent/Session).
+  static Future<Map<String, dynamic>> createSecureBooking({
     required String caregiverId,
     String? offerId,
     String? applicationId,
     String? familyId,
     String preferredMethod = 'auto',
-    required double totalHours,
-    required String day,
-    required String slot,
+    bool useCheckoutSession = false,
+    List<Map<String, dynamic>>? sessions,
+    double? totalHours,
+    String? day,
+    String? slot,
     double? clientLatitude,
     double? clientLongitude,
+    List<String> checklist = const [],
   }) async {
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
@@ -204,22 +207,80 @@ class StripeService {
         'createSecureBooking',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
       );
+      final normalizedSessions = sessions ??
+          [
+            if (day != null && slot != null)
+              {
+                'day': day,
+                'slot': slot,
+                'totalHours': ?totalHours,
+              }
+          ];
       final response = await callable.call({
         'caregiverId': caregiverId,
-        'offerId': offerId,
-        'applicationId': applicationId,
+        if (offerId != null && offerId.isNotEmpty) 'offerId': offerId,
+        if (applicationId != null && applicationId.isNotEmpty)
+          'applicationId': applicationId,
         if (familyId != null && familyId.isNotEmpty) 'familyId': familyId,
         'preferredMethod': preferredMethod,
-        'totalHours': totalHours,
-        'day': day,
-        'slot': slot,
-        'clientLatitude': clientLatitude,
-        'clientLongitude': clientLongitude,
+        'useCheckoutSession': useCheckoutSession,
+        'sessions': normalizedSessions,
+        'clientLatitude': ?clientLatitude,
+        'clientLongitude': ?clientLongitude,
+        if (checklist.isNotEmpty) 'checklist': checklist,
       });
       return Map<String, dynamic>.from(response.data as Map);
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint(
+        'createSecureBooking error [${e.code}]: ${e.message} | Details: ${e.details}',
+      );
+      throw Exception(e.message ?? 'Error al crear la reserva segura (${e.code}).');
     } catch (e) {
       debugPrint('Error creating secure booking: $e');
-      return null;
+      rethrow;
+    }
+  }
+
+  /// Verifica Check-in del cuidador en servidor mediante QR + GPS o PIN secreto.
+  static Future<Map<String, dynamic>> verifyBookingCheckIn({
+    required String bookingId,
+    required String method,
+    String? pin,
+    String? qrValue,
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable(
+        'verifyBookingCheckIn',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),
+      );
+      final response = await callable.call({
+        'bookingId': bookingId,
+        'method': method,
+        'pin': ?pin,
+        'qrValue': ?qrValue,
+        'latitude': ?latitude,
+        'longitude': ?longitude,
+        'accuracy': ?accuracy,
+      });
+      return Map<String, dynamic>.from(response.data as Map);
+    } on FirebaseFunctionsException catch (e) {
+      throw Exception(e.message ?? 'No se pudo verificar el check-in (${e.code}).');
+    }
+  }
+
+  /// Libera franjas y borra borradores `pendingPayment` de forma atómica si el pago se cancela.
+  static Future<void> cancelPendingCheckout(List<String> bookingIds) async {
+    if (bookingIds.isEmpty) return;
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('cancelPendingCheckout');
+      await callable.call({'bookingIds': bookingIds});
+    } catch (e) {
+      debugPrint('cancelPendingCheckout warning: $e');
     }
   }
 
@@ -300,11 +361,14 @@ class StripeService {
     }
   }
 
-  /// Abre la pasarela web segura de Stripe (Bizum / app bancaria) fuera o en pestaña del sistema.
+  /// Abre la pasarela web segura de Stripe (Bizum / app bancaria / Checkout Web).
   static Future<bool> launchCheckoutUrl(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return false;
-    return launchUrl(uri, mode: LaunchMode.externalApplication);
+    return launchUrl(
+      uri,
+      mode: kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
+    );
   }
 
   /// Verifica en tiempo real el estado del cobro en Stripe tras regresar de Bizum/redirección.

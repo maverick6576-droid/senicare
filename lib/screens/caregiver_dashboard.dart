@@ -565,8 +565,8 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     if (hasDefaultImage) missingItems.add('Foto de perfil');
     if (user.homeAddress.trim().isEmpty) missingItems.add('Dirección');
     if (user.pricePerHour < 6.0) missingItems.add('Tarifa (mínimo 6€/h)');
-    if (user.dniUrl.trim().isEmpty) missingItems.add('DNI/NIE');
-    if (user.criminalRecordUrl.trim().isEmpty) missingItems.add('Antecedentes penales');
+    if (!user.hasDni) missingItems.add('DNI/NIE');
+    if (!user.hasCriminalRecord) missingItems.add('Antecedentes penales');
     if (user.stripeAccountId == null || user.stripeAccountId!.trim().isEmpty) {
       missingItems.add('Cuenta de cobros');
     }

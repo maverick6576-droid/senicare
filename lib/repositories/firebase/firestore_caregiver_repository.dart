@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class FirestoreCaregiverRepository implements CaregiverRepository {
-  final CollectionReference _collection = FirebaseFirestore.instance.collection('caregivers');
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth? _auth;
+
+  FirestoreCaregiverRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth;
+
+  CollectionReference get _collection => _firestore.collection('caregivers');
   DocumentSnapshot? _lastDocument;
   bool _hasMore = true;
 
@@ -81,10 +91,60 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
   Future<CaregiverProfile?> getCaregiver(String id) async {
     try {
       final doc = await _collection.doc(id).get();
-      if (doc.exists) {
-        return CaregiverProfile.fromFirestore(doc);
+      if (!doc.exists) return null;
+      final profile = CaregiverProfile.fromFirestore(doc);
+      final currentUid = (_auth ?? FirebaseAuth.instance).currentUser?.uid;
+      if (currentUid == id) {
+        try {
+          final privateDoc = await _collection
+              .doc(id)
+              .collection('private')
+              .doc('verification')
+              .get();
+          if (privateDoc.exists) {
+            final pData = privateDoc.data() ?? {};
+            final privateDni = pData['dniUrl']?.toString() ?? '';
+            final privateCriminal = pData['criminalRecordUrl']?.toString() ?? '';
+            if (privateDni.isNotEmpty || privateCriminal.isNotEmpty) {
+              return CaregiverProfile(
+                id: profile.id,
+                name: profile.name,
+                title: profile.title,
+                bio: profile.bio,
+                pricePerHour: profile.pricePerHour,
+                rating: profile.rating,
+                reviewsCount: profile.reviewsCount,
+                distance: profile.distance,
+                latitude: profile.latitude,
+                longitude: profile.longitude,
+                imageUrl: profile.imageUrl,
+                voiceIntroUrl: profile.voiceIntroUrl,
+                specialties: profile.specialties,
+                verified: profile.verified,
+                availableSlots: profile.availableSlots,
+                dniUrl: privateDni.isNotEmpty ? privateDni : profile.dniUrl,
+                criminalRecordUrl: privateCriminal.isNotEmpty ? privateCriminal : profile.criminalRecordUrl,
+                hasDniSubmitted: profile.hasDniSubmitted || privateDni.isNotEmpty,
+                hasCriminalSubmitted: profile.hasCriminalSubmitted || privateCriminal.isNotEmpty,
+                maxDistanceRadius: profile.maxDistanceRadius,
+                homeAddress: profile.homeAddress,
+                verificationStatus: profile.verificationStatus,
+                stripeAccountId: profile.stripeAccountId,
+                onboardingComplete: profile.onboardingComplete,
+                isKycVerified: profile.isKycVerified,
+                hasSeenCaregiverTutorial: profile.hasSeenCaregiverTutorial,
+                noShowsCount: profile.noShowsCount,
+                incidentDates: profile.incidentDates,
+                blockedUntil: profile.blockedUntil,
+                accountStatus: profile.accountStatus,
+              );
+            }
+          }
+        } catch (_) {
+          // Non-owner or offline: return public profile safely
+        }
       }
-      return null;
+      return profile;
     } catch (e) {
       debugPrint('Error fetching caregiver: $e');
       throw Exception('Error fetching caregiver: $e');
@@ -185,7 +245,7 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
     // Firestore batches support up to 500 operations
     const batchSize = 500;
     for (int i = 0; i < slots.length; i += batchSize) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = _firestore.batch();
       final chunk = slots.sublist(i, (i + batchSize).clamp(0, slots.length));
       for (final slot in chunk) {
         batch.set(slotsRef.doc(slot.id), slot.toFirestore());
@@ -209,7 +269,7 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
       snapshot = await slotsRef.limit(500).get();
       if (snapshot.docs.isEmpty) break;
 
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = _firestore.batch();
       for (final doc in snapshot.docs) {
         batch.delete(doc.reference);
       }

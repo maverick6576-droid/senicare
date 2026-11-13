@@ -1,13 +1,14 @@
-import 'dart:io';
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:senicare/core/globals.dart';
 
 // Este handler TIENE que ser de nivel superior (top-level) para funcionar en background
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Inicializa servicios mínimos si fuesen necesarios en background.
   debugPrint("Handling a background message: ${message.messageId}");
 }
 
@@ -16,37 +17,60 @@ class FCMService {
   static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
-    // 1. Manejador para cuando la app está completamente cerrada o en segundo plano
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    if (!kIsWeb) {
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    }
 
-    // 2. Pedir permisos en iOS y Android 13+
     await _requestPermissions();
+    if (!kIsWeb) {
+      await _setupLocalNotifications();
+    }
 
-    // 3. Configurar notificaciones locales para cuando la app está abierta en primer plano (foreground)
-    await _setupLocalNotifications();
-
-    // 4. Escuchar notificaciones en primer plano
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
 
-    // 5. Manejar clicks en notificaciones cuando la app está en background
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      debugPrint("Notification clicked while in background!");
-      // Aquí se podría navegar a la pantalla de chat o reservas dependiendo del payload
+      _dispatchNotificationRoute(message.data);
     });
 
-    // 6. Si la app se abrió desde una notificación estando cerrada del todo (terminated)
     final initialMessage = await _firebaseMessaging.getInitialMessage();
     if (initialMessage != null) {
-      debugPrint("App opened from terminated state via notification");
-      // Manejar la redirección
+      _dispatchNotificationRoute(initialMessage.data);
+    }
+  }
+
+  static void _dispatchNotificationRoute(Map<String, dynamic> data) {
+    if (data.isEmpty) return;
+    final normalized = <String, dynamic>{};
+    data.forEach((key, value) {
+      normalized[key] = value;
+    });
+    final bookingId = normalized['bookingId']?.toString().trim();
+    if (bookingId != null && bookingId.isNotEmpty) {
+      pendingTrackingBookingId.value = bookingId;
+    }
+    pendingPushRoute.value = normalized;
+  }
+
+  static void _handleRawPayloadClick(String? payload) {
+    if (payload == null || payload.trim().isEmpty) return;
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map) {
+        _dispatchNotificationRoute(Map<String, dynamic>.from(decoded));
+      }
+    } catch (e) {
+      debugPrint('Could not parse notification payload: $e');
     }
   }
 
   static Future<String?> getToken() async {
     try {
       if (kIsWeb) {
-        // En web se necesitaría el vapidKey, por ahora lo ignoramos
-        return null;
+        const defineVapid = String.fromEnvironment('FCM_WEB_VAPID_KEY');
+        final envVapid = dotenv.isInitialized ? dotenv.env['FCM_WEB_VAPID_KEY'] : null;
+        final vapidKey = defineVapid.isNotEmpty ? defineVapid : (envVapid ?? '');
+        if (vapidKey.isEmpty) return null;
+        return await _firebaseMessaging.getToken(vapidKey: vapidKey);
       }
       return await _firebaseMessaging.getToken();
     } catch (e) {
@@ -69,19 +93,19 @@ class FCMService {
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit = DarwinInitializationSettings();
     const initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
-    
-    await _localNotifications.initialize(
-      settings: initSettings, 
-      onDidReceiveNotificationResponse: (response) {
-      debugPrint('Local notification clicked: ${response.payload}');
-    });
 
-    // Crear canal de alta prioridad para Android
-    if (Platform.isAndroid) {
+    await _localNotifications.initialize(
+      settings: initSettings,
+      onDidReceiveNotificationResponse: (response) {
+        _handleRawPayloadClick(response.payload);
+      },
+    );
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       const channel = AndroidNotificationChannel(
-        'high_importance_channel', // id
-        'High Importance Notifications', // title
-        description: 'This channel is used for important notifications.', // description
+        'high_importance_channel',
+        'High Importance Notifications',
+        description: 'This channel is used for important notifications.',
         importance: Importance.high,
       );
 
@@ -92,20 +116,18 @@ class FCMService {
   }
 
   static void _handleForegroundMessage(RemoteMessage message) {
-    debugPrint('Got a message whilst in the foreground!');
-    debugPrint('Message data: ${message.data}');
+    debugPrint('Got a message whilst in the foreground: ${message.data}');
 
-    // Si la notificación pertenece a un mensaje enviado por el propio usuario actual, no mostrar banner de eco
     try {
       final currentUid = FirebaseAuth.instance.currentUser?.uid;
       if (currentUid != null && message.data['senderId'] == currentUid) {
-        debugPrint('Ignorando notificación en primer plano: proviene del propio usuario emisor.');
         return;
       }
     } catch (_) {}
 
+    if (kIsWeb) return;
+
     if (message.notification != null) {
-      // Mostrar la notificación usando local_notifications
       _localNotifications.show(
         id: message.hashCode,
         title: message.notification!.title,
@@ -125,7 +147,7 @@ class FCMService {
             presentSound: true,
           ),
         ),
-        payload: message.data.toString(), // Pasar los datos para usarlos al hacer click
+        payload: jsonEncode(message.data),
       );
     }
   }

@@ -8,11 +8,13 @@ class FirestoreFamilyRepository implements FamilyRepository {
     FirebaseFirestore? firestore,
     FirebaseFunctions? functions,
   })  : _db = firestore ?? FirebaseFirestore.instance,
-        _functions = functions ??
-            FirebaseFunctions.instanceFor(region: 'europe-west1');
+        _functionsOverride = functions;
 
   final FirebaseFirestore _db;
-  final FirebaseFunctions _functions;
+  final FirebaseFunctions? _functionsOverride;
+
+  FirebaseFunctions get _functions =>
+      _functionsOverride ?? FirebaseFunctions.instanceFor(region: 'europe-west1');
 
   @override
   Future<String?> resolveActiveFamilyId({

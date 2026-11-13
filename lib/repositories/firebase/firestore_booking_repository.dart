@@ -4,7 +4,11 @@ import 'package:senicare/repositories/repositories.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class FirestoreBookingRepository implements BookingRepository {
-  final CollectionReference _collection = FirebaseFirestore.instance.collection('bookings');
+  final FirebaseFirestore _firestore;
+  FirestoreBookingRepository({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  CollectionReference get _collection => _firestore.collection('bookings');
 
   @override
   Stream<List<Booking>> streamBookings(String userId, String role, {int? limit}) async* {
@@ -15,7 +19,8 @@ class FirestoreBookingRepository implements BookingRepository {
       } else if (role == 'caregiver') {
         query = query.where('caregiverId', isEqualTo: userId);
       }
-      
+      query = query.orderBy('createdAt', descending: true);
+
       if (limit != null) {
         query = query.limit(limit);
       }

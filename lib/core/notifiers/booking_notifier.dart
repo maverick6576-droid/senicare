@@ -301,7 +301,10 @@ class BookingNotifier extends ChangeNotifier {
     }
   }
 
-  Future<void> checkInBooking(String bookingId) async {
+  Future<void> checkInBooking(
+    String bookingId, {
+    bool verifiedByServer = false,
+  }) async {
     final b = bookings.where((b) => b.id == bookingId).firstOrNull;
     if (b == null) return;
     
@@ -323,7 +326,7 @@ class BookingNotifier extends ChangeNotifier {
     b.checkInTime = checkInTime;
     notifyListeners();
 
-    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+    if (!verifiedByServer && useFirebaseBackend && Firebase.apps.isNotEmpty) {
       await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
         'checkInTime': Timestamp.fromDate(checkInTime),
         'isPunctual': isPunctual,
@@ -578,10 +581,11 @@ class BookingNotifier extends ChangeNotifier {
     } 
     
     final review = Review(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: firstBooking.id,
       caregiverId: firstBooking.caregiverId,
       clientId: firstBooking.clientId,
       clientName: clientName,
+      bookingId: firstBooking.id,
       rating: rating,
       punctualityRating: punctualityRating ?? rating,
       empathyRating: empathyRating ?? rating,

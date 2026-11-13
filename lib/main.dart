@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -11,23 +12,28 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  FlutterError.onError = ObservabilityService.recordFlutterError;
+  PlatformDispatcher.instance.onError = ObservabilityService.recordPlatformError;
+
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
     debugPrint("⚠️ Failed to load .env file: $e");
   }
-  
+
+  bool firebaseReady = false;
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    
+    firebaseReady = Firebase.apps.isNotEmpty;
+
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
       cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
     );
-    
+
     try {
       final serverClientId = dotenv.isInitialized
           ? dotenv.env['GOOGLE_SERVER_CLIENT_ID']
@@ -40,7 +46,7 @@ Future<void> main() async {
     } catch (e) {
       debugPrint("Google SignIn init failed: $e");
     }
-    
+
     // Inicializar el servicio de notificaciones Push (FCM)
     await FCMService.initialize();
   } catch (e) {
@@ -49,6 +55,17 @@ Future<void> main() async {
     debugPrint("Details: $e");
     debugPrint("==================================================");
   }
+
+  await ObservabilityService.initialize(firebaseReady: firebaseReady);
+
+  if (kReleaseMode && !firebaseReady) {
+    runApp(const _ProductionBootErrorApp());
+    return;
+  }
+
+  final configNotifier = ConfigNotifier();
+  await configNotifier.loadPreferences();
+  ObservabilityService.setUserContext(seniorMode: configNotifier.seniorMode);
 
   // Initialize Data Layer before the UI
   DependencyInjection.initialize();
@@ -69,7 +86,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthNotifier()),
         ChangeNotifierProvider(create: (_) => LocationNotifier()),
-        ChangeNotifierProvider(create: (_) => ConfigNotifier()),
+        ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
         ChangeNotifierProxyProvider2<AuthNotifier, LocationNotifier, CaregiverNotifier>(
           create: (_) => CaregiverNotifier(),
           update: (_, auth, location, caregiverNotifier) {
@@ -128,4 +145,42 @@ Future<void> main() async {
       child: const SeniCareApp(),
     ),
   );
+}
+
+class _ProductionBootErrorApp extends StatelessWidget {
+  const _ProductionBootErrorApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'SeniCare',
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.cloud_off_rounded, size: 56, color: Color(0xFFDC2626)),
+                SizedBox(height: 16),
+                Text(
+                  'No se pudo conectar con SeniCare',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Falta la configuración segura de Firebase para este dispositivo o no hay conexión disponible.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Color(0xFF475569)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

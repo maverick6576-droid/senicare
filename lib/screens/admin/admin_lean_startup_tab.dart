@@ -81,15 +81,18 @@ class _LeanMetricsData {
 }
 
 class AdminLeanStartupTab extends StatefulWidget {
-  const AdminLeanStartupTab({super.key});
+  final FirebaseFirestore? firestore;
+  const AdminLeanStartupTab({super.key, this.firestore});
 
   @override
   State<AdminLeanStartupTab> createState() => _AdminLeanStartupTabState();
 }
 
 class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
+  FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
+
   // Referencia a Firestore para Feature Flags y Experimentos A/B
-  final DocumentReference _configRef = FirebaseFirestore.instance
+  late final DocumentReference _configRef = _db
       .collection('experiments')
       .doc('lean_config');
 
@@ -108,7 +111,7 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
   }
 
   Future<_LeanMetricsData> _loadRealMetrics() async {
-    final firestore = FirebaseFirestore.instance;
+    final firestore = _db;
     try {
       final offersSnap = await firestore.collection('job_offers').get();
       final bookingsSnap = await firestore.collection('bookings').get();
@@ -139,20 +142,42 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
       final Map<String, int> clientBookingCounts = {};
       final Map<String, int> caregiverBookingCounts = {};
       double totalRevenue = 0.0;
+      double totalResponseHoursAcc = 0.0;
+      int responseHoursSamples = 0;
 
       for (var doc in bookingsSnap.docs) {
         final data = doc.data();
         final status = data['status'] as String? ?? '';
         final escrowStatus = data['escrowStatus'] as String? ?? '';
+        final paymentStatus = data['paymentStatus'] as String? ?? '';
         final clientId = data['clientId'] as String? ?? '';
         final caregiverId = data['caregiverId'] as String? ?? '';
         final cost = (data['cost'] as num?)?.toDouble() ?? 0.0;
 
-        if (clientId.isNotEmpty) {
-          clientBookingCounts[clientId] = (clientBookingCounts[clientId] ?? 0) + 1;
+        final isValidPaidBooking = paymentStatus == 'paid' ||
+            status == 'confirmed' ||
+            status == 'completed' ||
+            escrowStatus.startsWith('released') ||
+            escrowStatus == 'held' ||
+            escrowStatus == 'resolved_partial';
+
+        if (isValidPaidBooking) {
+          if (clientId.isNotEmpty) {
+            clientBookingCounts[clientId] = (clientBookingCounts[clientId] ?? 0) + 1;
+          }
+          if (caregiverId.isNotEmpty) {
+            caregiverBookingCounts[caregiverId] = (caregiverBookingCounts[caregiverId] ?? 0) + 1;
+          }
         }
-        if (caregiverId.isNotEmpty) {
-          caregiverBookingCounts[caregiverId] = (caregiverBookingCounts[caregiverId] ?? 0) + 1;
+
+        final createdAtTs = data['createdAt'];
+        final respondedAtTs = data['confirmedAt'] ?? data['updatedAt'];
+        if (createdAtTs is Timestamp && respondedAtTs is Timestamp) {
+          final diffMin = respondedAtTs.toDate().difference(createdAtTs.toDate()).inMinutes;
+          if (diffMin >= 0 && diffMin <= 60 * 72) {
+            totalResponseHoursAcc += diffMin / 60.0;
+            responseHoursSamples++;
+          }
         }
 
         if (status == 'completed' || escrowStatus.startsWith('released')) {
@@ -196,8 +221,13 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
       });
 
       // 5. PMF y Unit Economics
-      final avgLtv = totalClients > 0 ? (totalRevenue / totalClients) : 0.0;
+      final avgLtv = payingClients > 0
+          ? (totalRevenue / payingClients)
+          : (totalClients > 0 ? (totalRevenue / totalClients) : 0.0);
       const avgCac = 0.0;
+      final avgResponseHours = responseHoursSamples > 0
+          ? (totalResponseHoursAcc / responseHoursSamples)
+          : 0.0;
       final pmfScore = totalClients > 0
           ? ((repeatClients / totalClients) * 100.0).clamp(0.0, 100.0)
           : 0.0;
@@ -209,7 +239,7 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
         escrowSuccessRate: escrowSuccessRate,
         totalBookings: totalBookings,
         completedBookings: completedBookings,
-        avgResponseHours: 0.0,
+        avgResponseHours: avgResponseHours,
         totalClients: totalClients,
         activeClients: activeClients,
         payingClients: payingClients,
@@ -709,7 +739,8 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
   }
 
   Widget _buildCohortAndPmfSection(_LeanMetricsData data) {
-    final ltvCacRatio = (data.avgLtv / data.avgCac);
+    final hasCacData = data.avgCac > 0;
+    final ltvCacRatio = hasCacData ? (data.avgLtv / data.avgCac) : 0.0;
     final mes1 = (data.activeClientsRatio).clamp(0.0, 1.0);
     final mes2 = (data.payingClientsRatio).clamp(0.0, 1.0);
     final mes3 = (data.repeatClientsRatio).clamp(0.0, 1.0);
@@ -746,14 +777,17 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Curva de Retención de Cohortes (Familias)',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                        const Expanded(
+                          child: Text(
+                            'Curva de Retención de Cohortes (Familias)',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
@@ -836,13 +870,20 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: ltvCacRatio >= 3 ? const Color(0xFF25D366).withValues(alpha: 0.2) : Colors.orangeAccent.withValues(alpha: 0.2),
+                            color: (!hasCacData
+                                    ? Colors.white24
+                                    : (ltvCacRatio >= 3 ? const Color(0xFF25D366) : Colors.orangeAccent))
+                                .withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            '${ltvCacRatio.toStringAsFixed(1)}x (${ltvCacRatio >= 3 ? 'ÓPTIMO' : 'EN CRECIMIENTO'})',
+                            hasCacData
+                                ? '${ltvCacRatio.toStringAsFixed(1)}x (${ltvCacRatio >= 3 ? 'ÓPTIMO' : 'EN CRECIMIENTO'})'
+                                : 'N/D (CAC 0 €)',
                             style: TextStyle(
-                              color: ltvCacRatio >= 3 ? const Color(0xFF25D366) : Colors.orangeAccent,
+                              color: !hasCacData
+                                  ? Colors.white70
+                                  : (ltvCacRatio >= 3 ? const Color(0xFF25D366) : Colors.orangeAccent),
                               fontSize: 14,
                               fontWeight: FontWeight.w900,
                             ),
@@ -1003,14 +1044,17 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
                         const Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Feature Flags (Experimentos A/B)',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
+                            Expanded(
+                              child: Text(
+                                'Feature Flags (Experimentos A/B)',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
+                            SizedBox(width: 8),
                             Icon(Icons.tune, color: AppTheme.primary, size: 20),
                           ],
                         ),
@@ -1077,10 +1121,14 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1098,12 +1146,14 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],
@@ -1141,12 +1191,14 @@ class _AdminLeanStartupTabState extends State<AdminLeanStartupTab> {
             children: [
               const Icon(Icons.track_changes, color: Colors.white54, size: 16),
               const SizedBox(width: 6),
-              Text(
-                'Métrica Clave: $targetMetric',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  'Métrica Clave: $targetMetric',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],

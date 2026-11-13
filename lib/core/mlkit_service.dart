@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:io' show File;
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
@@ -12,12 +12,15 @@ class ValidationResult {
 }
 
 class MLKitService {
+  static bool get _isDesktopWithoutMobileOcr =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+
   static Future<String> _extractTextFromImage(String imagePath) async {
-    // If not mobile (e.g. running on Windows Desktop during dev), return a mock string
-    // to prevent MissingPluginException.
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      await Future.delayed(const Duration(seconds: 2));
-      return "ESPAÑA DOCUMENTO NACIONAL DE IDENTIDAD MOCK NAME SIN ANTECEDENTES PENALES";
+    if (kIsWeb || _isDesktopWithoutMobileOcr) {
+      return "";
     }
 
     try {
@@ -33,107 +36,186 @@ class MLKitService {
       final inputImage = InputImage.fromFilePath(imagePath);
       final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
       final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-      
-      String resultText = recognizedText.text;
-      
+
+      final String resultText = recognizedText.text;
       await textRecognizer.close();
       return resultText;
     } catch (e) {
-      debugPrint('Error OCR: \$e');
+      debugPrint('Error OCR: $e');
       return "";
     }
   }
 
-  static Future<ValidationResult> validateDNI(String imagePath, String expectedName) async {
-    final extractedText = await _extractTextFromImage(imagePath);
-    final textUpper = extractedText.toUpperCase();
-    final expectedNameUpper = expectedName.toUpperCase();
-
-    // Mock logic fallback for desktop dev
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      if (expectedName.isNotEmpty) return ValidationResult(isApproved: true, isManualReview: false, message: "Aprobado (Mock)");
-    }
-
-    if (textUpper.isEmpty) {
-      return ValidationResult(isApproved: false, isManualReview: true, message: "No se detecta texto legible. Requiere revisión manual.");
-    }
-
-    // Normalize spacing and newlines
-    final normalizedText = textUpper.replaceAll(RegExp(r'\s+'), ' ');
-    final normalizedNoPunctuation = normalizedText.replaceAll(RegExp(r'[^\w\sÑñ]'), '');
-
-    // Basic heuristic logic
-    bool hasDNIKeywords = normalizedText.contains("ESPAÑA") || 
-                          normalizedText.contains("ESPANA") || 
-                          normalizedText.contains("DNI") || 
-                          normalizedNoPunctuation.contains("D N I") ||
-                          normalizedText.contains("DOCUMENTO NACIONAL");
-    
-    // Split expected name into words to check partial matches
-    final nameParts = expectedNameUpper.split(' ').where((p) => p.length > 2).toList();
+  static int _countMatchingNameParts(String normalizedText, String normalizedNoPunct, String expectedName) {
+    final nameParts = expectedName
+        .toUpperCase()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.length > 2)
+        .toList();
+    if (nameParts.isEmpty) return 0;
     int matches = 0;
-    for (var part in nameParts) {
-      if (normalizedText.contains(part) || normalizedNoPunctuation.contains(part)) matches++;
+    for (final part in nameParts) {
+      if (normalizedText.contains(part) || normalizedNoPunct.contains(part)) {
+        matches++;
+      }
+    }
+    return matches;
+  }
+
+  static List<String> _extractNameParts(String expectedName) => expectedName
+      .toUpperCase()
+      .split(RegExp(r'\s+'))
+      .where((p) => p.length > 2)
+      .toList();
+
+  static ValidationResult evaluateIdentityOcrText(String extractedText, String expectedName) {
+    final textUpper = extractedText.toUpperCase().trim();
+    if (textUpper.isEmpty) {
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: true,
+        message: "No se detectó texto OCR automático. Enviado a revisión manual.",
+      );
     }
 
-    if (hasDNIKeywords && matches == nameParts.length && nameParts.isNotEmpty) {
-      return ValidationResult(isApproved: true, isManualReview: false, message: "DNI válido y nombre coincide al 100%.");
-    } else if (hasDNIKeywords && matches > 0) {
-      return ValidationResult(isApproved: false, isManualReview: true, message: "Coincidencia parcial. Requiere revisión manual.");
-    } else {
-      return ValidationResult(isApproved: false, isManualReview: false, message: "Documento inválido o no coincide el titular.");
+    final normalizedText = textUpper.replaceAll(RegExp(r'\s+'), ' ');
+    final normalizedNoPunct = normalizedText.replaceAll(RegExp(r'[^\w\sÑñ]'), '');
+
+    final hasIdentityKeywords = normalizedText.contains("ESPAÑA") ||
+        normalizedText.contains("ESPANA") ||
+        normalizedText.contains("DNI") ||
+        normalizedNoPunct.contains("D N I") ||
+        normalizedText.contains("DOCUMENTO NACIONAL") ||
+        normalizedText.contains("NIE") ||
+        normalizedText.contains("TIE") ||
+        normalizedText.contains("TARJETA DE IDENTIDAD") ||
+        normalizedText.contains("PERMISO DE RESIDENCIA") ||
+        normalizedText.contains("PASAPORTE") ||
+        normalizedText.contains("PASSPORT");
+
+    final hasSpanishIdPattern = RegExp(r'\b([XYZ]\d{7}[A-Z]|\d{8}[A-Z])\b')
+        .hasMatch(normalizedNoPunct.replaceAll(' ', ''));
+
+    final nameParts = _extractNameParts(expectedName);
+    final matches = _countMatchingNameParts(normalizedText, normalizedNoPunct, expectedName);
+
+    if ((hasIdentityKeywords || hasSpanishIdPattern) &&
+        nameParts.isNotEmpty &&
+        matches == nameParts.length) {
+      return ValidationResult(
+        isApproved: true,
+        isManualReview: false,
+        message: "Documento de identidad (DNI/NIE/Pasaporte) válido y titular coincidente.",
+      );
+    } else if (hasIdentityKeywords || hasSpanishIdPattern || matches > 0) {
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: true,
+        message: "Documento detectado con coincidencia parcial. Requiere revisión manual.",
+      );
     }
+
+    return ValidationResult(
+      isApproved: false,
+      isManualReview: false,
+      message: "Documento inválido o ilegible. Usa DNI, NIE, TIE o Pasaporte vigente.",
+    );
+  }
+
+  static Future<ValidationResult> validateDNI(String imagePath, String expectedName, {String? preExtractedText}) async {
+    if (kIsWeb || _isDesktopWithoutMobileOcr) {
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: true,
+        message: "Pre-validación en web/escritorio: requiere revisión manual del equipo.",
+      );
+    }
+    final extractedText = (preExtractedText != null && preExtractedText.trim().isNotEmpty)
+        ? preExtractedText
+        : await _extractTextFromImage(imagePath);
+    return evaluateIdentityOcrText(extractedText, expectedName);
   }
 
   static Future<ValidationResult> validateCriminalRecord(String imagePath, String expectedName) async {
+    if (kIsWeb || _isDesktopWithoutMobileOcr) {
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: true,
+        message: "Pre-validación en web/escritorio: requiere revisión manual del equipo.",
+      );
+    }
+
     final extractedText = await _extractTextFromImage(imagePath);
     final textUpper = extractedText.toUpperCase();
-    
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      if (expectedName.isNotEmpty) return ValidationResult(isApproved: true, isManualReview: false, message: "Aprobado (Mock)");
+    if (textUpper.trim().isEmpty) {
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: true,
+        message: "No se detecta texto legible en el PDF/imagen. Enviado a revisión manual.",
+      );
     }
 
-    if (textUpper.isEmpty) {
-      return ValidationResult(isApproved: false, isManualReview: true, message: "No se detecta texto legible. Requiere revisión manual.");
-    }
-
-    // Normalize spacing and newlines for easier matching
     final normalizedText = textUpper.replaceAll(RegExp(r'\s+'), ' ');
+    final normalizedNoPunct = normalizedText.replaceAll(RegExp(r'[^\w\sÑñ]'), '');
 
-    bool hasKeywords = normalizedText.contains("MINISTERIO DE JUSTICIA") || 
-                       normalizedText.contains("REGISTRO CENTRAL DE PENADOS") ||
-                       normalizedText.contains("ANTECEDENTES PENALES");
-                       
-    bool hasNoRecords = normalizedText.contains("NO CONSTAN") || 
-                        normalizedText.contains("CARECE DE") || 
-                        normalizedText.contains("SIN ANTECEDENTES");
-                        
-    bool hasRecords = normalizedText.contains("SI CONSTAN") || 
-                      normalizedText.contains("SÍ CONSTAN") || 
-                      normalizedText.contains("CON ANTECEDENTES");
+    final hasKeywords = normalizedText.contains("MINISTERIO DE JUSTICIA") ||
+        normalizedText.contains("REGISTRO CENTRAL DE PENADOS") ||
+        normalizedText.contains("REGISTRO CENTRAL DE DELINCUENTES SEXUALES") ||
+        normalizedText.contains("ANTECEDENTES PENALES") ||
+        normalizedText.contains("DELITOS DE NATURALEZA SEXUAL") ||
+        normalizedText.contains("CERTIFICADO DE ANTECEDENTES");
 
-    // Check if the user's name is on the certificate
-    final nameParts = expectedName.toUpperCase().split(' ').where((p) => p.length > 2).toList();
-    int matches = 0;
-    for (var part in nameParts) {
-      if (normalizedText.contains(part)) matches++;
-    }
-    bool isNameMatching = (matches == nameParts.length && nameParts.isNotEmpty);
+    final hasNoRecords = normalizedText.contains("NO CONSTAN") ||
+        normalizedText.contains("CARECE DE") ||
+        normalizedText.contains("SIN ANTECEDENTES");
+
+    final hasRecords = normalizedText.contains("SI CONSTAN") ||
+        normalizedText.contains("SÍ CONSTAN") ||
+        normalizedText.contains("CON ANTECEDENTES");
+
+    final hasCsvCode = normalizedText.contains("CSV") ||
+        normalizedText.contains("CODIGO SEGURO DE VERIFICACION") ||
+        normalizedText.contains("CÓDIGO SEGURO DE VERIFICACIÓN");
+
+    final nameParts = _extractNameParts(expectedName);
+    final matches = _countMatchingNameParts(normalizedText, normalizedNoPunct, expectedName);
+    final isNameMatching = nameParts.isNotEmpty && matches == nameParts.length;
 
     if (hasRecords) {
-      return ValidationResult(isApproved: false, isManualReview: false, message: "ATENCIÓN: Constan antecedentes penales. Rechazado.");
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: false,
+        message: "ATENCIÓN: Constan antecedentes penales/sexuales. Rechazado.",
+      );
     }
 
     if (hasKeywords && hasNoRecords) {
       if (isNameMatching) {
-        return ValidationResult(isApproved: true, isManualReview: false, message: "Certificado válido, sin antecedentes y coincide el titular.");
-      } else {
-        return ValidationResult(isApproved: false, isManualReview: true, message: "Certificado válido pero no parece coincidir con tu nombre. Revisión manual.");
+        return ValidationResult(
+          isApproved: true,
+          isManualReview: false,
+          message: hasCsvCode
+              ? "Certificado oficial válido con CSV, sin antecedentes y titular coincidente."
+              : "Certificado válido, sin antecedentes y titular coincidente.",
+        );
       }
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: true,
+        message: "Certificado válido pero el nombre no coincide al 100%. Revisión manual.",
+      );
     } else if (hasKeywords) {
-      return ValidationResult(isApproved: false, isManualReview: true, message: "Certificado detectado pero frase clave dudosa. Revisión manual.");
-    } else {
-      return ValidationResult(isApproved: false, isManualReview: false, message: "No parece un certificado de antecedentes penales oficial.");
+      return ValidationResult(
+        isApproved: false,
+        isManualReview: true,
+        message: "Certificado oficial detectado pero requiere verificación manual.",
+      );
     }
+
+    return ValidationResult(
+      isApproved: false,
+      isManualReview: false,
+      message: "No parece un certificado oficial de Antecedentes Penales o Delitos Sexuales.",
+    );
   }
 }

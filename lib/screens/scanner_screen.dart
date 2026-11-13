@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
@@ -113,9 +114,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
           }
         }
         
+        if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+          await StripeService.verifyBookingCheckIn(
+            bookingId: widget.booking.id,
+            method: 'qr',
+            qrValue: normalized,
+            latitude: position.latitude,
+            longitude: position.longitude,
+            accuracy: position.accuracy,
+          );
+          await _completeCheckIn(verifiedByServer: true);
+          return;
+        }
+
         await _completeCheckIn();
       } catch (e) {
-        _showError('No se pudo verificar el GPS. Puedes usar el PIN para fichar.');
+        final msg = e.toString().replaceFirst('Exception: ', '').trim();
+        _showError(msg.isNotEmpty ? msg : 'No se pudo verificar el GPS. Puedes usar el PIN para fichar.');
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _isProcessing = false);
         });
@@ -131,8 +146,30 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void _handlePINSubmit() async {
     if (!_validateCheckInWindow()) return;
     final entered = _pinController.text.trim();
+    if (entered.length != 4) {
+      _showError('Introduce los 4 dígitos del PIN facilitado por la familia.');
+      return;
+    }
+
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      if (_isProcessing) return;
+      setState(() => _isProcessing = true);
+      try {
+        await StripeService.verifyBookingCheckIn(
+          bookingId: widget.booking.id,
+          method: 'pin',
+          pin: entered,
+        );
+        await _completeCheckIn(verifiedByServer: true);
+      } catch (e) {
+        if (mounted) setState(() => _isProcessing = false);
+        _showError(e.toString().replaceFirst('Exception: ', ''));
+      }
+      return;
+    }
+
     final expected = (widget.booking.bookingPin ?? '').trim();
-    if (entered.isNotEmpty && entered == expected) {
+    if (entered == expected) {
       if (_isProcessing) return;
       setState(() => _isProcessing = true);
       await _completeCheckIn();
@@ -141,9 +178,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
   }
 
-  Future<void> _completeCheckIn() async {
+  Future<void> _completeCheckIn({bool verifiedByServer = false}) async {
     try {
-      await context.read<BookingNotifier>().checkInBooking(widget.booking.id);
+      await context.read<BookingNotifier>().checkInBooking(
+            widget.booking.id,
+            verifiedByServer: verifiedByServer,
+          );
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       await showDialog(

@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "TEAM_ID_APPLE.com.example.senicare"
+        ],
+        "components": [
+          { "/": "/tracking/*" },
+          { "/": "/join*" }
+        ]
+      }
+    ]
+  }
+}

@@ -46,7 +46,27 @@ service cloud.firestore {
 
     // 2. Colecciones de Usuarios y Administradores
     match /users/{userId} {
-      allow read, write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.auth.uid == userId &&
+        !request.resource.data.keys().hasAny([
+          "isAdmin", "stripeCustomerId", "blockedUntil", "status", "accountStatus"
+        ]) &&
+        (!('role' in request.resource.data) || request.resource.data.role in ["client", "caregiver"]) &&
+        (!('activeFamilyId' in request.resource.data) || request.resource.data.activeFamilyId == userId)
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        request.auth.uid == userId &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          "isAdmin", "stripeCustomerId", "blockedUntil", "status", "accountStatus"
+        ]) &&
+        (!('role' in request.resource.data) || request.resource.data.role in ["client", "caregiver"]) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["activeFamilyId"]) ||
+          request.resource.data.activeFamilyId == userId)
+      );
+      allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
     }
     match /admins/{adminId} {
       allow read: if isAuthenticated() && request.auth.token.email_verified == true && (
@@ -61,7 +81,11 @@ service cloud.firestore {
 
     // 3. Cuidadores y Disponibilidad
     match /caregivers/{caregiverId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.get('verificationStatus', '') == 'approved' ||
+        request.auth.uid == caregiverId ||
+        isAdmin()
+      );
       allow create: if isAdmin() || (
         isAuthenticated() &&
         request.auth.uid == caregiverId &&
@@ -79,12 +103,24 @@ service cloud.firestore {
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           "verified", "isVerified", "rating", "reviewsCount",
           "stripeAccountId", "isKycVerified", "noShowsCount",
-          "incidentDates", "blockedUntil", "accountStatus"
+          "incidentDates", "blockedUntil", "accountStatus", "status"
         ]) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["verificationStatus"]) ||
           request.resource.data.verificationStatus in ["pending", "manual_review"])
       );
       allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == caregiverId);
+
+      // Documentos de verificación sensibles (DNI, Penales, texto OCR) — solo dueño o admin
+      match /private/{docId} {
+        allow read: if isAuthenticated() && (request.auth.uid == caregiverId || isAdmin());
+        allow create, update: if isAdmin() || (
+          isAuthenticated() &&
+          request.auth.uid == caregiverId &&
+          (!exists(/databases/$(database)/documents/caregivers/$(caregiverId)) ||
+            get(/databases/$(database)/documents/caregivers/$(caregiverId)).data.get('verificationStatus', '') != 'approved')
+        );
+        allow delete: if isAdmin();
+      }
 
       match /availability/{date} {
         allow read: if isAuthenticated();
@@ -92,15 +128,8 @@ service cloud.firestore {
 
         match /slots/{slotId} {
           allow read: if isAuthenticated();
-          allow create, update: if isAuthenticated() && (
-            request.auth.uid == caregiverId ||
-            isAdmin() ||
-            (
-              request.resource.data.keys().hasOnly(["dateTime", "isAvailable"]) &&
-              request.resource.data.isAvailable is bool
-            )
-          );
-          allow delete: if isAuthenticated() && (request.auth.uid == caregiverId || isAdmin());
+          // La reserva/liberación de franjas para familias ocurre atómicamente vía Cloud Functions (Admin SDK).
+          allow write: if isAuthenticated() && (request.auth.uid == caregiverId || isAdmin());
         }
       }
     }
@@ -110,11 +139,20 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         isFamilyMember(clientId) ||
         isAdmin() ||
-        exists(/databases/$(database)/documents/caregivers/$(request.auth.uid))
+        exists(/databases/$(database)/documents/clients/$(clientId)/caregiver_access/$(request.auth.uid))
       );
       allow create: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
       allow update: if isFamilyAdmin(clientId) || isAdmin();
       allow delete: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
+
+      match /caregiver_access/{caregiverId} {
+        allow read: if isAuthenticated() && (
+          isFamilyMember(clientId) ||
+          request.auth.uid == caregiverId ||
+          isAdmin()
+        );
+        allow write: if false; // Gestionado exclusivamente por Cloud Functions
+      }
     }
     match /family_invites/{inviteCode} {
       allow read: if isAuthenticated() && (resource == null || isFamilyAdmin(resource.data.familyId) || isAdmin());
@@ -160,8 +198,9 @@ service cloud.firestore {
           "cost", "totalPaid", "caregiverPayout", "clientFee", "clientFeeRate",
           "caregiverCommissionRate", "caregiverCommissionAmount",
           "paymentIntentId", "paymentStatus", "paymentMethodType", "transferGroup",
-          "tipAmount", "processedTipPaymentIntents", "bookingPin",
-          "clientId", "caregiverId", "offerId"
+          "tipAmount", "processedTipPaymentIntents", "bookingPin", "bookingPinHash",
+          "clientId", "caregiverId", "offerId", "applicationId", "isJobOffer",
+          "discountApplied", "escrowLock", "checkInTime", "checkInMethod", "isPunctual"
         ]);
       }
 
@@ -171,12 +210,8 @@ service cloud.firestore {
         isAdmin()
       );
 
-      // El cliente solo puede iniciar un bloqueo pendiente de pago (nunca confirmarla ni pagarla en cliente)
-      allow create: if isFamilyAdmin(request.resource.data.clientId) &&
-        request.resource.data.status == "pendingPayment" &&
-        (!('escrowStatus' in request.resource.data) || request.resource.data.escrowStatus == "none") &&
-        (!('paymentStatus' in request.resource.data) || request.resource.data.paymentStatus == "pending") &&
-        request.resource.data.get('tipAmount', 0) == 0;
+      // Las reservas de pago solo se crean vía Cloud Functions (createSecureBooking) tras calcular precios/descuentos en servidor.
+      allow create: if isAdmin();
 
       allow update: if isAdmin() || (
         isAuthenticated() &&
@@ -213,7 +248,7 @@ service cloud.firestore {
               "careChecklist", "careNotes", "carePhotoUrls", "reviewPromptDismissed", "isReviewed"
             ])
           ) ||
-          // C. Cuidador asignado: aceptar pending->confirmed, seguimiento en curso, check-out tras check-in, escalado
+          // C. Cuidador asignado: aceptar pending->confirmed, seguimiento en curso (check-in vía Cloud Function), check-out tras check-in, escalado
           (request.auth.uid == resource.data.caregiverId && (
             (
               resource.data.status == "pending" &&
@@ -224,8 +259,7 @@ service cloud.firestore {
             (
               resource.data.status == "confirmed" &&
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                "liveStatus", "onTheWayAt", "checkInTime", "isPunctual",
-                "careChecklist", "careNotes", "carePhotoUrls"
+                "liveStatus", "onTheWayAt", "careChecklist", "careNotes", "carePhotoUrls"
               ])
             ) ||
             (
@@ -245,12 +279,16 @@ service cloud.firestore {
         )
       );
 
-      allow delete: if isAdmin() || (
-        isFamilyAdmin(resource.data.clientId) &&
-        resource.data.status == "pendingPayment" &&
-        (!('escrowStatus' in resource.data) || resource.data.escrowStatus == "none") &&
-        (!('paymentStatus' in resource.data) || resource.data.paymentStatus == "pending")
-      );
+      allow delete: if isAdmin();
+
+      // Subcolección privada con el PIN de entrada y token QR — legible solo por la familia y admins
+      match /secrets/{secretId} {
+        allow read: if isAuthenticated() && (
+          isFamilyMember(get(/databases/$(database)/documents/bookings/$(bookingId)).data.clientId) ||
+          isAdmin()
+        );
+        allow write: if false; // Solo Cloud Functions
+      }
     }
 
     // 7. Coleccion CHATS
@@ -263,11 +301,41 @@ service cloud.firestore {
       );
 
       match /messages/{messageId} {
-        allow read, write: if isAuthenticated() && (
-          isFamilyMember(chatId.split("_")[0]) ||
-          request.auth.uid == chatId.split("_")[1] ||
-          isAdmin()
+        function isParticipant() {
+          return isAuthenticated() && (
+            isFamilyMember(chatId.split("_")[0]) ||
+            request.auth.uid == chatId.split("_")[1] ||
+            isAdmin()
+          );
+        }
+        function isMessageAuthor(msgData) {
+          return isAuthenticated() && (
+            msgData.get('senderId', '') == request.auth.uid ||
+            (msgData.get('sender', '') == 'Client' && isFamilyMember(chatId.split("_")[0]))
+          );
+        }
+
+        allow read: if isParticipant();
+        allow create: if isParticipant() &&
+          isMessageAuthor(request.resource.data) &&
+          request.resource.data.get('isRead', false) == false &&
+          request.resource.data.get('isDeleted', false) == false;
+        allow update: if isAdmin() || (
+          isParticipant() &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            "senderId", "sender", "receiverId", "timestamp"
+          ]) && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead", "readAt", "reactions"]) ||
+            (
+              isMessageAuthor(resource.data) &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "isDeleted", "text", "type", "mediaUrl", "reactions"
+              ]) &&
+              request.resource.data.isDeleted == true
+            )
+          )
         );
+        allow delete: if isAdmin();
       }
     }
 
@@ -298,12 +366,28 @@ service cloud.firestore {
         isFamilyMember(request.resource.data.clientId) &&
         request.resource.data.rating is number &&
         request.resource.data.rating >= 1 &&
-        request.resource.data.rating <= 5;
+        request.resource.data.rating <= 5 &&
+        'bookingId' in request.resource.data &&
+        reviewId == request.resource.data.bookingId &&
+        exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)) &&
+        get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.clientId == request.resource.data.clientId &&
+        get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.caregiverId == request.resource.data.caregiverId &&
+        get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.get('isReviewed', false) != true &&
+        (
+          get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == 'completed' ||
+          get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.get('escrowStatus', '') in ['released', 'released_manual', 'released_auto', 'resolved_partial']
+        );
       allow update, delete: if isAdmin();
     }
     match /experiments/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+    match /rate_limits/{docId} {
+      allow read, write: if false; // Solo Cloud Functions
+    }
+    match /webhook_events/{eventId} {
+      allow read, write: if false; // Solo Cloud Functions
     }
   }
 }

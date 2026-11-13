@@ -5,6 +5,26 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "/.well-known/apple-app-site-association",
+        "headers": [
+          { "key": "Content-Type", "value": "application/json" }
+        ]
+      },
+      {
+        "source": "/.well-known/assetlinks.json",
+        "headers": [
+          { "key": "Content-Type", "value": "application/json" }
+        ]
+      }
+    ],
+    "rewrites": [
+      { "source": "/reauth", "destination": "/index.html" },
+      { "source": "/return", "destination": "/index.html" },
+      { "source": "/tracking/**", "destination": "/index.html" },
+      { "source": "/join", "destination": "/index.html" }
     ]
   },
   "firestore": {
@@ -23,7 +43,10 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
-        "*.local"
+        "*.local",
+        "stripe_test.js",
+        "verify_finances.js",
+        "stress_test.js"
       ]
     }
   ]

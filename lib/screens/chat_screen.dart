@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -175,6 +176,8 @@ class _ChatScreenState extends State<ChatScreen> {
     return _bookingsStream!;
   }
 
+  DateTime? _lastHistoryExpandAt;
+
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final pixels = _scrollController.position.pixels;
@@ -186,10 +189,15 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     }
     if (pixels >= _scrollController.position.maxScrollExtent - 200) {
-      setState(() {
-        _limit += 25;
-        _ensureMessagesStream();
-      });
+      final now = DateTime.now();
+      if (_lastHistoryExpandAt == null ||
+          now.difference(_lastHistoryExpandAt!).inMilliseconds >= 600) {
+        _lastHistoryExpandAt = now;
+        setState(() {
+          _limit += 25;
+          _ensureMessagesStream();
+        });
+      }
     }
   }
 
@@ -353,6 +361,14 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _startVoiceRecording() async {
+    if (kIsWeb) {
+      CustomSnackBar.show(
+        context,
+        message: 'La grabación directa de notas de voz está disponible en Android/iOS.',
+        type: SnackBarType.info,
+      );
+      return;
+    }
     try {
       _audioRecorder ??= AudioRecorder();
       final hasPerm = await _audioRecorder!.hasPermission();

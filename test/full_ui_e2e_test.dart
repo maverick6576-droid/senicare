@@ -79,6 +79,10 @@ void main() {
     await tester.enterText(find.byType(TextFormField).at(0), 'nuevo_cuida@test.com');
     await tester.enterText(find.byType(TextFormField).at(1), 'password123');
     await tester.enterText(find.byType(TextFormField).at(2), 'password123');
+    final legalCheckbox = find.byType(CheckboxListTile);
+    await tester.ensureVisible(legalCheckbox);
+    await tester.tap(legalCheckbox);
+    await tester.pump(const Duration(milliseconds: 200));
     final submitRegisterBtn = find.text('Crear Cuenta Ahora');
     await tester.ensureVisible(submitRegisterBtn);
     await tester.tap(submitRegisterBtn);

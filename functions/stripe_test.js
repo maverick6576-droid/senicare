@@ -1,4 +1,8 @@
-const stripe = require('stripe')('sk_test_51ToJ0qC8ZT0mnPj23z5brh6gqqB4b7gzQAotsCR8pcEUcBFkl8TzdBcatgNKvH9EFmidpXD1B9wqA2qDnpHbgGuq00wuOQvclN');
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  throw new Error('Missing STRIPE_SECRET_KEY environment variable.');
+}
+const stripe = require('stripe')(stripeSecretKey);
 
 async function runTests() {
   console.log('=== Iniciando Pruebas de Pagos (Stripe Backend) ===\n');

@@ -233,62 +233,82 @@
             <ul>
                 <li><strong>Información de Perfil:</strong> Nombre, apellidos, biografía, foto y dirección.</li>
                 <li><strong>Datos de Ubicación:</strong> Solo con tu permiso, recopilamos coordenadas para emparejar clientes y cuidadores por proximidad.</li>
-                <li><strong>Documentación y KYC (Stripe Connect):</strong> Para habilitar el cobro a los cuidadores, nuestra pasarela de pagos (Stripe) requiere el escaneo del DNI/NIE. SeniCare no almacena permanentemente imágenes de documentos oficiales en servidores propios para este fin, sino que depende de la infraestructura ultra-segura de Stripe Identity, recibiendo únicamente un "token de verificación" (Aprobado/Denegado).</li>
+                <li><strong>Documentación y KYC (SeniCare + Stripe Connect):</strong> Para validar el alta de los cuidadores, la imagen del DNI/NIE y el Certificado de Antecedentes/Delitos se almacenan de forma cifrada en Firebase Storage bajo acceso privado restringido, vinculadas al registro interno en Firestore (<code>caregivers/{uid}/private/verification</code>) únicamente accesible por el titular y administración autorizada. Adicionalmente, para habilitar el cobro bancario de los cuidadores, nuestra pasarela de pagos (Stripe Connect Express) verifica la identidad financiera y titularidad de cuenta (KYC/AML).</li>
             </ul>
 
             <h3>3. Terceros y Subencargados</h3>
             <p>Compartimos datos estrictamente necesarios con:</p>
             <ul>
-                <li><strong>Google/Firebase:</strong> Para alojamiento en la nube, bases de datos y autenticación segura.</li>
-                <li><strong>Stripe:</strong> Para el procesamiento de pagos, tarjetas de crédito y validación de identidad KYC. Al pagar o cobrar, estás sujeto a la política de privacidad de Stripe.</li>
+                <li><strong>Google/Firebase:</strong> Para alojamiento en la nube, almacenamiento privado de verificación, bases de datos y autenticación segura.</li>
+                <li><strong>Stripe:</strong> Para el procesamiento de pagos, custodia de fondos (Escrow) y validación KYC/AML en Stripe Connect. Al pagar o cobrar, estás sujeto a la política de privacidad de Stripe.</li>
             </ul>
 
-            <h3>4. Derechos ARCO</h3>
-            <p>Tienes derecho a Acceder, Rectificar, Cancelar u Oponerte al tratamiento de tus datos. Puedes eliminar tu cuenta permanentemente desde la sección <strong>Ajustes > Eliminar Cuenta</strong> dentro de la App. La eliminación purgará tu perfil, historial de chat y documentos de forma inmediata (a excepción de los registros financieros que la ley nos obligue a conservar durante 5 años).</p>
+            <h3>4. Derechos ARCO y Portabilidad (RGPD)</h3>
+            <p>Tienes derecho a Acceder, Rectificar, Portar, Limitar, Cancelar u Oponerte al tratamiento de tus datos. Puedes descargar una copia estructurada en JSON de tu perfil y actividad desde <strong>Ajustes &gt; Exportar mis Datos (RGPD)</strong>, o eliminar tu cuenta permanentemente desde <strong>Ajustes &gt; Eliminar Cuenta</strong> dentro de la App. La eliminación purgará tu perfil, subcolecciones privadas, archivos de verificación y foto/audio de forma inmediata (a excepción de los registros contables que la ley exija conservar durante 5 años).</p>
         </div>
 
         <!-- SECCIÓN DE REEMBOLSOS Y ESCROW -->
         <div id="content-refunds" class="content-section">
             <h2>Política de Reembolsos y Cancelaciones</h2>
-            <p><strong>Última actualización:</strong> 14 de Julio de 2026</p>
+            <p><strong>Última actualización:</strong> 12 de Noviembre de 2026</p>
 
             <div class="highlight-box">
                 Para proteger a ambas partes, SeniCare utiliza un sistema de retención de fondos (Escrow).
             </div>
 
             <h3>1. ¿Cómo funciona el pago (Escrow)?</h3>
-            <p>Cuando un cliente confirma un cuidador para una oferta, SeniCare cobra inmediatamente el importe total del servicio en la tarjeta de crédito del cliente. Sin embargo, ese dinero <strong>no se entrega al cuidador todavía</strong>, sino que queda bloqueado de forma segura en la cuenta de custodia (Escrow) de SeniCare. El dinero se transfiere automáticamente a la cuenta bancaria del cuidador exactamente <strong>24 horas después</strong> de que finalice el trabajo.</p>
+            <p>Cuando un cliente formaliza una reserva, el importe total (tarifa del cuidador + comisión de gestión de plataforma del cliente) queda custodiado de forma segura mediante Stripe antes del inicio del servicio. Los fondos netos correspondientes al cuidador se liberan tras la finalización del servicio (confirmación manual del cliente o liberación automática pasadas 24 horas desde la hora teórica de fin, siempre que exista Check-In válido y ninguna disputa abierta).</p>
 
             <h3>2. Disputas y Reembolsos</h3>
-            <p>Si el cliente no está satisfecho con el servicio (ej: el cuidador no se presentó, o se fue mucho antes de tiempo), el cliente dispone de una <strong>ventana estricta de 24 horas</strong> tras la finalización teórica del servicio para presionar el botón de "Abrir Disputa" en la aplicación.</p>
+            <p>Si el cliente detecta una incidencia grave (p. ej., el cuidador no se presentó o abandonó el servicio antes de tiempo), dispone de una <strong>ventana estricta de 24 horas</strong> tras la finalización teórica del servicio para abrir una disputa desde la aplicación.</p>
             <ul>
-                <li><strong>Si se abre una disputa a tiempo:</strong> El pago se paraliza y nuestro equipo de soporte revisará el caso analizando los mensajes del chat y las horas de Check-in/Check-out. El cliente podrá recibir un reembolso total o parcial.</li>
-                <li><strong>Si NO se abre disputa en 24h:</strong> El dinero se libera irrevocablemente al cuidador. <strong>No se aceptarán solicitudes de reembolso pasadas las 24 horas</strong> de finalización del servicio.</li>
+                <li><strong>Si se abre una disputa a tiempo:</strong> La liberación de fondos al cuidador queda retenida mientras el caso se resuelve entre las partes o por el equipo de moderación analizando el chat y el Check-In geolocalizado. Si el cuidador no responde en 24 horas, se emite reembolso íntegro al cliente.</li>
+                <li><strong>Si NO se abre disputa en 24h:</strong> El pago se libera irrevocablemente al cuidador (ajustado proporcionalmente en caso de retraso superior a 15 minutos registrado en el Check-In).</li>
             </ul>
 
             <h3>3. Política de Cancelación Previas al Servicio</h3>
             <ul>
-                <li><strong>Cancelación con más de 24 horas de antelación:</strong> El cliente recibirá un reembolso del 100% de la reserva.</li>
-                <li><strong>Cancelación con menos de 24 horas de antelación:</strong> Se retendrá un 50% del coste del servicio para compensar al cuidador por el lucro cesante, reembolsándose el 50% restante al cliente.</li>
-                <li><strong>Si el Cuidador cancela:</strong> El cliente recibe un reembolso automático del 100%, independientemente del aviso, y el cuidador recibirá una penalización en su reputación dentro de la app.</li>
+                <li><strong>Reserva aún pendiente de aceptación o cancelación/incomparecencia del cuidador:</strong> El cliente recibe un <strong>reembolso del 100%</strong> del total abonado (incluyendo la tarifa de gestión). Si el cuidador no realiza el Check-In, además se le registra una incidencia automática.</li>
+                <li><strong>Cancelación por el cliente con más de 24 horas de antelación (reserva confirmada):</strong> Se reembolsa el <strong>100% del coste del servicio</strong> descontando únicamente la comisión operativa no reembolsable de gestión y pasarela bancaria (mínimo 1,00 &euro; o 5% sobre el importe del servicio).</li>
+                <li><strong>Cancelación por el cliente con menos de 24 horas de antelación (reserva confirmada):</strong> Se reembolsa al cliente el <strong>45% del importe del servicio</strong>, se compensa al cuidador con el <strong>45%</strong> por bloqueo de agenda y el <strong>10%</strong> restante junto con la tarifa de gestión cubren la mediación y costes de plataforma.</li>
             </ul>
         </div>
 
     </div>
 
     <footer>
-        &copy; 2026 SeniCare Marketplace, SL (o figura legal equivalente).<br>
-        Contacto para temas legales: soporte@senicare.app
+        &copy; 2026 SeniCare Asistencia Domiciliaria S.L.<br>
+        Contacto para temas legales y RGPD: soporte@senicare.app
     </footer>
 
     <script>
         function switchTab(tabId) {
+            const tabEl = document.getElementById('tab-' + tabId);
+            const contentEl = document.getElementById('content-' + tabId);
+            if (!tabEl || !contentEl) return;
             document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
-            
-            document.getElementById('tab-' + tabId).classList.add('active');
-            document.getElementById('content-' + tabId).classList.add('active');
+
+            tabEl.classList.add('active');
+            contentEl.classList.add('active');
         }
+
+        (function initPortalState() {
+            const params = new URLSearchParams(window.location.search);
+            const tab = params.get('tab');
+            if (tab) switchTab(tab);
+
+            const stripeStatus = params.get('stripe');
+            if (stripeStatus === 'return' || stripeStatus === 'reauth') {
+                const container = document.querySelector('.container');
+                const banner = document.createElement('div');
+                banner.className = stripeStatus === 'return' ? 'highlight-box' : 'alert-box';
+                banner.innerHTML = stripeStatus === 'return'
+                    ? '<strong>Onboarding de Stripe completado:</strong> Ya puedes volver a la aplicación SeniCare y pulsar en <em>Comprobar estado de verificación</em>.'
+                    : '<strong>Sesión de Stripe expirada:</strong> Vuelve a la aplicación SeniCare y genera un nuevo enlace de conexión bancaria en tus Ajustes de cobro.';
+                if (container) container.prepend(banner);
+            }
+        })();
     </script>
 </body>
 </html>

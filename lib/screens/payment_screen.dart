@@ -96,7 +96,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
     debugPrint('Payment rollback: reverting ${widget.slots.length} slot(s) '
         'and ${_createdBookingIds.length} booking(s).');
 
-    // 1. Re-open the time slots
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      await StripeService.cancelPendingCheckout(
+        List<String>.from(_createdBookingIds),
+      );
+      _createdBookingIds.clear();
+      return;
+    }
+
+    // Mock-mode rollback: re-open local slots & delete draft bookings
     for (final s in widget.slots) {
       try {
         s.isAvailable = true;
@@ -107,7 +115,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
     }
 
-    // 2. Delete the pending-payment bookings from Firestore
     for (final id in _createdBookingIds) {
       try {
         await DependencyInjection.bookings.deleteBooking(id);
@@ -136,12 +143,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
       return;
     }
+    final bool isPackEligible = widget.slots.length >= 4;
+    _applyPackDiscount = isPackEligible;
     final double caregiverCommissionRate =
         FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
     final int totalHours = widget.slots.length;
-    final double discountMultiplier = _applyPackDiscount ? 0.95 : 1.0;
+    final double discountMultiplier = isPackEligible ? 0.95 : 1.0;
     final double baseCost = widget.caregiver.pricePerHour * totalHours * discountMultiplier;
-    final double total = baseCost * 1.03;
+    double total = baseCost * 1.03;
+    final double? homeLat = auth.currentClient?.latitude ?? location.latitude;
+    final double? homeLon = auth.currentClient?.longitude ?? location.longitude;
 
     _safeSetState(() => _isProcessingPayment = true);
 
@@ -170,171 +181,186 @@ class _PaymentScreenState extends State<PaymentScreen> {
       return;
     }
 
-    // ── 2.5 Verify that selected slots are still available (Anti-Race Condition) ──
-    try {
-      final latestSlots = await DependencyInjection.caregivers
-          .fetchTimeSlots(widget.caregiver.id, widget.dateString);
-      for (final selected in widget.slots) {
-        final match = latestSlots.where((s) =>
-            s.dateTime.hour == selected.dateTime.hour &&
-            s.dateTime.minute == selected.dateTime.minute).firstOrNull;
-        if (match != null && !match.isAvailable) {
-          _safeSetState(() => _isProcessingPayment = false);
-          _showSnackBar(
-            scaffoldMessenger,
-            'La hora ${selected.dateTime.hour.toString().padLeft(2, '0')}:00 acaba de ser reservada por otra familia. Por favor, elige otro horario.',
-            Colors.orange.shade800,
-          );
-          return;
+    // ── 3. Agrupar franjas contiguas ──
+    final sortedSlots = List<TimeSlot>.from(widget.slots)
+      ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    List<List<TimeSlot>> groupedSlots = [];
+    List<TimeSlot> currentGroup = [];
+    for (var s in sortedSlots) {
+      if (currentGroup.isEmpty) {
+        currentGroup.add(s);
+      } else {
+        final lastSlot = currentGroup.last;
+        final diff = s.dateTime.difference(lastSlot.dateTime);
+        if (diff.inMinutes == 60) {
+          currentGroup.add(s);
+        } else {
+          groupedSlots.add(currentGroup);
+          currentGroup = [s];
         }
       }
-    } catch (e) {
-      debugPrint('Slot verification warning: $e');
+    }
+    if (currentGroup.isNotEmpty) {
+      groupedSlots.add(currentGroup);
     }
 
-    // ── 3. Create Payment Intent / Customer session ──
     Map<String, dynamic> paymentIntentData = {
       'transferGroup': 'booking_${DateTime.now().millisecondsSinceEpoch}',
     };
-    if (!_selectedPaymentMethod.usesExternalCheckout) {
+    String generatedPin = (Random().nextInt(9000) + 1000).toString();
+    String? paymentIntentId;
+
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      // Flujo seguro de producción: precios, comisiones, bloqueo de franjas y PIN en Cloud Function
       try {
-        final created = await StripeService.createPaymentIntentOnly(
-          amountInCents: (total * 100).round(),
-          currency: 'eur',
-          caregiverStripeAccountId: stripeAccountId,
-          preferredMethod: _selectedPaymentMethod.backendId,
+        final sessionsPayload = groupedSlots.map((group) {
+          final startSlot = group.first;
+          final endSlot = group.last;
+          final endDateTime = endSlot.dateTime.add(const Duration(hours: 1));
+          final startTimeStr =
+              '${startSlot.dateTime.hour.toString().padLeft(2, '0')}:${startSlot.dateTime.minute.toString().padLeft(2, '0')}';
+          final endTimeStr =
+              '${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
+          return {
+            'day': widget.dateString,
+            'slot': '$startTimeStr-$endTimeStr',
+            'totalHours': group.length,
+          };
+        }).toList();
+
+        final created = await StripeService.createSecureBooking(
+          caregiverId: widget.caregiver.id,
           familyId: clientId,
-          description: 'SeniCare · Cuidado con ${widget.caregiver.name}',
+          preferredMethod: _selectedPaymentMethod.backendId,
+          useCheckoutSession: _selectedPaymentMethod.usesExternalCheckout,
+          sessions: sessionsPayload,
+          clientLatitude: homeLat,
+          clientLongitude: homeLon,
+          checklist: _customChecklist,
         );
-        if (created == null || created['clientSecret'] == null) {
-          _safeSetState(() => _isProcessingPayment = false);
-          _showSnackBar(
-            scaffoldMessenger,
-            'No se pudo inicializar el pago. Inténtalo de nuevo.',
-            Colors.red,
-          );
-          return;
-        }
         paymentIntentData = created;
+        paymentIntentId = created['paymentIntentId']?.toString();
+        generatedPin = created['bookingPin']?.toString() ?? generatedPin;
+        final serverTotal = (created['totalEur'] as num?)?.toDouble();
+        if (serverTotal != null && serverTotal > 0) {
+          total = serverTotal;
+        }
+        final rawIds = created['bookingIds'] as List<dynamic>? ?? [];
+        _createdBookingIds
+          ..clear()
+          ..addAll(rawIds.map((e) => e.toString()).where((e) => e.isNotEmpty));
+        if (_createdBookingIds.isEmpty) {
+          throw Exception('El servidor no devolvió reservas válidas.');
+        }
       } catch (e) {
-        debugPrint('Error creating payment intent: $e');
+        debugPrint('Error in createSecureBooking: $e');
         _safeSetState(() => _isProcessingPayment = false);
-        _showSnackBar(
-          scaffoldMessenger,
-          'Error al conectar con el servidor de pagos. Inténtalo de nuevo.',
-          Colors.red,
-        );
+        if (mounted) {
+          CustomDialog.showError(
+            context,
+            title: 'No se pudo iniciar la reserva',
+            message: e.toString().replaceFirst('Exception: ', ''),
+          );
+        }
+        return;
+      }
+    } else {
+      // Modo Mock (pruebas y simulación local)
+      try {
+        final latestSlots = await DependencyInjection.caregivers
+            .fetchTimeSlots(widget.caregiver.id, widget.dateString);
+        for (final selected in widget.slots) {
+          final match = latestSlots.where((s) =>
+              s.dateTime.hour == selected.dateTime.hour &&
+              s.dateTime.minute == selected.dateTime.minute).firstOrNull;
+          if (match != null && !match.isAvailable) {
+            _safeSetState(() => _isProcessingPayment = false);
+            _showSnackBar(
+              scaffoldMessenger,
+              'La hora ${selected.dateTime.hour.toString().padLeft(2, '0')}:00 acaba de ser reservada por otra familia. Por favor, elige otro horario.',
+              Colors.orange.shade800,
+            );
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('Slot verification warning: $e');
+      }
+
+      try {
+        for (var s in widget.slots) {
+          s.isAvailable = false;
+          await DependencyInjection.caregivers
+              .updateTimeSlot(widget.caregiver.id, widget.dateString, s);
+        }
+        for (var group in groupedSlots) {
+          final startSlot = group.first;
+          final endSlot = group.last;
+          final endDateTime = endSlot.dateTime.add(const Duration(hours: 1));
+          final startTimeStr = '${startSlot.dateTime.hour.toString().padLeft(2, '0')}:${startSlot.dateTime.minute.toString().padLeft(2, '0')}';
+          final endTimeStr = '${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
+          final slotRangeStr = '$startTimeStr-$endTimeStr';
+
+          final groupHours = group.length;
+          final groupCost = widget.caregiver.pricePerHour * groupHours * discountMultiplier;
+          final groupClientFee = groupCost * 0.03;
+          final groupTotalPaid = groupCost + groupClientFee;
+          final groupCommission = groupCost * caregiverCommissionRate;
+          final groupPayout = groupCost - groupCommission;
+
+          final newBooking = Booking(
+            id: '${DateTime.now().millisecondsSinceEpoch}_${startTimeStr.replaceAll(':', '')}',
+            clientId: clientId,
+            caregiverId: widget.caregiver.id,
+            caregiverName: widget.caregiver.name,
+            day: widget.dateString,
+            slot: slotRangeStr,
+            cost: groupCost,
+            clientFee: groupClientFee,
+            clientFeeRate: 0.03,
+            caregiverCommissionRate: caregiverCommissionRate,
+            caregiverCommissionAmount: groupCommission,
+            caregiverPayout: groupPayout,
+            totalPaid: groupTotalPaid,
+            transferGroup: paymentIntentData['transferGroup']?.toString(),
+            paymentIntentId: paymentIntentId,
+            paymentMethodType: _selectedPaymentMethod.backendId,
+            paymentStatus: 'pending',
+            clientLatitude: homeLat,
+            clientLongitude: homeLon,
+            bookingPin: generatedPin,
+            status: BookingStatus.pendingPayment,
+            escrowStatus: 'none',
+            careChecklist: _customChecklist
+                .asMap()
+                .entries
+                .map((e) => CareChecklistItem(
+                      id: 'task_${e.key}_${DateTime.now().millisecondsSinceEpoch}',
+                      title: e.value,
+                    ))
+                .toList(),
+          );
+
+          final firestoreId = await bookingState.addBooking(newBooking);
+          _createdBookingIds.add(firestoreId);
+        }
+      } catch (e) {
+        debugPrint('Error creating mock bookings: $e');
+        await _rollback();
+        _safeSetState(() => _isProcessingPayment = false);
+        if (mounted) {
+          CustomDialog.showError(
+            context,
+            title: 'Error al crear la reserva',
+            message: 'No se pudo registrar la reserva. El pago NO ha sido procesado.\n\nDetalles: $e',
+          );
+        }
         return;
       }
     }
 
     final transferGroup = paymentIntentData['transferGroup']?.toString() ??
         'booking_${DateTime.now().millisecondsSinceEpoch}';
-    final paymentIntentId = paymentIntentData['paymentIntentId']?.toString();
-
-    // ── 4. Create bookings in Firestore (pendingPayment) ──
-    final String generatedPin = (Random().nextInt(9000) + 1000).toString();
-
-    try {
-      // 4.1 Mark all slots as unavailable in Firestore
-      for (var s in widget.slots) {
-        s.isAvailable = false;
-        await DependencyInjection.caregivers
-            .updateTimeSlot(widget.caregiver.id, widget.dateString, s);
-      }
-
-      // 4.2 Sort slots chronologically
-      final sortedSlots = List<TimeSlot>.from(widget.slots)
-        ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
-
-      // 4.3 Group contiguous slots (1 hour apart)
-      List<List<TimeSlot>> groupedSlots = [];
-      List<TimeSlot> currentGroup = [];
-
-      for (var s in sortedSlots) {
-        if (currentGroup.isEmpty) {
-          currentGroup.add(s);
-        } else {
-          final lastSlot = currentGroup.last;
-          final diff = s.dateTime.difference(lastSlot.dateTime);
-          if (diff.inMinutes == 60) {
-            currentGroup.add(s);
-          } else {
-            groupedSlots.add(currentGroup);
-            currentGroup = [s];
-          }
-        }
-      }
-      if (currentGroup.isNotEmpty) {
-        groupedSlots.add(currentGroup);
-      }
-
-      // 4.4 Create one Booking per group
-      for (var group in groupedSlots) {
-        final startSlot = group.first;
-        final endSlot = group.last;
-        final endDateTime = endSlot.dateTime.add(const Duration(hours: 1));
-
-        final startTimeStr = '${startSlot.dateTime.hour.toString().padLeft(2, '0')}:${startSlot.dateTime.minute.toString().padLeft(2, '0')}';
-        final endTimeStr = '${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
-        final slotRangeStr = '$startTimeStr-$endTimeStr';
-
-        final groupHours = group.length;
-        final groupCost = widget.caregiver.pricePerHour * groupHours * discountMultiplier;
-        final groupClientFee = groupCost * 0.03;
-        final groupTotalPaid = groupCost + groupClientFee;
-        final groupCommission = groupCost * caregiverCommissionRate;
-        final groupPayout = groupCost - groupCommission;
-
-        final newBooking = Booking(
-          id: '${DateTime.now().millisecondsSinceEpoch}_${startTimeStr.replaceAll(':', '')}',
-          clientId: clientId,
-          caregiverId: widget.caregiver.id,
-          caregiverName: widget.caregiver.name,
-          day: widget.dateString,
-          slot: slotRangeStr,
-          cost: groupCost,
-          clientFee: groupClientFee,
-          clientFeeRate: 0.03,
-          caregiverCommissionRate: caregiverCommissionRate,
-          caregiverCommissionAmount: groupCommission,
-          caregiverPayout: groupPayout,
-          totalPaid: groupTotalPaid,
-          transferGroup: transferGroup,
-          paymentIntentId: paymentIntentId,
-          paymentMethodType: _selectedPaymentMethod.backendId,
-          paymentStatus: 'pending',
-          clientLatitude: location.latitude,
-          clientLongitude: location.longitude,
-          bookingPin: generatedPin,
-          status: BookingStatus.pendingPayment,
-          escrowStatus: 'none',
-          careChecklist: _customChecklist
-              .asMap()
-              .entries
-              .map((e) => CareChecklistItem(
-                    id: 'task_${e.key}_${DateTime.now().millisecondsSinceEpoch}',
-                    title: e.value,
-                  ))
-              .toList(),
-        );
-
-        final firestoreId = await bookingState.addBooking(newBooking);
-        _createdBookingIds.add(firestoreId);
-      }
-    } catch (e) {
-      debugPrint('Error creating bookings: $e');
-      await _rollback();
-      _safeSetState(() => _isProcessingPayment = false);
-      if (mounted) {
-        CustomDialog.showError(
-          context,
-          title: 'Error al crear la reserva',
-          message: 'No se pudo registrar la reserva. El pago NO ha sido procesado.\n\nDetalles: $e',
-        );
-      }
-      return;
-    }
 
     // ── 5. Present selected Stripe payment method (Express Wallet, Bizum Checkout or PaymentSheet) ──
     _safeSetState(() => _isProcessingPayment = false);
@@ -626,21 +652,37 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.darkSlate),
                       ),
                       Text(
-                        _applyPackDiscount
-                            ? 'Ahorras ${currencyFormat.format(packDiscountAmount)} en esta reserva por planificar tu cuidado'
-                            : 'Activa el pack familiar semanal para ahorrar un 5% en los honorarios',
+                        widget.slots.length >= 4
+                            ? 'Activado automáticamente: ahorras ${currencyFormat.format(packDiscountAmount)} (reserva de ${widget.slots.length}h)'
+                            : 'Disponible automáticamente al reservar 4 horas o más (llevas ${widget.slots.length}h)',
                         style: const TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
                       ),
                     ],
                   ),
                 ),
-                Switch(
-                  value: _applyPackDiscount,
-                  activeThumbColor: AppTheme.secondaryColor,
-                  onChanged: (val) {
-                    HapticFeedback.selectionClick();
-                    setState(() => _applyPackDiscount = val);
-                  },
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: widget.slots.length >= 4
+                        ? AppTheme.secondaryColor
+                        : AppTheme.backgroundNeutral,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: widget.slots.length >= 4
+                          ? AppTheme.secondaryColor
+                          : AppTheme.borderSubtle,
+                    ),
+                  ),
+                  child: Text(
+                    widget.slots.length >= 4 ? '-5% Activo' : '4h+ Auto',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: widget.slots.length >= 4
+                          ? Colors.white
+                          : AppTheme.slateMuted,
+                    ),
+                  ),
                 ),
               ],
             ),

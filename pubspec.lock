@@ -521,6 +521,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.9.3+5"
+  firebase_analytics:
+    dependency: "direct main"
+    description:
+      name: firebase_analytics
+      sha256: "4f85b161772e1d54a66893ef131c0a44bd9e552efa78b33d5f4f60d2caa5c8a3"
+      url: "https://pub.dev"
+    source: hosted
+    version: "11.6.0"
+  firebase_analytics_platform_interface:
+    dependency: transitive
+    description:
+      name: firebase_analytics_platform_interface
+      sha256: a44b6d1155ed5cae7641e3de7163111cfd9f6f6c954ca916dc6a3bdfa86bf845
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.4.3"
+  firebase_analytics_web:
+    dependency: transitive
+    description:
+      name: firebase_analytics_web
+      sha256: c7d1ed1f86ae64215757518af5576ff88341c8ce5741988c05cc3b2e07b0b273
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.10+16"
   firebase_auth:
     dependency: "direct main"
     description:
@@ -577,6 +601,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.24.1"
+  firebase_crashlytics:
+    dependency: "direct main"
+    description:
+      name: firebase_crashlytics
+      sha256: "662ae6443da91bca1fb0be8aeeac026fa2975e8b7ddfca36e4d90ebafa35dde1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.3.10"
+  firebase_crashlytics_platform_interface:
+    dependency: transitive
+    description:
+      name: firebase_crashlytics_platform_interface
+      sha256: "7222a8a40077c79f6b8b3f3439241c9f2b34e9ddfde8381ffc512f7b2e61f7eb"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.8.10"
   firebase_messaging:
     dependency: "direct main"
     description:
@@ -715,6 +755,11 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.1"
+  flutter_localizations:
+    dependency: "direct main"
+    description: flutter
+    source: sdk
+    version: "0.0.0"
   flutter_map:
     dependency: "direct main"
     description:
@@ -1051,10 +1096,10 @@ packages:
     dependency: "direct main"
     description:
       name: intl
-      sha256: "1ca20c894b1717686a2319b8548763d812bc0aabdac580420a44c5178c57a867"
+      sha256: "3df61194eb431efc39c4ceba583b95633a403f46c9fd341e550ce0bfa50e9aa5"
       url: "https://pub.dev"
     source: hosted
-    version: "0.20.3"
+    version: "0.20.2"
   jni:
     dependency: transitive
     description:
@@ -1519,6 +1564,62 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.28.0"
+  shared_preferences:
+    dependency: "direct main"
+    description:
+      name: shared_preferences
+      sha256: "1e85e0dccf5b4a016077fea7dfbb4a7cb39c759ac1596fcf60c06deadb7da91f"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.5.6"
+  shared_preferences_android:
+    dependency: transitive
+    description:
+      name: shared_preferences_android
+      sha256: e8d4762b1e2e8578fc4d0fd548cebf24afd24f49719c08974df92834565e2c53
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.23"
+  shared_preferences_foundation:
+    dependency: transitive
+    description:
+      name: shared_preferences_foundation
+      sha256: "2ec3934efa51e46117f23031cc141b8fc878e8525b94ec1ea4f7f586cf1b47ea"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.5.7"
+  shared_preferences_linux:
+    dependency: transitive
+    description:
+      name: shared_preferences_linux
+      sha256: "580abfd40f415611503cae30adf626e6656dfb2f0cee8f465ece7b6defb40f2f"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.1"
+  shared_preferences_platform_interface:
+    dependency: transitive
+    description:
+      name: shared_preferences_platform_interface
+      sha256: "649dc798a33931919ea356c4305c2d1f81619ea6e92244070b520187b5140ef9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.2"
+  shared_preferences_web:
+    dependency: transitive
+    description:
+      name: shared_preferences_web
+      sha256: c49bd060261c9a3f0ff445892695d6212ff603ef3115edbb448509d407600019
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.3"
+  shared_preferences_windows:
+    dependency: transitive
+    description:
+      name: shared_preferences_windows
+      sha256: "94ef0f72b2d71bc3e700e025db3710911bd51a71cefb65cc609dd0d9a982e3c1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.1"
   shimmer:
     dependency: "direct main"
     description:

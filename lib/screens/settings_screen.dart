@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -80,6 +81,84 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _exportRgpdData(BuildContext context) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      Map<String, dynamic> payload;
+      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+        final resp = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+            .httpsCallable('exportUserDataRgpd')
+            .call();
+        payload = Map<String, dynamic>.from(resp.data as Map);
+      } else {
+        final auth = context.read<AuthNotifier>();
+        payload = {
+          'exportedAt': DateTime.now().toIso8601String(),
+          'schemaVersion': '1.0',
+          'uid': auth.currentUserId,
+          'email': auth.currentUserEmail,
+          'role': auth.currentRole,
+          'clientName': auth.currentClient?.name,
+          'caregiverName': auth.currentCaregiver?.name,
+        };
+      }
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(payload);
+      if (!context.mounted) return;
+      Navigator.pop(context); // close spinner
+
+      await showDialog(
+        context: context,
+        builder: (dCtx) => AlertDialog(
+          title: const Text('Exportación RGPD (Art. 20)'),
+          content: SizedBox(
+            width: 380,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                jsonStr.length > 3500 ? '${jsonStr.substring(0, 3500)}\n... (copia completa al portapapeles)' : jsonStr,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 11.5),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text('Cerrar'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: jsonStr));
+                if (dCtx.mounted) {
+                  Navigator.pop(dCtx);
+                  CustomSnackBar.show(
+                    context,
+                    message: 'Archivo JSON de tus datos copiado al portapapeles.',
+                    type: SnackBarType.success,
+                  );
+                }
+              },
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              label: const Text('Copiar JSON'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo exportar tus datos: $e',
+          type: SnackBarType.error,
+        );
+      }
+    }
   }
 
   Future<void> _showDeleteConfirmation(BuildContext context) async {
@@ -223,7 +302,68 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          const Text('👓 Modo Senior & Accesibilidad Visual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+          Builder(
+            builder: (ctx) {
+              final l10n = AppLocalizations.of(ctx);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.languageSectionTitle,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    l10n.languageSectionSubtitle,
+                    style: const TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+                  ),
+                  const SizedBox(height: 10),
+                  Card(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: const BorderSide(color: AppTheme.borderSubtle),
+                    ),
+                    elevation: 0,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'es', label: Text('Español')),
+                          ButtonSegment(value: 'ca', label: Text('Català')),
+                          ButtonSegment(value: 'en', label: Text('English')),
+                        ],
+                        selected: {config.locale.languageCode},
+                        onSelectionChanged: (selection) async {
+                          final code = selection.first;
+                          HapticFeedback.selectionClick();
+                          await config.setLocale(Locale(code));
+                          if (!ctx.mounted) return;
+                          CustomSnackBar.show(
+                            ctx,
+                            message: AppLocalizations(Locale(code)).languageSavedToast,
+                            type: SnackBarType.info,
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    l10n.seniorSectionTitle,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 6),
           const Text(
             'Diseñado para familiares mayores o usuarios con vista cansada. Aumenta la tipografía, refuerza el contraste y ensancha los botones.',
@@ -480,6 +620,14 @@ class SettingsScreen extends StatelessWidget {
                     }
                   },
                 ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.download_rounded, color: AppTheme.primary),
+                  title: const Text('Exportar mis Datos (RGPD Art. 20)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Descarga una copia portátil en JSON de tu perfil y reservas.'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _exportRgpdData(context),
+                ),
               ],
             ),
           ),
@@ -492,6 +640,13 @@ class SettingsScreen extends StatelessWidget {
               title: const Text('Eliminar Cuenta Definitivamente', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
               subtitle: const Text('Borra todos tus datos personales y de perfil de forma irreversible (RGPD Art. 17).'),
               onTap: () => _showDeleteConfirmation(context),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Center(
+            child: Text(
+              'SeniCare v1.0.0+1 · España',
+              style: TextStyle(fontSize: 12, color: AppTheme.slateMuted),
             ),
           ),
         ],

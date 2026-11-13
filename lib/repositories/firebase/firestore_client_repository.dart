@@ -4,8 +4,13 @@ import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/interfaces/client_repository.dart';
 
 class FirestoreClientRepository implements ClientRepository {
-  final CollectionReference _collection = FirebaseFirestore.instance.collection('clients');
+  final FirebaseFirestore _firestore;
   final Map<String, ClientProfile> _cache = {};
+
+  FirestoreClientRepository({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  CollectionReference get _collection => _firestore.collection('clients');
 
   /// Clears cached client profile entries so the next [getClient] fetches fresh data.
   void invalidateCache([String? id]) {
@@ -29,6 +34,13 @@ class FirestoreClientRepository implements ClientRepository {
         return profile;
       }
       return null;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        debugPrint('Client profile read restricted for $id (no active booking access).');
+        return null;
+      }
+      debugPrint('Error fetching client: $e');
+      throw Exception('Error fetching client: $e');
     } catch (e) {
       debugPrint('Error fetching client: $e');
       throw Exception('Error fetching client: $e');

@@ -2,6 +2,9 @@ import 'dart:math' show cos, sqrt, asin;
 import 'package:flutter/material.dart';
 
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+final ValueNotifier<Map<String, dynamic>?> pendingPushRoute = ValueNotifier<Map<String, dynamic>?>(null);
+final ValueNotifier<String?> pendingTrackingBookingId = ValueNotifier<String?>(null);
 
 void showNetworkError(String contextInfo, [Object? error]) {
   rootScaffoldMessengerKey.currentState?.showSnackBar(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/widgets/widgets.dart';
 
@@ -13,6 +14,7 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
   bool isLoading = false;
+  bool _acceptedLegalTerms = false;
   String selectedRole = 'client';
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
@@ -38,6 +40,14 @@ class _AuthScreenState extends State<AuthScreen> {
         CustomSnackBar.show(context, message: 'Las contraseñas no coinciden.', type: SnackBarType.info);
         return;
       }
+      if (!_acceptedLegalTerms) {
+        CustomSnackBar.show(
+          context,
+          message: 'Debes aceptar los Términos de Servicio y la Política de Privacidad para crear tu cuenta.',
+          type: SnackBarType.warning,
+        );
+        return;
+      }
     }
 
     setState(() => isLoading = true);
@@ -61,6 +71,14 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _signInWithGoogle() async {
+    if (!isLogin && !_acceptedLegalTerms) {
+      CustomSnackBar.show(
+        context,
+        message: 'Acepta los Términos de Servicio y la Política de Privacidad antes de registrarte.',
+        type: SnackBarType.warning,
+      );
+      return;
+    }
     setState(() => isLoading = true);
     try {
       await DependencyInjection.auth.signInWithGoogle(selectedRole, isLogin: isLogin);
@@ -75,6 +93,14 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _signInWithApple() async {
+    if (!isLogin && !_acceptedLegalTerms) {
+      CustomSnackBar.show(
+        context,
+        message: 'Acepta los Términos de Servicio y la Política de Privacidad antes de registrarte.',
+        type: SnackBarType.warning,
+      );
+      return;
+    }
     setState(() => isLoading = true);
     try {
       await DependencyInjection.auth.signInWithApple(selectedRole, isLogin: isLogin);
@@ -90,43 +116,60 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _showResetPasswordDialog() async {
     final resetEmailController = TextEditingController(text: _emailController.text);
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Recuperar contraseña'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Introduce tu correo para recibir un enlace de recuperación.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: resetEmailController,
-              decoration: const InputDecoration(
-                labelText: 'Correo Electrónico',
-                border: OutlineInputBorder(),
+    try {
+      final submittedEmail = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Recuperar contraseña'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Introduce tu correo para recibir un enlace de recuperación.'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: resetEmailController,
+                decoration: const InputDecoration(
+                  labelText: 'Correo Electrónico',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
               ),
-              keyboardType: TextInputType.emailAddress,
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: () {
+                final email = resetEmailController.text.trim();
+                if (email.isEmpty || !email.contains('@')) return;
+                Navigator.pop(ctx, email);
+              },
+              child: const Text('Enviar Enlace'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () async {
-              final email = resetEmailController.text.trim();
-              if (email.isNotEmpty) {
-                Navigator.pop(ctx);
-                await DependencyInjection.auth.sendPasswordResetEmail(email);
-                if (mounted) {
-                  CustomSnackBar.show(context, message: 'Correo de recuperación enviado a $email', type: SnackBarType.info);
-                }
-              }
-            },
-            child: const Text('Enviar Enlace'),
-          ),
-        ],
-      ),
-    );
+      );
+      if (submittedEmail != null && submittedEmail.isNotEmpty) {
+        await DependencyInjection.auth.sendPasswordResetEmail(submittedEmail);
+        if (mounted) {
+          CustomSnackBar.show(
+            context,
+            message: 'Correo de recuperación enviado a $submittedEmail',
+            type: SnackBarType.info,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo enviar el correo de recuperación: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      resetEmailController.dispose();
+    }
   }
 
   Widget _buildRoleCard({
@@ -385,6 +428,37 @@ class _AuthScreenState extends State<AuthScreen> {
                                     if (value != _passwordController.text) return 'Las contraseñas no coinciden';
                                     return null;
                                   },
+                                ),
+                                const SizedBox(height: 10),
+                                CheckboxListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  controlAffinity: ListTileControlAffinity.leading,
+                                  value: _acceptedLegalTerms,
+                                  onChanged: (val) => setState(() => _acceptedLegalTerms = val ?? false),
+                                  title: Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    children: [
+                                      const Text(
+                                        'He leído y acepto los ',
+                                        style: TextStyle(fontSize: 12.5),
+                                      ),
+                                      InkWell(
+                                        onTap: () => launchUrl(
+                                          Uri.parse('https://senicare-3342d.web.app'),
+                                          mode: LaunchMode.externalApplication,
+                                        ),
+                                        child: const Text(
+                                          'Términos, Privacidad y Cancelaciones',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            color: AppTheme.primary,
+                                            fontWeight: FontWeight.w700,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ],

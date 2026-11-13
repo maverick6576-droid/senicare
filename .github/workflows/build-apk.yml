@@ -26,6 +26,13 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Create .env file for assets
+        run: |
+          if [ -f .env.example ]; then cp .env.example .env; else touch .env; fi
+          if [ -n "${{ secrets.STRIPE_PUBLISHABLE_KEY }}" ]; then echo "STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}" >> .env; fi
+          if [ -n "${{ secrets.FIREBASE_API_KEY }}" ]; then echo "FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}" >> .env; fi
+          if [ -n "${{ secrets.ADMIN_EMAILS }}" ]; then echo "ADMIN_EMAILS=${{ secrets.ADMIN_EMAILS }}" >> .env; fi
+
       - name: Get dependencies
         run: flutter pub get
 
@@ -34,15 +41,28 @@ jobs:
           flutter analyze --no-pub
           flutter test --no-pub --no-test-assets
 
-      - name: Create .env file for assets
+      - name: Decode Android Keystore (if configured)
+        if: ${{ secrets.SENICARE_KEYSTORE_BASE64 != '' }}
         run: |
-          echo "STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}" > .env
+          echo "${{ secrets.SENICARE_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+          echo "SENICARE_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/app/upload-keystore.jks" >> $GITHUB_ENV
+          echo "SENICARE_KEYSTORE_PASSWORD=${{ secrets.SENICARE_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "SENICARE_KEY_ALIAS=${{ secrets.SENICARE_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "SENICARE_KEY_PASSWORD=${{ secrets.SENICARE_KEY_PASSWORD }}" >> $GITHUB_ENV
 
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build APK & Play Store App Bundle (AAB)
+        run: |
+          flutter build apk --release \
+            --dart-define=FIREBASE_ANDROID_API_KEY="${{ secrets.FIREBASE_ANDROID_API_KEY }}" \
+            --dart-define=FIREBASE_ANDROID_APP_ID="${{ secrets.FIREBASE_ANDROID_APP_ID }}"
+          flutter build appbundle --release \
+            --dart-define=FIREBASE_ANDROID_API_KEY="${{ secrets.FIREBASE_ANDROID_API_KEY }}" \
+            --dart-define=FIREBASE_ANDROID_APP_ID="${{ secrets.FIREBASE_ANDROID_APP_ID }}"
 
-      - name: Upload APK Artifact
+      - name: Upload APK & AAB Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab

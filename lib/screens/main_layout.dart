@@ -36,9 +36,51 @@ class _MainLayoutState extends State<MainLayout> {
   Timer? _autoTutorialTimer;
 
   @override
+  void initState() {
+    super.initState();
+    pendingPushRoute.addListener(_onPendingPushRouteChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _consumePendingPushRoute());
+  }
+
+  @override
   void dispose() {
+    pendingPushRoute.removeListener(_onPendingPushRouteChanged);
     _autoTutorialTimer?.cancel();
     super.dispose();
+  }
+
+  void _onPendingPushRouteChanged() {
+    if (!mounted) return;
+    _consumePendingPushRoute();
+  }
+
+  void _consumePendingPushRoute() {
+    final route = pendingPushRoute.value;
+    if (route == null || !mounted) return;
+    pendingPushRoute.value = null;
+
+    final type = route['type']?.toString() ?? '';
+    switch (type) {
+      case 'chat':
+        _selectTab(3);
+        break;
+      case 'tracking':
+      case 'booking':
+      case 'payment':
+        _selectTab(2);
+        break;
+      case 'job_offer':
+      case 'job_application':
+      case 'job_application_accepted':
+        _selectTab(1);
+        break;
+      case 'verification':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const IdentityVerificationScreen()),
+        );
+        break;
+    }
   }
 
   void _startTutorial({required bool forClient}) {
@@ -357,21 +399,24 @@ class _MainLayoutState extends State<MainLayout> {
                   onTap: (idx) => setState(() => _currentIndex = idx),
                   selectedItemColor: AppTheme.primary,
                   unselectedItemColor: AppTheme.slateMuted,
-                  items: isClient 
-                    ? [
-                        const BottomNavigationBarItem(icon: Icon(Icons.search), activeIcon: Icon(Icons.saved_search), label: 'Explorar'),
-                        BottomNavigationBarItem(icon: _buildIcon(Icons.work_outline, showOffersBadge), activeIcon: _buildIcon(Icons.work, showOffersBadge), label: 'Ofertas'),
-                        BottomNavigationBarItem(icon: _buildIcon(Icons.calendar_today, showBookingsBadge), activeIcon: _buildIcon(Icons.calendar_month, showBookingsBadge), label: 'Reservas'),
-                        BottomNavigationBarItem(icon: buildMessagesIcon(), activeIcon: buildMessagesIcon(active: true), label: 'Mensajes'),
-                        const BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Mi Perfil'),
-                      ]
-                    : [
-                        const BottomNavigationBarItem(icon: Icon(Icons.dashboard_outlined), activeIcon: Icon(Icons.dashboard), label: 'Inicio'),
-                        BottomNavigationBarItem(icon: _buildIcon(Icons.work_outline, showOffersBadge), activeIcon: _buildIcon(Icons.work, showOffersBadge), label: 'Ofertas'),
-                        BottomNavigationBarItem(icon: _buildIcon(Icons.calendar_today, showBookingsBadge), activeIcon: _buildIcon(Icons.calendar_month, showBookingsBadge), label: 'Reservas'),
-                        BottomNavigationBarItem(icon: buildMessagesIcon(), activeIcon: buildMessagesIcon(active: true), label: 'Mensajes'),
-                        const BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Mi Perfil'),
-                      ],
+                  items: () {
+                    final l10n = AppLocalizations.of(context);
+                    return isClient
+                        ? [
+                            BottomNavigationBarItem(icon: const Icon(Icons.search), activeIcon: const Icon(Icons.saved_search), label: l10n.tabExplore),
+                            BottomNavigationBarItem(icon: _buildIcon(Icons.work_outline, showOffersBadge), activeIcon: _buildIcon(Icons.work, showOffersBadge), label: l10n.tabOffers),
+                            BottomNavigationBarItem(icon: _buildIcon(Icons.calendar_today, showBookingsBadge), activeIcon: _buildIcon(Icons.calendar_month, showBookingsBadge), label: l10n.tabBookings),
+                            BottomNavigationBarItem(icon: buildMessagesIcon(), activeIcon: buildMessagesIcon(active: true), label: l10n.tabInbox),
+                            BottomNavigationBarItem(icon: const Icon(Icons.person_outline), activeIcon: const Icon(Icons.person), label: l10n.tabSettings),
+                          ]
+                        : [
+                            BottomNavigationBarItem(icon: const Icon(Icons.dashboard_outlined), activeIcon: const Icon(Icons.dashboard), label: l10n.tabHome),
+                            BottomNavigationBarItem(icon: _buildIcon(Icons.work_outline, showOffersBadge), activeIcon: _buildIcon(Icons.work, showOffersBadge), label: l10n.tabOffers),
+                            BottomNavigationBarItem(icon: _buildIcon(Icons.calendar_today, showBookingsBadge), activeIcon: _buildIcon(Icons.calendar_month, showBookingsBadge), label: l10n.tabBookings),
+                            BottomNavigationBarItem(icon: buildMessagesIcon(), activeIcon: buildMessagesIcon(active: true), label: l10n.tabInbox),
+                            BottomNavigationBarItem(icon: const Icon(Icons.person_outline), activeIcon: const Icon(Icons.person), label: l10n.tabSettings),
+                          ];
+                  }(),
                 ),
               ),
             ),

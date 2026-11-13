@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
@@ -21,6 +23,20 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
 
   DateTime _startDate = DateTime.now().add(const Duration(days: 1));
   TimeOfDay _startTime = const TimeOfDay(hour: 10, minute: 0);
+  bool _isRecurring = false;
+  final List<int> _recurringDays = [1, 3, 5];
+  int _recurringWeeks = 4;
+  bool _urgencyBonusEnabled = true;
+
+  static const _weekDayLabels = <int, String>{
+    1: 'Lun',
+    2: 'Mar',
+    3: 'Mié',
+    4: 'Jue',
+    5: 'Vie',
+    6: 'Sáb',
+    7: 'Dom',
+  };
 
   static const _quickTemplates = <({String title, String desc, double price, int hours})>[
     (
@@ -53,9 +69,38 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
       _priceCtrl.text = _formatNumber(initial.pricePerHour);
       _hoursCtrl.text = initial.totalHours.toString();
       _startTime = TimeOfDay(hour: initial.startDate.hour, minute: initial.startDate.minute);
+      _isRecurring = initial.isRecurring;
+      if (initial.recurringDaysOfWeek.isNotEmpty) {
+        _recurringDays
+          ..clear()
+          ..addAll(initial.recurringDaysOfWeek);
+      }
+      if (initial.recurringWeeks > 0) {
+        _recurringWeeks = initial.recurringWeeks;
+      }
     }
     _priceCtrl.addListener(_onCostInputChanged);
     _hoursCtrl.addListener(_onCostInputChanged);
+    _loadLeanFlags();
+  }
+
+  Future<void> _loadLeanFlags() async {
+    if (!useFirebaseBackend || Firebase.apps.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('experiments')
+          .doc('lean_config')
+          .get();
+      if (!mounted || !doc.exists) return;
+      final data = doc.data();
+      if (data != null && data['urgency_bonus_enabled'] is bool) {
+        setState(() {
+          _urgencyBonusEnabled = data['urgency_bonus_enabled'] as bool;
+        });
+      }
+    } catch (_) {
+      // Fallback safely to default enabled state.
+    }
   }
 
   void _onCostInputChanged() {
@@ -146,7 +191,18 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
       return;
     }
 
+    if (_isRecurring && _recurringDays.isEmpty) {
+      CustomSnackBar.show(
+        context,
+        message: 'Selecciona al menos un día de la semana para la oferta recurrente.',
+        type: SnackBarType.warning,
+      );
+      return;
+    }
+
     final loc = context.read<LocationNotifier>();
+    final recurringStart =
+        '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}';
     final offer = JobOffer(
       id: '',
       clientId: uid,
@@ -157,10 +213,14 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
       description: _descCtrl.text.trim(),
       pricePerHour: price,
       totalHours: totalHours,
-      isRecurring: false,
+      isRecurring: _isRecurring,
+      recurringDaysOfWeek: _isRecurring ? (List<int>.from(_recurringDays)..sort()) : const [],
+      recurringHoursPerDay: _isRecurring ? totalHours : 0,
+      recurringWeeks: _isRecurring ? _recurringWeeks : 0,
+      recurringStartTime: _isRecurring ? recurringStart : '',
       startDate: startDateTime,
       isUrgent: _isUrgent,
-      urgencyBonusRate: _isUrgent ? 0.10 : 0.0,
+      urgencyBonusRate: (_isUrgent && _urgencyBonusEnabled) ? 0.10 : 0.0,
       createdAt: DateTime.now(),
     );
 
@@ -478,7 +538,7 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
                         ],
                       ),
                     ),
-                  ] else if (_isUrgent) ...[
+                  ] else if (_isUrgent && _urgencyBonusEnabled) ...[
                     const SizedBox(height: 8),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -493,7 +553,7 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Oferta urgente (<24h): la destacamos para encontrar cuidador mucho más rápido, sin coste extra para ti.',
+                              'Oferta urgente (<24h): la destacamos con +10% de prioridad para encontrar cuidador más rápido.',
                               style: TextStyle(
                                 color: Colors.orange.shade900,
                                 fontSize: seniorMode ? 14 : 12.5,
@@ -503,6 +563,79 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
                           ),
                         ],
                       ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: _isRecurring,
+                    activeTrackColor: AppTheme.primary,
+                    title: Text(
+                      'Repetir todas las semanas',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: seniorMode ? 16 : 14.5,
+                        color: AppTheme.darkSlate,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _isRecurring
+                          ? 'Elige los días fijos y la duración del plan semanal'
+                          : 'Actívalo si necesitas cuidado periódico en los mismos días',
+                      style: TextStyle(
+                        fontSize: seniorMode ? 13.5 : 12,
+                        color: AppTheme.slateMuted,
+                      ),
+                    ),
+                    onChanged: (val) => setState(() => _isRecurring = val),
+                  ),
+                  if (_isRecurring) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: _weekDayLabels.entries.map((entry) {
+                        final selected = _recurringDays.contains(entry.key);
+                        return FilterChip(
+                          label: Text(entry.value),
+                          selected: selected,
+                          selectedColor: AppTheme.primarySurface,
+                          checkmarkColor: AppTheme.primary,
+                          onSelected: (isOn) {
+                            setState(() {
+                              if (isOn && !_recurringDays.contains(entry.key)) {
+                                _recurringDays.add(entry.key);
+                              } else if (!isOn) {
+                                _recurringDays.remove(entry.key);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Duración: $_recurringWeeks semanas',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: seniorMode ? 14.5 : 13,
+                              color: AppTheme.darkSlate,
+                            ),
+                          ),
+                        ),
+                        DropdownButton<int>(
+                          value: _recurringWeeks,
+                          items: const [2, 4, 8, 12]
+                              .map((w) => DropdownMenuItem(value: w, child: Text('$w sem.')))
+                              .toList(),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _recurringWeeks = val);
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ],

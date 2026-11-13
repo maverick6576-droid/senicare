@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,7 +32,10 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   bool _isLoadingReviews = false;
   bool _isPlayingVoiceIntro = false;
   double _voiceIntroProgress = 0.0;
-  Timer? _voiceIntroTimer;
+  AudioPlayer? _voicePlayer;
+  StreamSubscription<Duration>? _voicePosSub;
+  StreamSubscription<void>? _voiceCompleteSub;
+  Duration _voiceDuration = Duration.zero;
 
   @override
   void initState() {
@@ -42,36 +46,55 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
 
   @override
   void dispose() {
-    _voiceIntroTimer?.cancel();
+    _voicePosSub?.cancel();
+    _voiceCompleteSub?.cancel();
+    _voicePlayer?.dispose();
     super.dispose();
   }
 
-  void _toggleVoiceIntro() {
+  Future<void> _toggleVoiceIntro() async {
+    final voiceUrl = widget.caregiver.voiceIntroUrl.trim();
+    if (voiceUrl.isEmpty) return;
+
     HapticFeedback.selectionClick();
+    _voicePlayer ??= AudioPlayer();
+
     if (_isPlayingVoiceIntro) {
-      _voiceIntroTimer?.cancel();
-      setState(() => _isPlayingVoiceIntro = false);
+      await _voicePlayer!.pause();
+      if (mounted) setState(() => _isPlayingVoiceIntro = false);
       return;
     }
-    setState(() {
-      _isPlayingVoiceIntro = true;
-      if (_voiceIntroProgress >= 1.0) _voiceIntroProgress = 0.0;
-    });
-    _voiceIntroTimer?.cancel();
-    _voiceIntroTimer = Timer.periodic(const Duration(milliseconds: 240), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
+
+    _voicePosSub ??= _voicePlayer!.onPositionChanged.listen((pos) {
+      if (!mounted) return;
+      final totalMs = _voiceDuration.inMilliseconds;
       setState(() {
-        _voiceIntroProgress += 0.04;
-        if (_voiceIntroProgress >= 1.0) {
-          _voiceIntroProgress = 1.0;
-          _isPlayingVoiceIntro = false;
-          timer.cancel();
-        }
+        _voiceIntroProgress = totalMs > 0
+            ? (pos.inMilliseconds / totalMs).clamp(0.0, 1.0)
+            : 0.0;
       });
     });
+    _voiceCompleteSub ??= _voicePlayer!.onPlayerComplete.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        _isPlayingVoiceIntro = false;
+        _voiceIntroProgress = 0.0;
+      });
+    });
+
+    try {
+      await _voicePlayer!.play(UrlSource(voiceUrl));
+      final dur = await _voicePlayer!.getDuration();
+      if (dur != null) _voiceDuration = dur;
+      if (mounted) setState(() => _isPlayingVoiceIntro = true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isPlayingVoiceIntro = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo reproducir el audio de presentación: $e')),
+        );
+      }
+    }
   }
 
   bool _hasMoreReviews = true;
@@ -378,7 +401,17 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                  if (c.voiceIntroUrl.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.backgroundNeutral,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.borderSubtle),
+                      ),
+                      child: Row(
                         children: [
                           InkWell(
                             borderRadius: BorderRadius.circular(24),
@@ -402,7 +435,7 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  '🎙️ Presentación en voz de ${c.name.split(" ").first} (0:24)',
+                                  '🎙️ Presentación en voz de ${c.name.split(" ").first}',
                                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppTheme.darkSlate),
                                 ),
                                 const SizedBox(height: 6),
@@ -420,13 +453,8 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                           ),
                         ],
                       ),
-                      if (_isPlayingVoiceIntro || _voiceIntroProgress > 0) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          '"Hola, soy ${c.name.split(" ").first}. Cuento con amplia experiencia en ${c.specialties.isNotEmpty ? c.specialties.take(2).join(" y ") : "cuidado de personas mayores"} con trato cercano, puntualidad y cariño..."',
-                          style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppTheme.slateMuted),
-                        ),
-                      ],
+                    ),
+                  ],
                     ],
                   ),
                 ),

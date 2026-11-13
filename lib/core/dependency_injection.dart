@@ -7,7 +7,7 @@ class DependencyInjection {
   static late CaregiverRepository caregivers;
   static late BookingRepository bookings;
   static late ChatRepository chats;
-  static late FirestoreStatsRepository stats;
+  static late StatsRepository stats;
   static late ReviewRepository reviews;
   static late ReportRepository reports;
   static late ClientRepository clients;
@@ -56,7 +56,7 @@ class DependencyInjection {
   }
 }
 
-class _NoopStatsRepository implements FirestoreStatsRepository {
+class _NoopStatsRepository implements StatsRepository {
   @override
   Future<int> getAccumulatedHours(String clientId, String caregiverId) async => 0;
 

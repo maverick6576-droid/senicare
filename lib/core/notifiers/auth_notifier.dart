@@ -160,6 +160,24 @@ class AuthNotifier extends ChangeNotifier {
     await reloadRole();
   }
   CaregiverProfile? currentCaregiver;
+  String? pendingFamilyInviteCode;
+
+  void setPendingFamilyInviteCode(String? code) {
+    final trimmed = code?.trim();
+    pendingFamilyInviteCode = (trimmed != null && trimmed.isNotEmpty) ? trimmed : null;
+  }
+
+  Future<void> consumePendingFamilyInviteIfReady() async {
+    final code = pendingFamilyInviteCode;
+    if (code == null || code.isEmpty) return;
+    if (!isAuthenticated || currentRole != 'client' || currentUserId == null) return;
+    pendingFamilyInviteCode = null;
+    try {
+      await joinFamilyWithCode(code);
+    } catch (e) {
+      debugPrint('Deferred deep-link family join error: $e');
+    }
+  }
 
   StreamSubscription? _authSubscription;
 
@@ -248,6 +266,7 @@ class AuthNotifier extends ChangeNotifier {
       if (isSharedFamilyMember) {
         await _syncClaimsAndRefreshToken();
       }
+      await consumePendingFamilyInviteIfReady();
     } else if (currentRole == 'admin') {
       isAdminVerified2FA = false;
       await _syncClaimsAndRefreshToken();

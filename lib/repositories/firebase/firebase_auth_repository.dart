@@ -10,7 +10,14 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class FirebaseAuthRepository implements AuthRepository {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
+
+  FirebaseAuthRepository({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+  })  : _auth = auth ?? FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance;
 
   @override
   Stream<String?> get onAuthStateChanged => _auth.authStateChanges().map((user) => user?.uid);
@@ -36,9 +43,11 @@ class FirebaseAuthRepository implements AuthRepository {
           await user.sendEmailVerification();
         } catch (_) {}
 
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        await _firestore.collection('users').doc(user.uid).set({
           'email': email,
           'role': role,
+          'legalConsentAcceptedAt': FieldValue.serverTimestamp(),
+          'legalPolicyVersion': '2026-11',
         });
 
         if (role == 'caregiver') {
@@ -59,7 +68,7 @@ class FirebaseAuthRepository implements AuthRepository {
             dniUrl: extraData?['dniUrl'] ?? '',
             criminalRecordUrl: extraData?['criminalRecordUrl'] ?? '',
           );
-          await FirebaseFirestore.instance.collection('caregivers').doc(user.uid).set(profile.toFirestore());
+          await _firestore.collection('caregivers').doc(user.uid).set(profile.toFirestore());
         }
       }
     } catch (e) {
@@ -135,13 +144,15 @@ class FirebaseAuthRepository implements AuthRepository {
 
   Future<void> _createUserDocIfNotExists(User? user, String role, {bool isLogin = true}) async {
     if (user == null) return;
-    final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final docRef = _firestore.collection('users').doc(user.uid);
     final doc = await docRef.get();
     
     if (!doc.exists) {
       await docRef.set({
         'email': user.email ?? '',
         'role': role,
+        'legalConsentAcceptedAt': FieldValue.serverTimestamp(),
+        'legalPolicyVersion': '2026-11',
       });
 
       if (role == 'caregiver') {
@@ -162,36 +173,12 @@ class FirebaseAuthRepository implements AuthRepository {
           dniUrl: '',
           criminalRecordUrl: '',
         );
-        await FirebaseFirestore.instance.collection('caregivers').doc(user.uid).set(profile.toFirestore());
+        await _firestore.collection('caregivers').doc(user.uid).set(profile.toFirestore());
       }
     } else {
-      // If user is explicitly registering with a new role via OAuth, overwrite the role
-      if (!isLogin) {
+      final existingRole = doc.data()?['role']?.toString().trim() ?? '';
+      if (existingRole.isEmpty && !isLogin) {
         await docRef.set({'role': role}, SetOptions(merge: true));
-        
-        if (role == 'caregiver') {
-          final cgDoc = await FirebaseFirestore.instance.collection('caregivers').doc(user.uid).get();
-          if (!cgDoc.exists) {
-            final profile = CaregiverProfile(
-              id: user.uid,
-              name: user.displayName ?? 'Sin nombre',
-              title: 'Cuidador',
-              bio: 'Nuevo cuidador registrado en espera de validación.',
-              pricePerHour: 15.0,
-              rating: 0.0,
-              reviewsCount: 0,
-              distance: 'A calcular',
-              imageUrl: user.photoURL ?? 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
-              specialties: [],
-              verified: false,
-              verificationStatus: 'pending',
-              availableSlots: {},
-              dniUrl: '',
-              criminalRecordUrl: '',
-            );
-            await FirebaseFirestore.instance.collection('caregivers').doc(user.uid).set(profile.toFirestore());
-          }
-        }
       }
     }
   }
@@ -237,11 +224,11 @@ class FirebaseAuthRepository implements AuthRepository {
       if (user != null && user.uid == uid && user.email != null) {
         if (user.email == 'maverick6576@gmail.com') return 'admin';
         
-        final adminDoc = await FirebaseFirestore.instance.collection('admins').doc(user.email).get();
+        final adminDoc = await _firestore.collection('admins').doc(user.email).get();
         if (adminDoc.exists) return 'admin';
       }
 
-      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final doc = await _firestore.collection('users').doc(uid).get();
       if (doc.exists) {
         return doc.data()?['role'] as String?;
       }
@@ -255,7 +242,7 @@ class FirebaseAuthRepository implements AuthRepository {
   Future<void> updateFCMToken(String token) async {
     final uid = _auth.currentUser?.uid;
     if (uid != null) {
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      await _firestore.collection('users').doc(uid).set({
         'fcmToken': token,
       }, SetOptions(merge: true));
     }

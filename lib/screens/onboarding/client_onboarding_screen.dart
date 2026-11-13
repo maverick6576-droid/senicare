@@ -20,6 +20,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
   final _patientDetailsCtrl = TextEditingController();
   bool _isLoading = false;
   bool _isRecheckingEmail = false;
+  bool _acceptedHealthDataConsent = false;
   double? _homeLat;
   double? _homeLon;
 
@@ -53,6 +54,14 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_acceptedHealthDataConsent) {
+      CustomSnackBar.show(
+        context,
+        message: 'Debes confirmar el consentimiento RGPD Art. 9 para el tratamiento de datos asistenciales.',
+        type: SnackBarType.warning,
+      );
+      return;
+    }
     setState(() => _isLoading = true);
 
     try {
@@ -80,6 +89,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
         'homeAddress': _addressCtrl.text.trim(),
         'patientDetails': _patientDetailsCtrl.text.trim(),
         'onboardingComplete': true,
+        'rgpdArt9ConsentAcceptedAt': DateTime.now().toIso8601String(),
         'latitude': lat,
         'longitude': lon,
         'ownerUid': userId,
@@ -186,7 +196,18 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 16),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: _acceptedHealthDataConsent,
+                    onChanged: (val) => setState(() => _acceptedHealthDataConsent = val ?? false),
+                    title: const Text(
+                      'Consiento expresamente el tratamiento confidencial de las indicaciones y necesidades de cuidado de mi familiar conforme al RGPD (Art. 9).',
+                      style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
                     height: 50,

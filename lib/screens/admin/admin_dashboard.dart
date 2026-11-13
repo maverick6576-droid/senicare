@@ -8,7 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:senicare/screens/admin/admin_lean_startup_tab.dart';
 
 class AdminDashboard extends StatelessWidget {
-  const AdminDashboard({super.key});
+  final FirebaseFirestore? firestore;
+  const AdminDashboard({super.key, this.firestore});
 
   @override
   Widget build(BuildContext context) {
@@ -40,14 +41,14 @@ class AdminDashboard extends StatelessWidget {
             ],
           ),
         ),
-        body: const TabBarView(
+        body: TabBarView(
           children: [
-            AdminLeanStartupTab(),
-            AdminFinancesTab(),
-            AdminValidationsTab(),
-            AdminDisputesTab(),
-            AdminUsersTab(),
-            AdminTeamTab(),
+            AdminLeanStartupTab(firestore: firestore),
+            AdminFinancesTab(firestore: firestore),
+            AdminValidationsTab(firestore: firestore),
+            AdminDisputesTab(firestore: firestore),
+            AdminUsersTab(firestore: firestore),
+            AdminTeamTab(firestore: firestore),
           ],
         ),
       ),
@@ -56,11 +57,14 @@ class AdminDashboard extends StatelessWidget {
 }
 
 class AdminValidationsTab extends StatelessWidget {
-  const AdminValidationsTab({super.key});
+  final FirebaseFirestore? firestore;
+  const AdminValidationsTab({super.key, this.firestore});
+
+  FirebaseFirestore get _db => firestore ?? FirebaseFirestore.instance;
 
   Future<void> _updateStatus(String id, String status) async {
     final isApproved = status == 'approved';
-    await FirebaseFirestore.instance.collection('caregivers').doc(id).update({
+    await _db.collection('caregivers').doc(id).update({
       'verificationStatus': status,
       'isVerified': isApproved,
       'verified': isApproved,
@@ -78,7 +82,7 @@ class AdminValidationsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
+      stream: _db
           .collection('caregivers')
           .where('verificationStatus', whereIn: ['pending', 'manual_review'])
           .snapshots(),
@@ -100,19 +104,32 @@ class AdminValidationsTab extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(data['title'] ?? ''),
-                    Row(
-                      children: [
-                        TextButton.icon(
-                          icon: const Icon(Icons.badge),
-                          label: const Text('DNI'),
-                          onPressed: () => _launchURL(data['dniUrl'] ?? ''),
-                        ),
-                        TextButton.icon(
-                          icon: const Icon(Icons.description),
-                          label: const Text('PDF'),
-                          onPressed: () => _launchURL(data['criminalRecordUrl'] ?? ''),
-                        ),
-                      ],
+                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      future: _db
+                          .collection('caregivers')
+                          .doc(id)
+                          .collection('private')
+                          .doc('verification')
+                          .get(),
+                      builder: (context, privSnap) {
+                        final priv = privSnap.data?.data() ?? {};
+                        final dniUrl = (priv['dniUrl'] ?? data['dniUrl'] ?? '').toString();
+                        final crimUrl = (priv['criminalRecordUrl'] ?? data['criminalRecordUrl'] ?? '').toString();
+                        return Row(
+                          children: [
+                            TextButton.icon(
+                              icon: const Icon(Icons.badge),
+                              label: const Text('DNI'),
+                              onPressed: () => _launchURL(dniUrl),
+                            ),
+                            TextButton.icon(
+                              icon: const Icon(Icons.description),
+                              label: const Text('PDF'),
+                              onPressed: () => _launchURL(crimUrl),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -133,7 +150,8 @@ class AdminValidationsTab extends StatelessWidget {
 }
 
 class AdminDisputesTab extends StatefulWidget {
-  const AdminDisputesTab({super.key});
+  final FirebaseFirestore? firestore;
+  const AdminDisputesTab({super.key, this.firestore});
 
   @override
   State<AdminDisputesTab> createState() => _AdminDisputesTabState();
@@ -141,6 +159,8 @@ class AdminDisputesTab extends StatefulWidget {
 
 class _AdminDisputesTabState extends State<AdminDisputesTab> {
   bool _isLoading = false;
+
+  FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
 
   Future<void> _resolveDispute(BuildContext context, Map<String, dynamic> bookingData, String id, String resolutionType) async {
     if (_isLoading) return;
@@ -207,7 +227,7 @@ class _AdminDisputesTabState extends State<AdminDisputesTab> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('bookings').where('disputeEscalated', isEqualTo: true).snapshots(),
+      stream: _db.collection('bookings').where('disputeEscalated', isEqualTo: true).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data!.docs.where((d) => (d.data() as Map<String, dynamic>)['escrowStatus'] != 'resolved_partial').toList();
@@ -241,7 +261,8 @@ class _AdminDisputesTabState extends State<AdminDisputesTab> {
 }
 
 class AdminUsersTab extends StatefulWidget {
-  const AdminUsersTab({super.key});
+  final FirebaseFirestore? firestore;
+  const AdminUsersTab({super.key, this.firestore});
 
   @override
   State<AdminUsersTab> createState() => _AdminUsersTabState();
@@ -250,8 +271,10 @@ class AdminUsersTab extends StatefulWidget {
 class _AdminUsersTabState extends State<AdminUsersTab> {
   String query = '';
 
+  FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
+
   Future<void> _deleteUser(String id, String collection) async {
-    final db = FirebaseFirestore.instance;
+    final db = _db;
     final batch = db.batch();
     batch.delete(db.collection(collection).doc(id));
     if (collection != 'users') {
@@ -306,7 +329,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').snapshots(),
+            stream: _db.collection('users').snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
               
@@ -351,7 +374,8 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
 }
 
 class AdminTeamTab extends StatefulWidget {
-  const AdminTeamTab({super.key});
+  final FirebaseFirestore? firestore;
+  const AdminTeamTab({super.key, this.firestore});
 
   @override
   State<AdminTeamTab> createState() => _AdminTeamTabState();
@@ -359,6 +383,8 @@ class AdminTeamTab extends StatefulWidget {
 
 class _AdminTeamTabState extends State<AdminTeamTab> {
   final TextEditingController _emailController = TextEditingController();
+
+  FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
 
   @override
   void dispose() {
@@ -368,7 +394,7 @@ class _AdminTeamTabState extends State<AdminTeamTab> {
 
   Future<void> _addAdmin(String email) async {
     if (email.isEmpty) return;
-    await FirebaseFirestore.instance.collection('admins').doc(email).set({
+    await _db.collection('admins').doc(email).set({
       'email': email,
       '2faEnabled': false,
       'createdAt': FieldValue.serverTimestamp(),
@@ -377,7 +403,7 @@ class _AdminTeamTabState extends State<AdminTeamTab> {
 
   Future<void> _removeAdmin(String email) async {
     if (email == 'maverick6576@gmail.com') return; // Master admin check
-    await FirebaseFirestore.instance.collection('admins').doc(email).delete();
+    await _db.collection('admins').doc(email).delete();
   }
 
   @override
@@ -406,7 +432,7 @@ class _AdminTeamTabState extends State<AdminTeamTab> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('admins').snapshots(),
+            stream: _db.collection('admins').snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
               final docs = snapshot.data!.docs;
@@ -439,7 +465,8 @@ class _AdminTeamTabState extends State<AdminTeamTab> {
 }
 
 class AdminFinancesTab extends StatefulWidget {
-  const AdminFinancesTab({super.key});
+  final FirebaseFirestore? firestore;
+  const AdminFinancesTab({super.key, this.firestore});
 
   @override
   State<AdminFinancesTab> createState() => _AdminFinancesTabState();
@@ -448,6 +475,8 @@ class AdminFinancesTab extends StatefulWidget {
 class _AdminFinancesTabState extends State<AdminFinancesTab> {
   String _statusFilter = 'Todos';
   String _escrowFilter = 'Todos';
+
+  FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
   DateTimeRange? _dateRange;
 
   void _pickDateRange() async {
@@ -531,7 +560,7 @@ class _AdminFinancesTabState extends State<AdminFinancesTab> {
         // Data List & KPIs
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('bookings').orderBy('createdAt', descending: true).snapshots(),
+            stream: _db.collection('bookings').orderBy('createdAt', descending: true).snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());

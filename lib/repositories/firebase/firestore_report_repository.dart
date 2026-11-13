@@ -4,7 +4,9 @@ import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 
 class FirestoreReportRepository implements ReportRepository {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore;
+  FirestoreReportRepository({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
 
   @override
   Future<void> addReport(Report report) async {

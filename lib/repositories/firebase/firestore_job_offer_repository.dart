@@ -5,8 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:senicare/core/globals.dart';
 
 class FirestoreJobOfferRepository implements JobOfferRepository {
-  final CollectionReference _offersRef = FirebaseFirestore.instance.collection('job_offers');
-  final CollectionReference _usersRef = FirebaseFirestore.instance.collection('users');
+  final FirebaseFirestore _firestore;
+  FirestoreJobOfferRepository({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  CollectionReference get _offersRef => _firestore.collection('job_offers');
+  CollectionReference get _usersRef => _firestore.collection('users');
 
   @override
   Future<String> createOffer(JobOffer offer) async {
@@ -23,6 +27,7 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
   Stream<List<JobOffer>> streamClientOffers(String clientId, {int limit = 10}) {
     return _offersRef
         .where('clientId', isEqualTo: clientId)
+        .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
         .map((snapshot) {

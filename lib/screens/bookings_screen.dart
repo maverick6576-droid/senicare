@@ -1,5 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -22,7 +24,31 @@ class _BookingsScreenState extends State<BookingsScreen> {
   final ScrollController _scrollActive = ScrollController();
   final ScrollController _scrollHistory = ScrollController();
   final Map<String, Future<ClientProfile?>> _clientFutures = {};
+  final Map<String, Future<String?>> _bookingPinFutures = {};
   final Set<String> _busyBookingIds = {};
+
+  Future<String?> _getBookingSecretPin(Booking b) {
+    final directPin = b.bookingPin?.trim();
+    if (directPin != null && directPin.isNotEmpty) {
+      return Future.value(directPin);
+    }
+    if (!useFirebaseBackend || Firebase.apps.isEmpty || b.id.isEmpty) {
+      return Future.value(null);
+    }
+    return _bookingPinFutures.putIfAbsent(b.id, () async {
+      try {
+        final secretDoc = await FirebaseFirestore.instance
+            .collection('bookings')
+            .doc(b.id)
+            .collection('secrets')
+            .doc('checkin')
+            .get();
+        return secretDoc.data()?['bookingPin']?.toString();
+      } catch (_) {
+        return null;
+      }
+    });
+  }
   String _caregiverFilter = 'all'; // 'all', 'pending', 'today'
   String _clientFilter = 'all'; // 'all', 'attention', 'today'
 
@@ -2860,14 +2886,20 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: AppTheme.primary, letterSpacing: 1),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        b.bookingPin ?? "----",
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 10,
-                          color: AppTheme.primary,
-                        ),
+                      FutureBuilder<String?>(
+                        future: _getBookingSecretPin(b),
+                        builder: (context, pinSnap) {
+                          final resolvedPin = pinSnap.data ?? b.bookingPin ?? '----';
+                          return Text(
+                            resolvedPin,
+                            style: const TextStyle(
+                              fontSize: 36,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 10,
+                              color: AppTheme.primary,
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 4),
                       const Text(
@@ -3361,10 +3393,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   Future<void> _shareLiveTrackingWithFamily(BuildContext context, Booking b) async {
     HapticFeedback.mediumImpact();
+    final secretPin = b.checkInTime == null ? await _getBookingSecretPin(b) : null;
+    if (!context.mounted) return;
     final completed = b.careChecklist.where((t) => t.completed).length;
     final total = b.careChecklist.length;
-    final pinLine = (b.checkInTime == null && (b.bookingPin?.isNotEmpty ?? false))
-        ? '🔑 Código PIN de entrada (si recibes al cuidador en casa): ${b.bookingPin}\n'
+    final pinLine = (b.checkInTime == null && (secretPin?.isNotEmpty ?? false))
+        ? '🔑 Código PIN de entrada (si recibes al cuidador en casa): $secretPin\n'
         : '';
     final summaryText = '🛡️ Seguimiento SeniCare en Tiempo Real\n'
         '👩‍⚕️ Cuidador/a: ${b.caregiverName}\n'
@@ -3373,7 +3407,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
         '$pinLine'
         '📋 Checklist familiar: $completed de $total tareas completadas\n'
         '${b.careNotes.isNotEmpty ? "📝 Parte del día: ${b.careNotes}\n" : ""}'
-        '🔗 Ver en vivo: https://senicare-3342d.web.app/#/tracking/${b.id}';
+        '🔗 Ver en vivo: https://senicare-3342d.web.app/tracking/${b.id}';
 
     await Clipboard.setData(ClipboardData(text: summaryText));
     if (!context.mounted) return;
@@ -3571,24 +3605,31 @@ class _BookingsScreenState extends State<BookingsScreen> {
       final month = int.parse(dayParts[1]);
       final day = int.parse(dayParts[2]);
 
-      int startHour = 9, startMin = 0, endHour = 11, endMin = 0;
+      DateTime startDt;
+      DateTime endDt;
       if (b.slot.contains('-')) {
         final parts = b.slot.split('-');
         final sp = parts[0].split(':');
         final ep = parts[1].split(':');
-        startHour = int.parse(sp[0]);
-        startMin = int.parse(sp[1]);
-        endHour = int.parse(ep[0]);
-        endMin = int.parse(ep[1]);
+        final startHour = int.parse(sp[0]);
+        final startMin = int.parse(sp[1]);
+        final endHour = int.parse(ep[0]);
+        final endMin = int.parse(ep[1]);
+        startDt = DateTime(year, month, day, startHour, startMin);
+        endDt = DateTime(year, month, day, endHour, endMin);
+        if (!endDt.isAfter(startDt)) {
+          endDt = endDt.add(const Duration(days: 1));
+        }
       } else if (b.slot.contains(':')) {
         final sp = b.slot.split(':');
-        startHour = int.parse(sp[0]);
-        startMin = int.parse(sp[1]);
-        endHour = (startHour + 1).clamp(0, 23);
+        final startHour = int.parse(sp[0]);
+        final startMin = int.parse(sp[1]);
+        startDt = DateTime(year, month, day, startHour, startMin);
+        endDt = startDt.add(const Duration(hours: 1));
+      } else {
+        startDt = DateTime(year, month, day, 9, 0);
+        endDt = DateTime(year, month, day, 11, 0);
       }
-
-      final startDt = DateTime(year, month, day, startHour, startMin);
-      final endDt = DateTime(year, month, day, endHour, endMin);
       String fmt(DateTime dt) =>
           '${dt.year}${dt.month.toString().padLeft(2, '0')}${dt.day.toString().padLeft(2, '0')}T${dt.hour.toString().padLeft(2, '0')}${dt.minute.toString().padLeft(2, '0')}00';
 
@@ -3597,10 +3638,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
             ? 'SeniCare: Cuidado con ${b.caregiverName}'
             : 'SeniCare: Servicio a domicilio (${b.slot})',
       );
+      final secretPin = isClient ? await _getBookingSecretPin(b) : null;
       final details = Uri.encodeComponent(
         'Servicio confirmado en SeniCare.\n'
         'Horario: ${b.slot}\n'
-        '${isClient && b.bookingPin != null ? "PIN de entrada: ${b.bookingPin}\n" : ""}'
+        '${isClient && (secretPin?.isNotEmpty ?? false) ? "PIN de entrada: $secretPin\n" : ""}'
         'Checklist familiar: ${b.careChecklist.map((t) => t.title).join(", ")}',
       );
       final url = Uri.parse(
@@ -4063,9 +4105,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
   Future<void> _showFridgeSheetModal(BuildContext context, Booking b) async {
     HapticFeedback.mediumImpact();
     final profile = await _getClientProfile(b.clientId);
+    final secretPin = await _getBookingSecretPin(b);
     if (!context.mounted) return;
 
-    final pinText = b.bookingPin ?? "Sin PIN";
+    final pinText = (secretPin != null && secretPin.isNotEmpty) ? secretPin : "Sin PIN";
     final home = profile?.homeAddress.isNotEmpty == true ? profile!.homeAddress : "Domicilio familiar";
     final phone = profile?.phone.isNotEmpty == true ? profile!.phone : "Teléfono familiar registrado";
     final medicalNotes = profile?.patientDetails.isNotEmpty == true ? profile!.patientDetails : "Sin pautas médicas específicas";

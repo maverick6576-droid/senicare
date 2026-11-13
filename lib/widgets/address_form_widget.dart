@@ -1,8 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:senicare/core/nominatim_service.dart';
 
 class AddressFormWidget extends StatefulWidget {
   final String? initialAddress;
@@ -206,38 +205,12 @@ class _AddressFormWidgetState extends State<AddressFormWidget> {
 
   Future<List<String>> _searchCityAsync(String query) async {
     if (query.length < 2) return [];
-    
+
     _lastCityQuery = query;
     await Future.delayed(const Duration(milliseconds: 500));
     if (_lastCityQuery != query) return [];
 
-    String searchQuery = query;
-    if (_province != null) {
-      searchQuery += ', $_province';
-    }
-
-    try {
-      final uri = Uri.parse('https://photon.komoot.io/api/?q=${Uri.encodeComponent(searchQuery)}&limit=7&osm_tag=place');
-      final response = await http
-          .get(uri, headers: {'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'})
-          .timeout(const Duration(seconds: 6));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final features = data['features'] as List;
-        
-        Set<String> results = {};
-        for (var feature in features) {
-          final props = feature['properties'];
-          if (props['name'] != null) {
-            results.add(props['name'].toString());
-          }
-        }
-        return results.toList();
-      }
-    } catch (e) {
-      // ignore safely
-    }
-    return [];
+    return NominatimService.searchCities(query, province: _province);
   }
 
   Future<List<String>> _searchStreetAsync(String query) async {
@@ -247,35 +220,11 @@ class _AddressFormWidgetState extends State<AddressFormWidget> {
     await Future.delayed(const Duration(milliseconds: 500));
     if (_lastStreetQuery != query) return [];
 
-    String searchQuery = query;
-    if (_cityCtrl.text.isNotEmpty) {
-      searchQuery += ', ${_cityCtrl.text.trim()}';
-    } else if (_province != null) {
-      searchQuery += ', $_province';
-    }
-
-    try {
-      final uri = Uri.parse('https://photon.komoot.io/api/?q=${Uri.encodeComponent(searchQuery)}&limit=7&osm_tag=highway');
-      final response = await http
-          .get(uri, headers: {'User-Agent': 'SeniCareApp/1.0 (senicare@flutter.dev)'})
-          .timeout(const Duration(seconds: 6));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final features = data['features'] as List;
-        
-        Set<String> results = {};
-        for (var feature in features) {
-          final props = feature['properties'];
-          if (props['name'] != null) {
-            results.add(props['name'].toString());
-          }
-        }
-        return results.toList();
-      }
-    } catch (e) {
-      // ignore safely
-    }
-    return [];
+    return NominatimService.searchStreets(
+      query,
+      city: _cityCtrl.text.trim(),
+      province: _province,
+    );
   }
 
   @override

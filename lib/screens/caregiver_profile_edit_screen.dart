@@ -1,8 +1,11 @@
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -39,7 +42,88 @@ class _CaregiverProfileEditScreenState
   bool _isSaving = false;
   bool _isSyncingKyc = false;
   bool _isResolvingGps = false;
+  bool _isUploadingVoice = false;
   CaregiverProfile? _profile;
+
+  Future<void> _uploadVoiceIntro() async {
+    if (_profile == null || _isUploadingVoice) return;
+    try {
+      final picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['mp3', 'm4a', 'wav', 'aac', 'ogg'],
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+      final file = picked.files.single;
+      final bytes = file.bytes ??
+          (!kIsWeb && file.path != null ? await File(file.path!).readAsBytes() : null);
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('No se pudieron leer los datos del audio.');
+      }
+
+      if (mounted) setState(() => _isUploadingVoice = true);
+      final ext =
+          p.extension(file.name).isNotEmpty ? p.extension(file.name).toLowerCase() : '.m4a';
+      String voiceUrl;
+      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+        final ref = FirebaseStorage.instance
+            .ref()
+            .child('caregiver_voice')
+            .child(_profile!.id)
+            .child('intro_${DateTime.now().millisecondsSinceEpoch}$ext');
+        await ref.putData(bytes, SettableMetadata(contentType: 'audio/${ext.replaceFirst(".", "")}'));
+        voiceUrl = await ref.getDownloadURL();
+      } else {
+        voiceUrl = 'https://senicare-3342d.web.app/mock_voice_${_profile!.id}$ext';
+      }
+
+      await DependencyInjection.caregivers
+          .updateProfile(_profile!.id, {'voiceIntroUrl': voiceUrl});
+      if (!mounted) return;
+      CustomSnackBar.show(
+        context,
+        message: 'Audio de presentación guardado correctamente.',
+        type: SnackBarType.success,
+      );
+      await _loadProfile();
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Error al subir el audio: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingVoice = false);
+    }
+  }
+
+  Future<void> _removeVoiceIntro() async {
+    if (_profile == null || _isUploadingVoice) return;
+    setState(() => _isUploadingVoice = true);
+    try {
+      await DependencyInjection.caregivers
+          .updateProfile(_profile!.id, {'voiceIntroUrl': ''});
+      if (!mounted) return;
+      CustomSnackBar.show(
+        context,
+        message: 'Audio de presentación eliminado.',
+        type: SnackBarType.info,
+      );
+      await _loadProfile();
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'No se pudo eliminar el audio: $e',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingVoice = false);
+    }
+  }
 
   final _nameCtrl = TextEditingController();
   final _titleCtrl = TextEditingController();
@@ -189,8 +273,8 @@ class _CaregiverProfileEditScreenState
     if (hasDefaultImage) missing.add('Foto de perfil');
     if (user.homeAddress.trim().isEmpty) missing.add('Dirección de residencia');
     if (user.pricePerHour < 6.0) missing.add('Tarifa por hora (mínimo 6 €)');
-    if (user.dniUrl.trim().isEmpty) missing.add('DNI o NIE');
-    if (user.criminalRecordUrl.trim().isEmpty) {
+    if (!user.hasDni) missing.add('DNI o NIE');
+    if (!user.hasCriminalRecord) {
       missing.add('Certificado de Antecedentes Penales');
     }
     if (user.stripeAccountId == null || user.stripeAccountId!.trim().isEmpty) {
@@ -337,14 +421,40 @@ class _CaregiverProfileEditScreenState
         'maxDistanceRadius': _maxDistanceRadius,
         'specialties': _selectedSpecialties,
         'imageUrl': imageUrl,
-        'dniUrl': dniUrl,
-        'criminalRecordUrl': criminalUrl,
+        'hasDniSubmitted': hasDni,
+        'hasCriminalSubmitted': hasCriminal,
+        if (!useFirebaseBackend || Firebase.apps.isEmpty) ...{
+          'dniUrl': dniUrl,
+          'criminalRecordUrl': criminalUrl,
+        },
         'verificationStatus': ?updatedVerificationStatus,
         'onboardingComplete': onboardingComplete,
       };
 
       await DependencyInjection.caregivers
           .updateProfile(_profile!.id, updatedData);
+
+      if (useFirebaseBackend &&
+          Firebase.apps.isNotEmpty &&
+          (_dniFrontPath != null ||
+              _criminalPath != null ||
+              _dniScannedText.isNotEmpty ||
+              _criminalScannedText.isNotEmpty ||
+              _profile!.verificationStatus != 'approved')) {
+        await FirebaseFirestore.instance
+            .collection('caregivers')
+            .doc(_profile!.id)
+            .collection('private')
+            .doc('verification')
+            .set({
+          'dniUrl': dniUrl,
+          'criminalRecordUrl': criminalUrl,
+          if (_dniScannedText.isNotEmpty) 'dniScannedText': _dniScannedText,
+          if (_criminalScannedText.isNotEmpty)
+            'criminalScannedText': _criminalScannedText,
+          'lastUpdated': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
 
       if (!mounted) return;
       final authNotifier = context.read<AuthNotifier>();
@@ -1356,7 +1466,7 @@ class _CaregiverProfileEditScreenState
 
   Widget _buildSafeAvatar(CaregiverProfile profile, {required double radius}) {
     final currentImg = _newImageUrl ?? profile.imageUrl;
-    if (currentImg.isNotEmpty && !currentImg.startsWith('http')) {
+    if (currentImg.isNotEmpty && !currentImg.startsWith('http') && !kIsWeb) {
       return CircleAvatar(
         radius: radius,
         backgroundColor: AppTheme.primarySurface,
@@ -1666,7 +1776,7 @@ class _CaregiverProfileEditScreenState
             children: [
               _StatusItemRow(
                 label: 'Documento de Identidad (DNI / NIE)',
-                done: profile.dniUrl.isNotEmpty,
+                done: profile.hasDni,
                 doneLabel: 'Subido',
                 pendingLabel: 'Pendiente',
                 fontMult: fontMult,
@@ -1674,7 +1784,7 @@ class _CaregiverProfileEditScreenState
               const SizedBox(height: 10),
               _StatusItemRow(
                 label: 'Certificado de Antecedentes Penales',
-                done: profile.criminalRecordUrl.isNotEmpty,
+                done: profile.hasCriminalRecord,
                 doneLabel: 'Subido',
                 pendingLabel: 'Pendiente',
                 fontMult: fontMult,
@@ -1874,6 +1984,74 @@ class _CaregiverProfileEditScreenState
                 ),
                 style: TextStyle(fontSize: 15.5 * fontMult),
               ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.backgroundNeutral,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.mic_rounded, color: AppTheme.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Presentación en voz (opcional)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13.5 * fontMult,
+                              color: AppTheme.darkSlate,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _profile?.voiceIntroUrl.trim().isNotEmpty == true
+                          ? 'Audio de presentación subido y visible en tu ficha pública.'
+                          : 'Sube un breve audio (MP3, M4A o WAV) para presentarte a las familias.',
+                      style: TextStyle(fontSize: 12 * fontMult, color: AppTheme.slateMuted),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _isUploadingVoice ? null : _uploadVoiceIntro,
+                          icon: _isUploadingVoice
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.audio_file_rounded, size: 18),
+                          label: Text(
+                            _profile?.voiceIntroUrl.trim().isNotEmpty == true
+                                ? 'Cambiar audio'
+                                : 'Subir audio',
+                          ),
+                        ),
+                        if (_profile?.voiceIntroUrl.trim().isNotEmpty == true)
+                          TextButton.icon(
+                            onPressed: _isUploadingVoice ? null : _removeVoiceIntro,
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                            label: const Text(
+                              'Eliminar',
+                              style: TextStyle(color: Colors.redAccent),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -2003,16 +2181,18 @@ class _CaregiverProfileEditScreenState
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        File(_dniFrontPath!),
-                        height: 54,
-                        width: 82,
-                        fit: BoxFit.cover,
+                    if (!kIsWeb) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(_dniFrontPath!),
+                          height: 54,
+                          width: 82,
+                          fit: BoxFit.cover,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
+                      const SizedBox(width: 10),
+                    ],
                     Expanded(
                       child: Text(
                         _dniScannedText.isNotEmpty

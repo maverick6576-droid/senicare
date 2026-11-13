@@ -5,6 +5,7 @@ class Review {
   final String caregiverId;
   final String clientId;
   final String clientName;
+  final String? bookingId;
   final double rating;
   final double punctualityRating;
   final double empathyRating;
@@ -18,6 +19,7 @@ class Review {
     required this.caregiverId,
     required this.clientId,
     required this.clientName,
+    this.bookingId,
     required this.rating,
     double? punctualityRating,
     double? empathyRating,
@@ -39,6 +41,7 @@ class Review {
       caregiverId: data['caregiverId']?.toString() ?? '',
       clientId: data['clientId']?.toString() ?? '',
       clientName: data['clientName']?.toString() ?? 'Anónimo',
+      bookingId: data['bookingId']?.toString(),
       rating: baseRating,
       punctualityRating: (data['punctualityRating'] as num?)?.toDouble() ?? baseRating,
       empathyRating: (data['empathyRating'] as num?)?.toDouble() ?? baseRating,
@@ -56,6 +59,7 @@ class Review {
       'caregiverId': caregiverId,
       'clientId': clientId,
       'clientName': clientName,
+      if (bookingId != null && bookingId!.isNotEmpty) 'bookingId': bookingId,
       'rating': rating,
       'punctualityRating': punctualityRating,
       'empathyRating': empathyRating,

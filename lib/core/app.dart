@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/screens/screens.dart';
 
@@ -72,8 +73,21 @@ class _SeniCareAppState extends State<SeniCareApp> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthNotifier>();
     final config = context.watch<ConfigNotifier>();
+    final analyticsObserver = ObservabilityService.analyticsObserver;
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
+      navigatorObservers: [
+        ?analyticsObserver,
+      ],
+      locale: config.locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       title: 'SeniCare',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.getTheme(config.seniorMode),
@@ -82,19 +96,20 @@ class _SeniCareAppState extends State<SeniCareApp> {
         final rawName = settings.name ?? '/';
         final uri = Uri.tryParse(rawName);
         final path = uri?.path ?? rawName;
-        if (path == '/join' &&
-            auth.isAuthenticated &&
-            auth.currentRole == 'client' &&
-            auth.currentUserId != null) {
+        if (path == '/join') {
           final code = uri?.queryParameters['code'];
           if (code != null && code.trim().isNotEmpty) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              auth.joinFamilyWithCode(code.trim()).then(
-                (_) {},
-                onError: (e) {
-                  debugPrint('Deep-link family join error: $e');
-                },
-              );
+              auth.setPendingFamilyInviteCode(code.trim());
+              auth.consumePendingFamilyInviteIfReady();
+            });
+          }
+        } else if (path.startsWith('/tracking/')) {
+          final bookingId = path.substring('/tracking/'.length).trim();
+          if (bookingId.isNotEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              pendingTrackingBookingId.value = bookingId;
+              pendingPushRoute.value = {'type': 'tracking', 'bookingId': bookingId};
             });
           }
         }
