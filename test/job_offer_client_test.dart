@@ -135,7 +135,10 @@ void main() {
         ChangeNotifierProvider<BookingNotifier>(create: (_) => BookingNotifier()),
         ChangeNotifierProvider<ChatNotifier>(create: (_) => ChatNotifier()),
       ],
-      child: MaterialApp(home: child),
+      child: MaterialApp(
+        theme: AppTheme.getTheme((config ?? ConfigNotifier()).seniorMode),
+        home: child,
+      ),
     );
   }
 

@@ -121,7 +121,7 @@ void main() {
             ChangeNotifierProvider(create: (_) => AuthNotifier()),
             ChangeNotifierProvider(create: (_) => ConfigNotifier()),
           ],
-          child: const MaterialApp(home: AuthScreen()),
+          child: MaterialApp(theme: AppTheme.getTheme(false), home: const AuthScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -139,7 +139,7 @@ void main() {
             ChangeNotifierProvider(create: (_) => AuthNotifier()),
             ChangeNotifierProvider(create: (_) => ConfigNotifier()),
           ],
-          child: const MaterialApp(home: ClientOnboardingScreen()),
+          child: MaterialApp(theme: AppTheme.getTheme(false), home: const ClientOnboardingScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -157,7 +157,7 @@ void main() {
             ChangeNotifierProvider(create: (_) => AuthNotifier()),
             ChangeNotifierProvider(create: (_) => ConfigNotifier()),
           ],
-          child: const MaterialApp(home: Admin2FAScreen()),
+          child: MaterialApp(theme: AppTheme.getTheme(false), home: const Admin2FAScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -295,6 +295,7 @@ void main() {
               ChangeNotifierProvider<LocationNotifier>.value(value: location),
             ],
             child: MaterialApp(
+              theme: AppTheme.getTheme(false),
               home: PaymentScreen(
                 caregiver: caregiver,
                 dateString: '2026-12-20',
@@ -325,6 +326,7 @@ void main() {
               ChangeNotifierProvider<LocationNotifier>.value(value: location),
             ],
             child: MaterialApp(
+              theme: AppTheme.getTheme(false),
               home: PaymentScreen(
                 caregiver: caregiver,
                 dateString: '2026-12-20',
@@ -431,7 +433,7 @@ void main() {
             ChangeNotifierProvider<AuthNotifier>.value(value: auth),
             ChangeNotifierProvider<ConfigNotifier>.value(value: config),
           ],
-          child: const MaterialApp(home: AuthScreen()),
+          child: MaterialApp(theme: AppTheme.getTheme(false), home: const AuthScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -470,7 +472,7 @@ void main() {
             ChangeNotifierProvider<AuthNotifier>.value(value: auth),
             ChangeNotifierProvider<ConfigNotifier>.value(value: config),
           ],
-          child: const MaterialApp(home: ClientOnboardingScreen()),
+          child: MaterialApp(theme: AppTheme.getTheme(false), home: const ClientOnboardingScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -522,7 +524,7 @@ void main() {
             ChangeNotifierProvider<LocationNotifier>.value(value: loc),
             ChangeNotifierProvider<JobOfferNotifier>.value(value: offers),
           ],
-          child: const MaterialApp(home: CreateOfferScreen()),
+          child: MaterialApp(theme: AppTheme.getTheme(false), home: const CreateOfferScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -576,7 +578,7 @@ void main() {
             ChangeNotifierProvider<ConfigNotifier>.value(value: config),
             ChangeNotifierProvider<LocationNotifier>.value(value: loc),
           ],
-          child: MaterialApp(home: CaregiverDetailScreen(caregiver: caregiverNoVoice)),
+          child: MaterialApp(theme: AppTheme.getTheme(false), home: CaregiverDetailScreen(caregiver: caregiverNoVoice)),
         ),
       );
       await tester.pumpAndSettle();

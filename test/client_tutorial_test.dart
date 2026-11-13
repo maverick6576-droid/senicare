@@ -90,6 +90,7 @@ void main() {
         ),
       ],
       child: MaterialApp(
+        theme: AppTheme.getTheme(effectiveConfig.seniorMode),
         home: MediaQuery(
           data: MediaQueryData(size: size),
           child: const MainLayout(),

@@ -55,6 +55,7 @@ class AppTheme {
 
     return ThemeData(
       useMaterial3: true,
+      splashFactory: InkRipple.splashFactory,
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         primary: primary,

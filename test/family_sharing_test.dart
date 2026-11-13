@@ -359,7 +359,10 @@ void main() {
             ChangeNotifierProvider<AuthNotifier>.value(value: adminAuth),
             ChangeNotifierProvider<ConfigNotifier>.value(value: config),
           ],
-          child: const MaterialApp(home: ClientProfileEditScreen()),
+          child: MaterialApp(
+            theme: AppTheme.getTheme(config.seniorMode),
+            home: const ClientProfileEditScreen(),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -400,7 +403,10 @@ void main() {
             ChangeNotifierProvider<AuthNotifier>.value(value: collabAuth),
             ChangeNotifierProvider<ConfigNotifier>.value(value: ConfigNotifier()),
           ],
-          child: const MaterialApp(home: ClientProfileEditScreen()),
+          child: MaterialApp(
+            theme: AppTheme.getTheme(false),
+            home: const ClientProfileEditScreen(),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -461,7 +467,10 @@ void main() {
             ChangeNotifierProvider<BookingNotifier>.value(value: bookingNotifier),
             ChangeNotifierProvider<ConfigNotifier>.value(value: ConfigNotifier()),
           ],
-          child: const MaterialApp(home: BookingsScreen()),
+          child: MaterialApp(
+            theme: AppTheme.getTheme(false),
+            home: const BookingsScreen(),
+          ),
         ),
       );
       await tester.pump(const Duration(milliseconds: 200));
@@ -537,7 +546,10 @@ void main() {
               create: (_) => JobOfferNotifier(),
             ),
           ],
-          child: MaterialApp(home: OfferDetailScreen(offer: createdOffer)),
+          child: MaterialApp(
+            theme: AppTheme.getTheme(false),
+            home: OfferDetailScreen(offer: createdOffer),
+          ),
         ),
       );
       await tester.pump(const Duration(milliseconds: 200));
@@ -589,7 +601,10 @@ void main() {
               create: (_) => ConfigNotifier(),
             ),
           ],
-          child: const MaterialApp(home: ClientOnboardingScreen()),
+          child: MaterialApp(
+            theme: AppTheme.getTheme(false),
+            home: const ClientOnboardingScreen(),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -627,7 +642,10 @@ void main() {
               create: (_) => ConfigNotifier(),
             ),
           ],
-          child: const MaterialApp(home: SettingsScreen()),
+          child: MaterialApp(
+            theme: AppTheme.getTheme(false),
+            home: const SettingsScreen(),
+          ),
         ),
       );
       await tester.pumpAndSettle();

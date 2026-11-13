@@ -58,7 +58,10 @@ void main() {
           create: (_) => LocationNotifier(),
         ),
       ],
-      child: const MaterialApp(home: CaregiverProfileEditScreen()),
+      child: MaterialApp(
+        theme: AppTheme.getTheme(false),
+        home: const CaregiverProfileEditScreen(),
+      ),
     );
   }
 

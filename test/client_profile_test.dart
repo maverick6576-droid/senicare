@@ -63,7 +63,10 @@ void main() {
           value: config ?? ConfigNotifier(),
         ),
       ],
-      child: const MaterialApp(home: ClientProfileEditScreen()),
+      child: MaterialApp(
+        theme: AppTheme.getTheme(config?.seniorMode ?? false),
+        home: const ClientProfileEditScreen(),
+      ),
     );
   }
 

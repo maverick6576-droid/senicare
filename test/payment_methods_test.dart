@@ -127,7 +127,11 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          theme: ThemeData(platform: TargetPlatform.iOS),
+          theme: ThemeData(
+            platform: TargetPlatform.iOS,
+            useMaterial3: true,
+            splashFactory: InkRipple.splashFactory,
+          ),
           home: Scaffold(
             body: StatefulBuilder(
               builder: (context, setState) => SingleChildScrollView(
@@ -174,6 +178,7 @@ void main() {
     ) async {
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.getTheme(false),
           home: Scaffold(
             body: Column(
               children: [
@@ -248,6 +253,7 @@ void main() {
             ChangeNotifierProvider<LocationNotifier>.value(value: location),
           ],
           child: MaterialApp(
+            theme: AppTheme.getTheme(config.seniorMode),
             home: PaymentScreen(
               caregiver: caregiver,
               dateString: '2026-12-20',

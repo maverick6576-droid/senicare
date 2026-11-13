@@ -114,7 +114,10 @@ void main() {
           },
         ),
       ],
-      child: const MaterialApp(home: MainLayout()),
+      child: MaterialApp(
+        theme: AppTheme.getTheme(false),
+        home: const MainLayout(),
+      ),
     );
   }
 

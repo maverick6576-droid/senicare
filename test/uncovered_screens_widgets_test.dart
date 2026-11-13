@@ -300,6 +300,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.getTheme(false),
           home: Scaffold(
             body: Builder(
               builder: (ctx) => ElevatedButton(

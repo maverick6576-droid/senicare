@@ -44,7 +44,7 @@ jobs:
         id: run_tests
         run: |
           set -o pipefail
-          flutter test --no-pub --no-test-assets --reporter=expanded 2>&1 | tee test_output.log
+          flutter test --no-pub --reporter=expanded 2>&1 | tee test_output.log
 
       - name: Report Failures
         if: always()

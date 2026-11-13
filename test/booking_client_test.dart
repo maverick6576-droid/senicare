@@ -146,6 +146,7 @@ Widget _wrapClientBookingsHarness({
       ChangeNotifierProvider<ConfigNotifier>.value(value: config),
     ],
     child: MaterialApp(
+      theme: AppTheme.getTheme(config.seniorMode),
       home: MediaQuery(
         data: MediaQueryData(size: size),
         child: const BookingsScreen(),
@@ -489,6 +490,7 @@ void main() {
           ChangeNotifierProvider<ConfigNotifier>.value(value: config),
         ],
         child: MaterialApp(
+          theme: AppTheme.getTheme(false),
           home: Scaffold(
             body: Builder(
               builder: (ctx) => ElevatedButton(

@@ -279,7 +279,10 @@ void main() {
     Widget wrapWithAuth(AuthNotifier auth, Widget child) {
       return ChangeNotifierProvider<AuthNotifier>.value(
         value: auth,
-        child: MaterialApp(home: child),
+        child: MaterialApp(
+          theme: AppTheme.getTheme(false),
+          home: child,
+        ),
       );
     }
 

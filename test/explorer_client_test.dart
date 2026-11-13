@@ -138,7 +138,10 @@ void main() {
         ),
         ChangeNotifierProvider<ChatNotifier>(create: (_) => ChatNotifier()),
       ],
-      child: const MaterialApp(home: ExplorerScreen()),
+      child: MaterialApp(
+        theme: AppTheme.getTheme(cfg.seniorMode),
+        home: const ExplorerScreen(),
+      ),
     );
   }
 
