@@ -49,11 +49,21 @@ jobs:
       - name: Report Failures
         if: always()
         run: |
-          if [ -f test_output.log ]; then
-            grep -E '(failed|EXCEPTION|══╡ EXCEPTION)' test_output.log | head -n 30 | while IFS= read -r line; do
-              echo "::error::$line"
-            done
-          fi
+          python3 -c "
+          import re
+          try:
+              with open('test_output.log', 'r', encoding='utf-8', errors='ignore') as f:
+                  content = f.read()
+              matches = re.findall(r'(══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞═[\s\S]*?════════════════════════════════════════════════════════════════════════════════════════════════════)', content)
+              for idx, m in enumerate(matches[:10]):
+                  summary = ' -- '.join([l.strip() for l in m.split('\n')[1:6] if l.strip()])
+                  print(f'::error title=Failure_{idx+1}::{summary}')
+              failed_tests = re.findall(r'(\d+:\d+ \+\d+ -\d+: .*)', content)
+              for t in failed_tests[:15]:
+                  print(f'::error title=TestFailed::{t}')
+          except Exception as e:
+              print(f'::error::Failed to parse test log: {e}')
+          "
 
       - name: Publish Test Summary
         if: always()
