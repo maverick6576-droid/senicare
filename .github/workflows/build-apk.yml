@@ -37,10 +37,31 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Analyze and run tests
+      - name: Run Flutter Analyzer
+        run: flutter analyze --no-pub
+
+      - name: Run Unit & Widget Tests
+        id: run_tests
         run: |
-          flutter analyze --no-pub
-          flutter test --no-pub --no-test-assets --reporter=expanded
+          set -o pipefail
+          flutter test --no-pub --no-test-assets --reporter=expanded 2>&1 | tee test_output.log
+
+      - name: Publish Test Summary
+        if: always()
+        run: |
+          if [ -f test_output.log ]; then
+            echo "### Test Execution Results" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -B 3 -A 15 -E '(failed|EXCEPTION|Error:|Expected:|Actual:|══╡ EXCEPTION)' test_output.log | tail -n 200 >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Test Output Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-log
+          path: test_output.log
 
       - name: Decode Android Keystore (if configured)
         env:
