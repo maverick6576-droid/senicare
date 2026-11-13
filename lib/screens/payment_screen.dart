@@ -711,7 +711,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Fecha:'),
+                      const Expanded(child: Text('Fecha:')),
+                      const SizedBox(width: 8),
                       Text(
                         DateFormat('dd/MM/yyyy')
                             .format(DateTime.parse(widget.dateString)),
@@ -724,6 +725,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Horarios:'),
+                      const SizedBox(width: 8),
                       Flexible(
                         child: Text(
                           widget.slots
@@ -742,7 +744,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Duración:'),
+                      const Expanded(child: Text('Duración:')),
+                      const SizedBox(width: 8),
                       Text(
                         '$totalHours hora${totalHours > 1 ? 's' : ''}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
