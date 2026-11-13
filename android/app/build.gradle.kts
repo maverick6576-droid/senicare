@@ -57,6 +57,11 @@ android {
                     ?: System.getenv("SENICARE_KEY_ALIAS")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
                     ?: System.getenv("SENICARE_KEY_PASSWORD")
+            } else if (file("release.keystore").exists()) {
+                storeFile = file("release.keystore")
+                storePassword = "senicare123"
+                keyAlias = "senicare"
+                keyPassword = "senicare123"
             }
         }
     }
@@ -72,7 +77,12 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
         }
         debug {
-            signingConfig = signingConfigs.getByName("debug")
+            val releaseConfig = signingConfigs.getByName("release")
+            signingConfig = if (releaseConfig.storeFile != null) {
+                releaseConfig
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

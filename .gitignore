@@ -50,7 +50,7 @@ firebase-key.json
 .env
 functions/.env
 android/key.properties
-android/app/google-services.json
+# android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 STRIPE_KEYS.md
 e2e_live_test.py

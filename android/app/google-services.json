@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "834223742998",
+    "project_id": "senicare-3342d",
+    "storage_bucket": "senicare-3342d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:834223742998:android:b53f8169c429d5d7711537",
+        "android_client_info": {
+          "package_name": "com.example.senicare"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_eC5MRYuwz4qVMnbozWt9UYDQvzOkG_8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
