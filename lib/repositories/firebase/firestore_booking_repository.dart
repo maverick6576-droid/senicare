@@ -10,25 +10,52 @@ class FirestoreBookingRepository implements BookingRepository {
 
   CollectionReference get _collection => _firestore.collection('bookings');
 
+  Query _buildRoleQuery(String userId, String role) {
+    Query query = _collection;
+    if (role == 'client') {
+      query = query.where('clientId', isEqualTo: userId);
+    } else if (role == 'caregiver') {
+      query = query.where('caregiverId', isEqualTo: userId);
+    }
+    return query;
+  }
+
+  bool _isMissingIndexError(Object error) {
+    if (error is FirebaseException && error.code == 'failed-precondition') {
+      return true;
+    }
+    final msg = error.toString().toLowerCase();
+    return msg.contains('failed-precondition') || msg.contains('requires an index');
+  }
+
+  List<Booking> _mapAndSortBookings(QuerySnapshot snapshot, {int? limit}) {
+    final list = snapshot.docs.map((doc) => Booking.fromFirestore(doc)).toList();
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (limit != null && list.length > limit) {
+      return list.take(limit).toList();
+    }
+    return list;
+  }
+
   @override
   Stream<List<Booking>> streamBookings(String userId, String role, {int? limit}) async* {
     try {
-      Query query = _collection;
-      if (role == 'client') {
-        query = query.where('clientId', isEqualTo: userId);
-      } else if (role == 'caregiver') {
-        query = query.where('caregiverId', isEqualTo: userId);
-      }
-      query = query.orderBy('createdAt', descending: true);
-
+      Query indexedQuery = _buildRoleQuery(userId, role).orderBy('createdAt', descending: true);
       if (limit != null) {
-        query = query.limit(limit);
+        indexedQuery = indexedQuery.limit(limit);
       }
-      
-      await for (var snapshot in query.snapshots()) {
-        final list = snapshot.docs.map((doc) => Booking.fromFirestore(doc)).toList();
-        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        yield list;
+
+      try {
+        await for (final snapshot in indexedQuery.snapshots()) {
+          yield _mapAndSortBookings(snapshot);
+        }
+      } catch (e) {
+        if (!_isMissingIndexError(e)) rethrow;
+        debugPrint('⚠️ streamBookings missing index ($e). Falling back to single-field query.');
+        final fallbackQuery = _buildRoleQuery(userId, role);
+        await for (final snapshot in fallbackQuery.snapshots()) {
+          yield _mapAndSortBookings(snapshot, limit: limit);
+        }
       }
     } catch (e) {
       debugPrint('==================================================');

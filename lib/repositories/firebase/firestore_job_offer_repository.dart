@@ -23,18 +23,52 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
     }
   }
 
+  bool _isMissingIndexError(Object error) {
+    if (error is FirebaseException && error.code == 'failed-precondition') {
+      return true;
+    }
+    final msg = error.toString().toLowerCase();
+    return msg.contains('failed-precondition') || msg.contains('requires an index');
+  }
+
+  List<JobOffer> _mapAndSortClientOffers(QuerySnapshot snapshot, {int? limit}) {
+    final list = <JobOffer>[];
+    for (final doc in snapshot.docs) {
+      try {
+        list.add(JobOffer.fromFirestore(doc));
+      } catch (e) {
+        debugPrint('Skipping malformed job offer ${doc.id}: $e');
+      }
+    }
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (limit != null && list.length > limit) {
+      return list.take(limit).toList();
+    }
+    return list;
+  }
+
   @override
-  Stream<List<JobOffer>> streamClientOffers(String clientId, {int limit = 10}) {
-    return _offersRef
+  Stream<List<JobOffer>> streamClientOffers(String clientId, {int limit = 10}) async* {
+    final indexedQuery = _offersRef
         .where('clientId', isEqualTo: clientId)
         .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .snapshots()
-        .map((snapshot) {
-          final list = snapshot.docs.map((doc) => JobOffer.fromFirestore(doc)).toList();
-          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          return list;
-        });
+        .limit(limit);
+
+    try {
+      await for (final snapshot in indexedQuery.snapshots()) {
+        yield _mapAndSortClientOffers(snapshot);
+      }
+    } catch (e) {
+      if (!_isMissingIndexError(e)) {
+        yield* Stream.error(e);
+        return;
+      }
+      debugPrint('⚠️ streamClientOffers missing index ($e). Falling back to single-field query.');
+      final fallbackQuery = _offersRef.where('clientId', isEqualTo: clientId);
+      await for (final snapshot in fallbackQuery.snapshots()) {
+        yield _mapAndSortClientOffers(snapshot, limit: limit);
+      }
+    }
   }
 
   @override
@@ -45,11 +79,15 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
         .map((snapshot) {
       final matches = <({JobOffer offer, double distance})>[];
       for (final doc in snapshot.docs) {
-        final offer = JobOffer.fromFirestore(doc);
-        if (offer.isExpired) continue;
-        final dist = calculateDistance(lat, lng, offer.clientLatitude, offer.clientLongitude);
-        if (dist <= maxDistanceKm) {
-          matches.add((offer: offer, distance: dist));
+        try {
+          final offer = JobOffer.fromFirestore(doc);
+          if (offer.isExpired) continue;
+          final dist = calculateDistance(lat, lng, offer.clientLatitude, offer.clientLongitude);
+          if (dist <= maxDistanceKm) {
+            matches.add((offer: offer, distance: dist));
+          }
+        } catch (e) {
+          debugPrint('Skipping malformed nearby offer ${doc.id}: $e');
         }
       }
 
@@ -121,15 +159,39 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
     }
   }
 
+  List<JobApplication> _mapAndSortApplications(QuerySnapshot snapshot, {int? limit}) {
+    final list = <JobApplication>[];
+    for (final doc in snapshot.docs) {
+      try {
+        list.add(JobApplication.fromFirestore(doc));
+      } catch (e) {
+        debugPrint('Skipping malformed job application ${doc.id}: $e');
+      }
+    }
+    list.sort((a, b) => b.appliedAt.compareTo(a.appliedAt));
+    if (limit != null && list.length > limit) {
+      return list.take(limit).toList();
+    }
+    return list;
+  }
+
   @override
-  Stream<List<JobApplication>> streamOfferApplications(String offerId, {int limit = 20}) {
-    return _offersRef
-        .doc(offerId)
-        .collection('applications')
-        .orderBy('appliedAt', descending: true)
-        .limit(limit)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => JobApplication.fromFirestore(doc)).toList());
+  Stream<List<JobApplication>> streamOfferApplications(String offerId, {int limit = 20}) async* {
+    final appsRef = _offersRef.doc(offerId).collection('applications');
+    final indexedQuery = appsRef.orderBy('appliedAt', descending: true).limit(limit);
+    try {
+      await for (final snapshot in indexedQuery.snapshots()) {
+        yield _mapAndSortApplications(snapshot);
+      }
+    } catch (e) {
+      if (!_isMissingIndexError(e)) {
+        yield* Stream.error(e);
+        return;
+      }
+      await for (final snapshot in appsRef.snapshots()) {
+        yield _mapAndSortApplications(snapshot, limit: limit);
+      }
+    }
   }
 
   @override
@@ -231,9 +293,13 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
       final acceptedSnap = metaResults[1] as QuerySnapshot?;
       if (acceptedSnap != null) {
         for (final doc in acceptedSnap.docs) {
-          final offer = JobOffer.fromFirestore(doc);
-          offerById[offer.id] = offer;
-          offerIds.add(offer.id);
+          try {
+            final offer = JobOffer.fromFirestore(doc);
+            offerById[offer.id] = offer;
+            offerIds.add(offer.id);
+          } catch (e) {
+            debugPrint('Skipping malformed accepted offer ${doc.id}: $e');
+          }
         }
       }
 
@@ -264,7 +330,11 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
       for (int i = 0; i < validOffers.length; i++) {
         final snap = appSnaps[i];
         if (snap != null && snap.docs.isNotEmpty) {
-          entries.add(MapEntry(validOffers[i], JobApplication.fromFirestore(snap.docs.first)));
+          try {
+            entries.add(MapEntry(validOffers[i], JobApplication.fromFirestore(snap.docs.first)));
+          } catch (e) {
+            debugPrint('Skipping malformed application ${snap.docs.first.id}: $e');
+          }
         }
       }
       return entries;

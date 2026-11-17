@@ -369,5 +369,57 @@ void main() {
       expect(FirestoreStatsRepository.calculateCommissionRate(25), 0.12);
       expect(FirestoreStatsRepository.calculateCommissionRate(90), 0.06);
     });
+
+    test('JobOffer & JobApplication parse legacy/mixed types safely without breaking offer streams', () async {
+      final repo = FirestoreJobOfferRepository(firestore: fakeDb);
+      final futureDate = DateTime.now().add(const Duration(days: 3));
+
+      await fakeDb.collection('job_offers').doc('legacy_offer').set({
+        'clientId': 'cli_legacy',
+        'clientName': 'Familia Legacy',
+        'clientLatitude': 41.3851,
+        'clientLongitude': 2.1734,
+        'title': 'Oferta con tipos mixtos',
+        'description': 'Prueba',
+        'pricePerHour': 15,
+        'totalHours': 4.0,
+        'isRecurring': true,
+        'recurringDaysOfWeek': [1.0, 3, '5'],
+        'recurringHoursPerDay': 2.0,
+        'recurringWeeks': 4.0,
+        'startDate': futureDate.toIso8601String(),
+        'status': 'open',
+        'createdAt': futureDate.toIso8601String(),
+      });
+
+      final clientOffers = await repo.streamClientOffers('cli_legacy').first;
+      expect(clientOffers.length, 1);
+      expect(clientOffers.first.totalHours, 4);
+      expect(clientOffers.first.recurringDaysOfWeek, [1, 3, 5]);
+
+      final nearbyOffers = await repo.streamNearbyOffers(41.3851, 2.1734, 20.0).first;
+      expect(nearbyOffers.any((o) => o.id == 'legacy_offer'), isTrue);
+
+      await fakeDb
+          .collection('job_offers')
+          .doc('legacy_offer')
+          .collection('applications')
+          .doc('cg_legacy')
+          .set({
+        'offerId': 'legacy_offer',
+        'caregiverId': 'cg_legacy',
+        'caregiverName': 'Elena',
+        'caregiverRating': 5,
+        'caregiverReviewsCount': 3.0,
+        'proposedPrice': 16,
+        'message': 'Lista para ayudar',
+        'status': 'pending',
+        'appliedAt': futureDate.toIso8601String(),
+      });
+
+      final apps = await repo.streamOfferApplications('legacy_offer').first;
+      expect(apps.length, 1);
+      expect(apps.first.caregiverReviewsCount, 3);
+    });
   });
 }

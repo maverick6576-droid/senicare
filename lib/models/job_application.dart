@@ -29,23 +29,33 @@ class JobApplication {
     required this.appliedAt,
   });
 
+  static DateTime _parseAppliedAt(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String && value.isNotEmpty) {
+      return DateTime.tryParse(value) ?? DateTime.now();
+    }
+    return DateTime.now();
+  }
+
   factory JobApplication.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = (doc.data() as Map<String, dynamic>?) ?? const <String, dynamic>{};
     return JobApplication(
       id: doc.id,
-      offerId: data['offerId'] ?? '',
-      caregiverId: data['caregiverId'] ?? '',
-      caregiverName: data['caregiverName'] ?? '',
-      caregiverImageUrl: data['caregiverImageUrl'] ?? '',
-      caregiverRating: (data['caregiverRating'] ?? 0.0).toDouble(),
-      caregiverReviewsCount: data['caregiverReviewsCount'] ?? 0,
-      message: data['message'] ?? '',
-      proposedPrice: (data['proposedPrice'] ?? 0.0).toDouble(),
+      offerId: data['offerId']?.toString() ?? '',
+      caregiverId: data['caregiverId']?.toString() ?? '',
+      caregiverName: data['caregiverName']?.toString() ?? '',
+      caregiverImageUrl: data['caregiverImageUrl']?.toString() ?? '',
+      caregiverRating: (data['caregiverRating'] as num?)?.toDouble() ?? 0.0,
+      caregiverReviewsCount: (data['caregiverReviewsCount'] as num?)?.toInt() ?? 0,
+      message: data['message']?.toString() ?? '',
+      proposedPrice: (data['proposedPrice'] as num?)?.toDouble() ?? 0.0,
       status: JobApplicationStatus.values.firstWhere(
-        (e) => e.toString().split('.').last == data['status'],
+        (e) => e.toString().split('.').last == data['status']?.toString(),
         orElse: () => JobApplicationStatus.pending,
       ),
-      appliedAt: data['appliedAt'] != null ? (data['appliedAt'] as Timestamp).toDate() : DateTime.now(),
+      appliedAt: _parseAppliedAt(data['appliedAt']),
     );
   }
 

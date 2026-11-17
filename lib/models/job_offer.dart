@@ -74,37 +74,63 @@ class JobOffer {
     required this.createdAt,
   });
 
+  static DateTime? _parseDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String && value.isNotEmpty) return DateTime.tryParse(value);
+    return null;
+  }
+
+  static double _parseDouble(dynamic value, {double fallback = 0.0}) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  static int _parseInt(dynamic value, {int fallback = 0}) {
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
   factory JobOffer.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = (doc.data() as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final rawDays = data['recurringDaysOfWeek'] as List<dynamic>? ?? const [];
+    final parsedDays = rawDays
+        .map((e) => _parseInt(e, fallback: -1))
+        .where((d) => d >= 1 && d <= 7)
+        .toList();
+
     return JobOffer(
       id: doc.id,
-      clientId: data['clientId'] ?? '',
-      clientName: data['clientName'] ?? '',
-      clientLatitude: (data['clientLatitude'] ?? 0.0).toDouble(),
-      clientLongitude: (data['clientLongitude'] ?? 0.0).toDouble(),
-      title: data['title'] ?? '',
-      description: data['description'] ?? '',
-      pricePerHour: (data['pricePerHour'] ?? 0.0).toDouble(),
-      totalHours: data['totalHours'] ?? 0,
-      isRecurring: data['isRecurring'] ?? false,
-      recurringDaysOfWeek: List<int>.from(data['recurringDaysOfWeek'] ?? []),
-      recurringHoursPerDay: data['recurringHoursPerDay'] ?? 0,
-      recurringWeeks: data['recurringWeeks'] ?? 0,
-      recurringStartTime: data['recurringStartTime'] ?? '',
-      startDate: (data['startDate'] as Timestamp).toDate(),
-      endDate: data['endDate'] != null ? (data['endDate'] as Timestamp).toDate() : null,
+      clientId: data['clientId']?.toString() ?? '',
+      clientName: data['clientName']?.toString() ?? '',
+      clientLatitude: _parseDouble(data['clientLatitude']),
+      clientLongitude: _parseDouble(data['clientLongitude']),
+      title: data['title']?.toString() ?? '',
+      description: data['description']?.toString() ?? '',
+      pricePerHour: _parseDouble(data['pricePerHour']),
+      totalHours: _parseInt(data['totalHours']),
+      isRecurring: data['isRecurring'] == true,
+      recurringDaysOfWeek: parsedDays,
+      recurringHoursPerDay: _parseInt(data['recurringHoursPerDay']),
+      recurringWeeks: _parseInt(data['recurringWeeks']),
+      recurringStartTime: data['recurringStartTime']?.toString() ?? '',
+      startDate: _parseDate(data['startDate']) ?? DateTime.now(),
+      endDate: _parseDate(data['endDate']),
       status: JobOfferStatus.values.firstWhere(
-        (e) => e.toString().split('.').last == data['status'],
+        (e) => e.toString().split('.').last == data['status']?.toString(),
         orElse: () => JobOfferStatus.open,
       ),
-      acceptedCaregiverId: data['acceptedCaregiverId'],
-      acceptedApplicationId: data['acceptedApplicationId'],
-      isUrgent: data['isUrgent'] ?? false,
-      urgencyBonusRate: (data['urgencyBonusRate'] ?? 0.0).toDouble(),
-      clientFeeRate: (data['clientFeeRate'] ?? 0.03).toDouble(),
-      paymentIntentId: data['paymentIntentId'],
-      transferGroup: data['transferGroup'],
-      createdAt: data['createdAt'] != null ? (data['createdAt'] as Timestamp).toDate() : DateTime.now(),
+      acceptedCaregiverId: data['acceptedCaregiverId']?.toString(),
+      acceptedApplicationId: data['acceptedApplicationId']?.toString(),
+      isUrgent: data['isUrgent'] == true,
+      urgencyBonusRate: _parseDouble(data['urgencyBonusRate']),
+      clientFeeRate: _parseDouble(data['clientFeeRate'], fallback: 0.03),
+      paymentIntentId: data['paymentIntentId']?.toString(),
+      transferGroup: data['transferGroup']?.toString(),
+      createdAt: _parseDate(data['createdAt']) ?? DateTime.now(),
     );
   }
 

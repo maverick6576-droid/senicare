@@ -167,9 +167,9 @@ service cloud.firestore {
 
       match /applications/{applicationId} {
         allow read: if isAuthenticated() && (
-          isFamilyMember(get(/databases/$(database)/documents/job_offers/$(offerId)).data.clientId) ||
           request.auth.uid == applicationId ||
           resource.data.caregiverId == request.auth.uid ||
+          isFamilyMember(get(/databases/$(database)/documents/job_offers/$(offerId)).data.clientId) ||
           isAdmin()
         );
         allow create: if isAuthenticated() &&
@@ -205,8 +205,10 @@ service cloud.firestore {
       }
 
       allow read: if isAuthenticated() && (
-        isFamilyMember(resource.data.clientId) ||
+        request.auth.uid == resource.data.clientId ||
         request.auth.uid == resource.data.caregiverId ||
+        ('activeFamilyId' in request.auth.token && request.auth.token.activeFamilyId == resource.data.clientId) ||
+        isFamilyMember(resource.data.clientId) ||
         isAdmin()
       );
 

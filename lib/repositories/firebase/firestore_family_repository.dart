@@ -100,14 +100,26 @@ class FirestoreFamilyRepository implements FamilyRepository {
 
   @override
   Future<List<FamilyInvite>> getActiveInvites(String familyId) async {
-    final snap = await _db
-        .collection('family_invites')
-        .where('familyId', isEqualTo: familyId)
-        .where('revoked', isEqualTo: false)
-        .get();
+    QuerySnapshot<Map<String, dynamic>> snap;
+    try {
+      snap = await _db
+          .collection('family_invites')
+          .where('familyId', isEqualTo: familyId)
+          .where('revoked', isEqualTo: false)
+          .get();
+    } catch (e) {
+      final isMissingIndex = (e is FirebaseException && e.code == 'failed-precondition') ||
+          e.toString().toLowerCase().contains('failed-precondition') ||
+          e.toString().toLowerCase().contains('requires an index');
+      if (!isMissingIndex) rethrow;
+      snap = await _db
+          .collection('family_invites')
+          .where('familyId', isEqualTo: familyId)
+          .get();
+    }
     final invites = snap.docs
         .map((doc) => FamilyInvite.fromMap(doc.id, doc.data()))
-        .where((i) => i.isActive)
+        .where((i) => !i.revoked && i.isActive)
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return invites;

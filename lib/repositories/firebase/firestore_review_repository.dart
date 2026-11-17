@@ -31,17 +31,33 @@ class FirestoreReviewRepository implements ReviewRepository {
       firestoreQuery = firestoreQuery.startAfterDocument(lastDoc);
     }
 
-    final querySnapshot = await firestoreQuery.get();
+    try {
+      final querySnapshot = await firestoreQuery.get();
 
-    if (querySnapshot.docs.length < limit) {
+      if (querySnapshot.docs.length < limit) {
+        _hasMoreByCaregiver[caregiverId] = false;
+      }
+
+      if (querySnapshot.docs.isNotEmpty) {
+        _lastDocuments[caregiverId] = querySnapshot.docs.last;
+      }
+
+      return querySnapshot.docs.map((doc) => Review.fromFirestore(doc)).toList();
+    } catch (e) {
+      final isMissingIndex = (e is FirebaseException && e.code == 'failed-precondition') ||
+          e.toString().toLowerCase().contains('failed-precondition') ||
+          e.toString().toLowerCase().contains('requires an index');
+      if (!isMissingIndex) rethrow;
+
+      final fallbackSnap = await _firestore
+          .collection('reviews')
+          .where('caregiverId', isEqualTo: caregiverId)
+          .get();
       _hasMoreByCaregiver[caregiverId] = false;
+      final reviews = fallbackSnap.docs.map((doc) => Review.fromFirestore(doc)).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return reviews.take(limit).toList();
     }
-
-    if (querySnapshot.docs.isNotEmpty) {
-      _lastDocuments[caregiverId] = querySnapshot.docs.last;
-    }
-
-    return querySnapshot.docs.map((doc) => Review.fromFirestore(doc)).toList();
   }
 
   @override
