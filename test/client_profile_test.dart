@@ -525,5 +525,71 @@ void main() {
       expect(find.text('Sin lactosa'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'Inline patient needs editor allows writing and saving notes directly on Mi perfil',
+      (tester) async {
+        final mockClients = MockClientRepository();
+        mockClients.seedClient(
+          ClientProfile(
+            id: 'cli_inline',
+            name: 'Familia Ruiz',
+            phone: '600112233',
+            homeAddress: 'Calle Sol 10, Madrid',
+            patientDetails: '',
+            latitude: 40.41,
+            longitude: -3.70,
+            onboardingComplete: true,
+          ),
+        );
+        DependencyInjection.clients = mockClients;
+
+        final auth = AuthNotifier()
+          ..isAuthenticated = true
+          ..currentUserId = 'cli_inline'
+          ..currentRole = 'client';
+
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthNotifier>.value(value: auth),
+              ChangeNotifierProvider<ConfigNotifier>(create: (_) => ConfigNotifier()),
+            ],
+            child: const MaterialApp(home: ClientProfileEditScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final toggleFinder = find.byKey(const Key('inline_patient_needs_toggle'));
+        await tester.ensureVisible(toggleFinder);
+        await tester.pump();
+        await tester.tap(toggleFinder);
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('inline_patient_needs_field')),
+          'Necesita ayuda para levantarse y tomar su pastilla a las 10:00.',
+        );
+        await tester.pump();
+
+        final saveFinder = find.byKey(const Key('inline_patient_needs_save'));
+        await tester.ensureVisible(saveFinder);
+        await tester.pump();
+        await tester.tap(saveFinder);
+        await tester.pumpAndSettle();
+
+        final updated = await mockClients.getClient('cli_inline');
+        expect(updated, isNotNull);
+        expect(
+          updated!.patientDetails,
+          'Necesita ayuda para levantarse y tomar su pastilla a las 10:00.',
+        );
+        expect(
+          find.text('Necesita ayuda para levantarse y tomar su pastilla a las 10:00.'),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

@@ -37,6 +37,8 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   bool _isQuickSaving = false;
   bool _isResolvingGps = false;
   bool _isEditing = false;
+  bool _isEditingInlineNeeds = false;
+  bool _isSavingInlineNeeds = false;
 
   ClientProfile? _profile;
   String? _loadedUserId;
@@ -1092,6 +1094,39 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     );
   }
 
+  Future<void> _saveInlinePatientNeeds() async {
+    final profile = _profile;
+    if (profile == null || _isSavingInlineNeeds) return;
+    final nextText = _patientDetailsCtrl.text.trim();
+    setState(() => _isSavingInlineNeeds = true);
+    try {
+      await DependencyInjection.clients.updateClient(
+        profile.id,
+        {'patientDetails': nextText},
+      );
+      if (!mounted) return;
+      final updated = profile.copyWith(patientDetails: nextText);
+      setState(() {
+        _profile = updated;
+        _isEditingInlineNeeds = false;
+        _isSavingInlineNeeds = false;
+      });
+      CustomSnackBar.show(
+        context,
+        message: 'Necesidades del paciente guardadas ✓',
+        type: SnackBarType.success,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isSavingInlineNeeds = false);
+      CustomSnackBar.show(
+        context,
+        message: 'No se pudo guardar el cambio. Comprueba tu conexión.',
+        type: SnackBarType.error,
+      );
+    }
+  }
+
   Widget _buildHeaderCard(
     ClientProfile profile,
     List<String> missingItems,
@@ -1105,21 +1140,35 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     final initials = _extractInitials(profile.name);
 
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: AppTheme.modernCardDecoration(radius: 22),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppTheme.primary, Color(0xFF0B6E63)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primary.withValues(alpha: 0.22),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
       child: Column(
         children: [
           Row(
             children: [
               CircleAvatar(
-                radius: isSenior ? 38 : 34,
-                backgroundColor: AppTheme.primarySurface,
+                radius: isSenior ? 34 : 30,
+                backgroundColor: Colors.white.withValues(alpha: 0.2),
                 child: Text(
                   initials,
                   style: TextStyle(
-                    fontSize: isSenior ? 26 : 22,
+                    fontSize: isSenior ? 24 : 20,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.primary,
+                    color: Colors.white,
                   ),
                 ),
               ),
@@ -1133,7 +1182,7 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                       style: TextStyle(
                         fontSize: 20 * fontMult,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.darkSlate,
+                        color: Colors.white,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1142,16 +1191,16 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                         children: [
                           Icon(
                             Icons.phone_outlined,
-                            size: 16 * fontMult,
-                            color: AppTheme.slateMuted,
+                            size: 15 * fontMult,
+                            color: Colors.white.withValues(alpha: 0.9),
                           ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               profile.phone.trim(),
                               style: TextStyle(
-                                fontSize: 14 * fontMult,
-                                color: AppTheme.slateMuted,
+                                fontSize: 13.5 * fontMult,
+                                color: Colors.white.withValues(alpha: 0.9),
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -1163,7 +1212,7 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                         'Añade un teléfono de contacto',
                         style: TextStyle(
                           fontSize: 13 * fontMult,
-                          color: Colors.orange.shade800,
+                          color: Colors.amber.shade200,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1178,15 +1227,15 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: AppTheme.primarySurface,
+                            color: Colors.white.withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
                             'Cuenta Familiar',
                             style: TextStyle(
-                              fontSize: 12.5 * fontMult,
+                              fontSize: 12 * fontMult,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.primary,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -1197,13 +1246,13 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFECFDF5),
+                              color: Colors.white,
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
                               'Listo ✓',
                               style: TextStyle(
-                                fontSize: 12.5 * fontMult,
+                                fontSize: 12 * fontMult,
                                 fontWeight: FontWeight.w700,
                                 color: const Color(0xFF047857),
                               ),
@@ -1223,9 +1272,9 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
               width: double.infinity,
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.primary,
-                  foregroundColor: Colors.white,
-                  minimumSize: Size(double.infinity, isSenior ? 52 : 46),
+                  backgroundColor: Colors.white,
+                  foregroundColor: AppTheme.primary,
+                  minimumSize: Size(double.infinity, isSenior ? 50 : 44),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
@@ -1236,7 +1285,7 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                   'Editar perfil',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 15 * fontMult,
+                    fontSize: 14.5 * fontMult,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -1420,96 +1469,266 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Bloque principal: Persona a cuidar y necesidades personalizadas
-        _ClientSectionCard(
-          title: profile.careRecipientName.trim().isNotEmpty
-              ? 'Cuidados de ${profile.careRecipientName.trim()}'
-              : 'Persona a cuidar y necesidades',
-          icon: Icons.favorite_rounded,
-          fontMult: fontMult,
-          trailing: canEdit
-              ? TextButton.icon(
-                  key: const Key('customize_patient_needs_btn'),
-                  onPressed: () => _showPatientNeedsSheet(profile, fontMult, isSenior),
-                  icon: const Icon(Icons.tune_rounded, size: 17),
-                  label: Text(
-                    'Personalizar',
-                    style: TextStyle(
-                      fontSize: 13.5 * fontMult,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                )
-              : null,
+        // 1. Bloque principal protagonista: Persona a cuidar y necesidades personalizadas
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: AppTheme.primary.withValues(alpha: 0.25),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (profile.mobilityLevel.isNotEmpty ||
-                  profile.cognitiveNeeds.isNotEmpty ||
-                  profile.dietNotes.trim().isNotEmpty) ...[
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface.withValues(alpha: 0.65),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(18),
+                  ),
+                ),
+                child: Row(
                   children: [
-                    if (profile.mobilityLevel.isNotEmpty)
-                      _buildCareMetaPill(
-                        Icons.accessible_forward_rounded,
-                        profile.mobilityLevel,
-                        AppTheme.primary,
-                        fontMult,
+                    const Icon(
+                      Icons.favorite_rounded,
+                      color: AppTheme.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        profile.careRecipientName.trim().isNotEmpty
+                            ? 'Cuidados de ${profile.careRecipientName.trim()}'
+                            : 'Persona a cuidar y necesidades',
+                        style: TextStyle(
+                          fontSize: 15.5 * fontMult,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.darkSlate,
+                        ),
                       ),
-                    if (profile.cognitiveNeeds.isNotEmpty)
-                      _buildCareMetaPill(
-                        Icons.psychology_outlined,
-                        profile.cognitiveNeeds,
-                        Colors.indigo.shade700,
-                        fontMult,
-                      ),
-                    if (profile.dietNotes.trim().isNotEmpty)
-                      _buildCareMetaPill(
-                        Icons.restaurant_rounded,
-                        profile.dietNotes.trim(),
-                        Colors.teal.shade800,
-                        fontMult,
+                    ),
+                    if (canEdit)
+                      TextButton.icon(
+                        key: const Key('customize_patient_needs_btn'),
+                        onPressed: () =>
+                            _showPatientNeedsSheet(profile, fontMult, isSenior),
+                        icon: const Icon(Icons.tune_rounded, size: 17),
+                        label: Text(
+                          'Personalizar',
+                          style: TextStyle(
+                            fontSize: 13.5 * fontMult,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
-              ],
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppTheme.backgroundNeutral,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
-                child: Text(
-                  profile.patientDetails.trim().isEmpty
-                      ? 'Sin especificar. Toca "Personalizar" para describir necesidades, medicación, rutinas o gustos.'
-                      : profile.patientDetails.trim(),
-                  style: TextStyle(
-                    fontSize: 14.5 * fontMult,
-                    color: profile.patientDetails.trim().isEmpty
-                        ? AppTheme.slateMuted
-                        : AppTheme.darkSlate,
-                    height: 1.45,
-                  ),
-                ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                'Solo visible para cuidadores con reserva o solicitud.',
-                style: TextStyle(
-                  fontSize: 12 * fontMult,
-                  color: AppTheme.slateMuted,
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (profile.mobilityLevel.isNotEmpty ||
+                        profile.cognitiveNeeds.isNotEmpty ||
+                        profile.dietNotes.trim().isNotEmpty) ...[
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          if (profile.mobilityLevel.isNotEmpty)
+                            _buildCareMetaPill(
+                              Icons.accessible_forward_rounded,
+                              profile.mobilityLevel,
+                              AppTheme.primary,
+                              fontMult,
+                            ),
+                          if (profile.cognitiveNeeds.isNotEmpty)
+                            _buildCareMetaPill(
+                              Icons.psychology_outlined,
+                              profile.cognitiveNeeds,
+                              Colors.indigo.shade700,
+                              fontMult,
+                            ),
+                          if (profile.dietNotes.trim().isNotEmpty)
+                            _buildCareMetaPill(
+                              Icons.restaurant_rounded,
+                              profile.dietNotes.trim(),
+                              Colors.teal.shade800,
+                              fontMult,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (!_isEditingInlineNeeds) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppTheme.backgroundNeutral,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppTheme.borderSubtle),
+                        ),
+                        child: Text(
+                          profile.patientDetails.trim().isEmpty
+                              ? 'Sin especificar. Escribe aquí las necesidades, medicación, rutinas o gustos del paciente.'
+                              : profile.patientDetails.trim(),
+                          style: TextStyle(
+                            fontSize: 14.5 * fontMult,
+                            color: profile.patientDetails.trim().isEmpty
+                                ? AppTheme.slateMuted
+                                : AppTheme.darkSlate,
+                            height: 1.45,
+                          ),
+                        ),
+                      ),
+                      if (canEdit) ...[
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            key: const Key('inline_patient_needs_toggle'),
+                            onPressed: () {
+                              setState(() {
+                                _patientDetailsCtrl.text =
+                                    profile.patientDetails;
+                                _isEditingInlineNeeds = true;
+                              });
+                            },
+                            icon: const Icon(Icons.edit_note_rounded, size: 18),
+                            label: Text(
+                              profile.patientDetails.trim().isEmpty
+                                  ? 'Escribir necesidades del paciente'
+                                  : 'Editar necesidades',
+                              style: TextStyle(
+                                fontSize: 13.5 * fontMult,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.primary,
+                              side: BorderSide(
+                                color: AppTheme.primary.withValues(alpha: 0.4),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ] else ...[
+                      TextField(
+                        key: const Key('inline_patient_needs_field'),
+                        controller: _patientDetailsCtrl,
+                        maxLines: 4,
+                        minLines: 3,
+                        decoration: InputDecoration(
+                          labelText: 'Necesidades y pautas del paciente',
+                          hintText:
+                              'Ej. Toma medicación a las 9:00, necesita paseo suave tras comer...',
+                          filled: true,
+                          fillColor: AppTheme.backgroundNeutral,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: _patientNoteTemplates.map((tpl) {
+                          return ActionChip(
+                            label: Text(
+                              tpl['label']!,
+                              style: TextStyle(fontSize: 12 * fontMult),
+                            ),
+                            onPressed: () {
+                              final current = _patientDetailsCtrl.text.trim();
+                              final addition = tpl['text']!;
+                              _patientDetailsCtrl.text = current.isEmpty
+                                  ? addition
+                                  : '$current\n$addition';
+                              _patientDetailsCtrl.selection =
+                                  TextSelection.collapsed(
+                                offset: _patientDetailsCtrl.text.length,
+                              );
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: _isSavingInlineNeeds
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _patientDetailsCtrl.text =
+                                          profile.patientDetails;
+                                      _isEditingInlineNeeds = false;
+                                    });
+                                  },
+                            child: const Text('Cancelar'),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              key: const Key('inline_patient_needs_save'),
+                              onPressed: _isSavingInlineNeeds
+                                  ? null
+                                  : _saveInlinePatientNeeds,
+                              icon: _isSavingInlineNeeds
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.check_rounded, size: 18),
+                              label: Text(
+                                _isSavingInlineNeeds
+                                    ? 'Guardando...'
+                                    : 'Guardar notas',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    _buildSeniorPreferencesQuickCard(fontMult),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Solo visible para cuidadores con reserva o solicitud.',
+                      style: TextStyle(
+                        fontSize: 12 * fontMult,
+                        color: AppTheme.slateMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        _buildSeniorPreferencesQuickCard(fontMult),
         const SizedBox(height: 14),
         _buildFamilyDefaultChecklistCard(fontMult, isSenior),
         const SizedBox(height: 14),
@@ -1767,73 +1986,53 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
         .where((e) => e.isNotEmpty)
         .toList();
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.amber.shade50.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.amber.shade300),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.medical_information_rounded,
-                color: Colors.amber.shade900,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Etiquetas Rápidas de Salud y Preferencias',
-                  style: TextStyle(
-                    fontSize: 15 * fontMult,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.amber.shade900,
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Etiquetas rápidas de salud',
+          style: TextStyle(
+            fontSize: 13.5 * fontMult,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.darkSlate,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Toca para añadir o quitar pautas que verá tu cuidador:',
+          style: TextStyle(
+            fontSize: 12 * fontMult,
+            color: AppTheme.slateMuted,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: _healthPreferenceChips.map((chip) {
+            final isPresent = currentTokens.contains(chip);
+            return FilterChip(
+              label: Text(
+                chip,
+                style: TextStyle(
+                  fontSize: 12 * fontMult,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Toca para añadir o quitar pautas rápidas que verá tu cuidador antes de llegar:',
-            style: TextStyle(
-              fontSize: 12.5 * fontMult,
-              color: AppTheme.slateMuted,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _healthPreferenceChips.map((chip) {
-              final isPresent = currentTokens.contains(chip);
-              return FilterChip(
-                label: Text(
-                  chip,
-                  style: TextStyle(
-                    fontSize: 12.5 * fontMult,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                selected: isPresent,
-                backgroundColor: Colors.white,
-                selectedColor: Colors.amber.shade200,
-                checkmarkColor: Colors.amber.shade900,
-                onSelected: _isQuickSaving
-                    ? null
-                    : (selected) {
-                        HapticFeedback.selectionClick();
-                        _togglePreferenceChip(chip, selected);
-                      },
-              );
-            }).toList(),
-          ),
-        ],
-      ),
+              selected: isPresent,
+              backgroundColor: AppTheme.backgroundNeutral,
+              selectedColor: AppTheme.primarySurface,
+              checkmarkColor: AppTheme.primary,
+              onSelected: _isQuickSaving
+                  ? null
+                  : (selected) {
+                      HapticFeedback.selectionClick();
+                      _togglePreferenceChip(chip, selected);
+                    },
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
