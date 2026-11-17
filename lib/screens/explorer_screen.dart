@@ -19,22 +19,41 @@ class ExplorerScreen extends StatefulWidget {
 class _ExplorerScreenState extends State<ExplorerScreen> {
   final ScrollController _scrollController = ScrollController();
   late final TextEditingController _searchController;
+  final FocusNode _searchFocusNode = FocusNode();
   Timer? _searchDebounce;
+  bool _isBookingBannerMinimized = false;
 
   @override
   void initState() {
     super.initState();
     final initialQuery = context.read<CaregiverNotifier>().searchQuery;
     _searchController = TextEditingController(text: initialQuery);
+    _isBookingBannerMinimized = initialQuery.trim().isNotEmpty;
+    _searchFocusNode.addListener(_onSearchFocusChanged);
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _searchFocusNode.removeListener(_onSearchFocusChanged);
+    _searchFocusNode.dispose();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onSearchFocusChanged() {
+    if (_searchFocusNode.hasFocus && !_isBookingBannerMinimized && mounted) {
+      setState(() => _isBookingBannerMinimized = true);
+    }
+  }
+
+  void _minimizeBookingBannerAndFocusSearch() {
+    if (mounted) {
+      setState(() => _isBookingBannerMinimized = true);
+    }
+    _searchFocusNode.requestFocus();
   }
 
   void _onScroll() {
@@ -83,6 +102,58 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     }
   }
 
+  List<Booking> _sortedConfirmedBookings(List<Booking> bookings) {
+    final sorted = List<Booking>.from(bookings);
+    sorted.sort((a, b) {
+      int rank(Booking bk) {
+        if (bk.checkInTime != null || bk.liveStatus == 'in_progress') {
+          return 0;
+        }
+        if (bk.liveStatus == 'on_the_way') return 1;
+        return 2;
+      }
+
+      final rCmp = rank(a).compareTo(rank(b));
+      if (rCmp != 0) return rCmp;
+      final dtA = a.scheduledStartTime ?? a.createdAt;
+      final dtB = b.scheduledStartTime ?? b.createdAt;
+      return dtA.compareTo(dtB);
+    });
+    return sorted;
+  }
+
+  String _formatBookingFriendlyDay(Booking b) {
+    final start = b.scheduledStartTime;
+    if (start == null) return b.day;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    final target = DateTime(start.year, start.month, start.day);
+    final shortDate =
+        '${start.day.toString().padLeft(2, '0')}/${start.month.toString().padLeft(2, '0')}';
+    if (target == today) return 'Hoy ($shortDate)';
+    if (target == tomorrow) return 'Mañana ($shortDate)';
+    const weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    return '${weekdays[(start.weekday - 1).clamp(0, 6)]} $shortDate';
+  }
+
+  void _openBookingInReservas(Booking booking) {
+    HapticFeedback.selectionClick();
+    pendingBookingFocus.value = {'bookingId': booking.id};
+    pendingTrackingBookingId.value = booking.id;
+    if (!MainLayout.switchTab(context, 2)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Reservas')),
+            body: const BookingsScreen(),
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final caregiverState = context.watch<CaregiverNotifier>();
@@ -92,9 +163,14 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     final bookingState = context.watch<BookingNotifier>();
     final isSenior = configState.seniorMode;
 
-    final activeClientBookings = bookingState.bookings
-        .where((b) => b.isActive && b.status == BookingStatus.confirmed)
-        .toList();
+    final sortedConfirmedBookings = _sortedConfirmedBookings(
+      bookingState.bookings
+          .where((b) => b.isActive && b.status == BookingStatus.confirmed)
+          .toList(),
+    );
+    final hasConfirmedBooking = sortedConfirmedBookings.isNotEmpty;
+    final showExpandedBooking =
+        hasConfirmedBooking && !_isBookingBannerMinimized;
 
     return Scaffold(
       body: Column(
@@ -103,20 +179,157 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
             context,
             auth: auth,
             caregiverState: caregiverState,
+            confirmedBookings: sortedConfirmedBookings,
+            showExpandedBooking: showExpandedBooking,
             isSenior: isSenior,
           ),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: caregiverState.refreshCaregivers,
-              child: _buildBody(
-                context,
-                caregiverState: caregiverState,
-                locationState: locationState,
-                auth: auth,
-                activeClientBookings: activeClientBookings,
-                isSenior: isSenior,
+            child: Stack(
+              children: [
+                IgnorePointer(
+                  ignoring: showExpandedBooking,
+                  child: Column(
+                    children: [
+                      if (showExpandedBooking)
+                        _buildFilterAndMapRow(
+                          context,
+                          caregiverState: caregiverState,
+                          isSenior: isSenior,
+                          horizontalPadding: 16,
+                          topPadding: 10,
+                          bottomPadding: 4,
+                        ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: caregiverState.refreshCaregivers,
+                          child: _buildBody(
+                            context,
+                            caregiverState: caregiverState,
+                            locationState: locationState,
+                            auth: auth,
+                            isSenior: isSenior,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (showExpandedBooking)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      key: const Key('explorer_booking_backdrop'),
+                      onTap: _minimizeBookingBannerAndFocusSearch,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 220),
+                        opacity: 1.0,
+                        child: Container(
+                          color: AppTheme.darkSlate.withValues(alpha: 0.45),
+                          alignment: Alignment.topCenter,
+                          padding: const EdgeInsets.only(top: 18, left: 24, right: 24),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              'Pulsa "Buscar cuidador" si deseas buscar otro profesional',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: isSenior ? 13.5 : 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.darkSlate,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterAndMapRow(
+    BuildContext context, {
+    required CaregiverNotifier caregiverState,
+    required bool isSenior,
+    double horizontalPadding = 0,
+    double topPadding = 0,
+    double bottomPadding = 0,
+  }) {
+    final filterCount = caregiverState.activeFilterSheetCount;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        topPadding,
+        horizontalPadding,
+        bottomPadding,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              key: const Key('explorer_filter_button'),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: filterCount > 0
+                    ? AppTheme.primary
+                    : AppTheme.primarySurface,
+                foregroundColor:
+                    filterCount > 0 ? Colors.white : AppTheme.primary,
+                side: BorderSide(
+                  color: AppTheme.primary.withValues(alpha: 0.35),
+                ),
+                minimumSize: Size(0, isSenior ? 48 : 44),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.tune_rounded, size: 20),
+              label: Text(
+                filterCount > 0 ? 'Filtros ($filterCount)' : 'Filtrar',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: isSenior ? 15 : 13.5,
+                ),
+              ),
+              onPressed: () => _showFilterSheet(context, caregiverState),
+            ),
+          ),
+          const SizedBox(width: 10),
+          OutlinedButton.icon(
+            key: const Key('explorer_map_button'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: Size(0, isSenior ? 48 : 44),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
+            icon: const Icon(Icons.map_outlined, size: 18),
+            label: Text(
+              'Mapa',
+              style: TextStyle(
+                fontSize: isSenior ? 15 : 13.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MapScreen()),
+              );
+            },
           ),
         ],
       ),
@@ -127,14 +340,11 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     BuildContext context, {
     required AuthNotifier auth,
     required CaregiverNotifier caregiverState,
+    required List<Booking> confirmedBookings,
+    required bool showExpandedBooking,
     required bool isSenior,
   }) {
-    final theme = Theme.of(context);
-    final clientAddress = auth.currentClient?.homeAddress.trim() ?? '';
-    final locationLabel = auth.currentRole == 'client' && clientAddress.isNotEmpty
-        ? clientAddress
-        : 'Tu zona actual';
-    final filterCount = caregiverState.activeFilterSheetCount;
+    final hasConfirmed = confirmedBookings.isNotEmpty;
 
     return Container(
       key: auth.currentRole == 'client'
@@ -146,221 +356,88 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
         border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: AppTheme.primarySurface,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.location_on_rounded,
-                  color: AppTheme.primary,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  locationLabel,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: isSenior ? 16 : 14,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: Size(0, isSenior ? 44 : 38),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
-                icon: const Icon(Icons.map_outlined, size: 17),
-                label: Text(
-                  'Mapa',
-                  style: TextStyle(
-                    fontSize: isSenior ? 15 : 13.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const MapScreen()),
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _searchController,
-                  builder: (context, value, _) {
-                    return TextField(
-                      controller: _searchController,
-                      onChanged: (q) => _onSearchChanged(caregiverState, q),
-                      style: TextStyle(fontSize: isSenior ? 17 : 15),
-                      decoration: InputDecoration(
-                        hintText: 'Buscar cuidador, zona o cuidado...',
-                        hintStyle: TextStyle(fontSize: isSenior ? 16 : 14),
-                        prefixIcon: const Icon(
-                          Icons.search_rounded,
-                          color: AppTheme.primary,
-                        ),
-                        suffixIcon: value.text.isNotEmpty
-                            ? IconButton(
-                                tooltip: 'Limpiar búsqueda',
-                                icon: const Icon(Icons.clear_rounded, size: 20),
-                                onPressed: () {
-                                  _searchDebounce?.cancel();
-                                  _searchController.clear();
-                                  caregiverState.setSearchQuery('');
-                                },
-                              )
-                            : null,
-                        filled: true,
-                        fillColor: AppTheme.backgroundNeutral,
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: isSenior ? 14 : 11,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                            color: AppTheme.borderSubtle,
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                            color: AppTheme.borderSubtle,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton.icon(
-                key: const Key('explorer_filter_button'),
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: filterCount > 0
-                      ? AppTheme.primary
-                      : AppTheme.primarySurface,
-                  foregroundColor:
-                      filterCount > 0 ? Colors.white : AppTheme.primary,
-                  side: BorderSide(
-                    color: AppTheme.primary.withValues(alpha: 0.35),
-                  ),
-                  minimumSize: Size(0, isSenior ? 52 : 46),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                icon: const Icon(Icons.tune_rounded, size: 20),
-                label: Text(
-                  filterCount > 0 ? 'Filtros ($filterCount)' : 'Filtrar',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: isSenior ? 15 : 13.5,
-                  ),
-                ),
-                onPressed: () => _showFilterSheet(context, caregiverState),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: FilterChip(
-                    avatar: Icon(
-                      Icons.near_me_rounded,
-                      size: 16,
-                      color: caregiverState.sortOption ==
-                              CaregiverSortOption.distanceAsc
-                          ? Colors.white
-                          : AppTheme.primary,
+          if (hasConfirmed) ...[
+            AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeInOut,
+              child: showExpandedBooking
+                  ? _buildFeaturedBookingCard(
+                      context,
+                      confirmedBookings,
+                      isSenior: isSenior,
+                    )
+                  : _buildMiniBookingBanner(
+                      context,
+                      confirmedBookings,
+                      isSenior: isSenior,
                     ),
-                    selected: caregiverState.sortOption ==
-                        CaregiverSortOption.distanceAsc,
-                    showCheckmark: false,
-                    backgroundColor: AppTheme.primarySurface,
-                    selectedColor: AppTheme.primary,
-                    side: BorderSide(
-                      color: AppTheme.primary.withValues(alpha: 0.3),
-                    ),
-                    label: Text(
-                      'Más cercanos',
-                      style: TextStyle(
-                        fontSize: isSenior ? 14.5 : 13,
-                        fontWeight: FontWeight.w700,
-                        color: caregiverState.sortOption ==
-                                CaregiverSortOption.distanceAsc
-                            ? Colors.white
-                            : AppTheme.primary,
-                      ),
-                    ),
-                    onSelected: (selected) {
-                      HapticFeedback.selectionClick();
-                      caregiverState.setSortOption(
-                        selected
-                            ? CaregiverSortOption.distanceAsc
-                            : CaregiverSortOption.recommended,
-                      );
-                    },
-                  ),
-                ),
-                ...caregiverState.availableSpecialties.map((spec) {
-                  final isSelected = caregiverState.selectedSpecialty == spec;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8.0),
-                    child: FilterChip(
-                      label: Text(
-                        spec,
-                        style: TextStyle(
-                          fontSize: isSenior ? 14.5 : 13,
-                        ),
-                      ),
-                      selected: isSelected,
-                      onSelected: (_) {
-                        HapticFeedback.selectionClick();
-                        caregiverState.toggleSpecialty(spec);
-                      },
-                      selectedColor: AppTheme.primary.withValues(alpha: 0.16),
-                      checkmarkColor: AppTheme.primary,
-                      labelStyle: TextStyle(
-                        color: isSelected
-                            ? AppTheme.primary
-                            : AppTheme.darkSlate,
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.w500,
-                      ),
-                    ),
-                  );
-                }),
-              ],
             ),
+            SizedBox(height: showExpandedBooking ? 12 : 8),
+          ],
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _searchController,
+            builder: (context, value, _) {
+              return TextField(
+                key: const Key('explorer_search_field'),
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                onTap: () {
+                  if (hasConfirmed && !_isBookingBannerMinimized) {
+                    setState(() => _isBookingBannerMinimized = true);
+                  }
+                },
+                onChanged: (q) => _onSearchChanged(caregiverState, q),
+                style: TextStyle(fontSize: isSenior ? 17 : 15),
+                decoration: InputDecoration(
+                  hintText: 'Buscar cuidador',
+                  hintStyle: TextStyle(fontSize: isSenior ? 16 : 14.5),
+                  prefixIcon: const Icon(
+                    Icons.search_rounded,
+                    color: AppTheme.primary,
+                  ),
+                  suffixIcon: value.text.isNotEmpty
+                      ? IconButton(
+                          tooltip: 'Limpiar búsqueda',
+                          icon: const Icon(Icons.clear_rounded, size: 20),
+                          onPressed: () {
+                            _searchDebounce?.cancel();
+                            _searchController.clear();
+                            caregiverState.setSearchQuery('');
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: AppTheme.backgroundNeutral,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: isSenior ? 14 : 11,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: AppTheme.borderSubtle,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: AppTheme.borderSubtle,
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
+          if (!showExpandedBooking) ...[
+            const SizedBox(height: 10),
+            _buildFilterAndMapRow(
+              context,
+              caregiverState: caregiverState,
+              isSenior: isSenior,
+            ),
+          ],
         ],
       ),
     );
@@ -371,7 +448,6 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     required CaregiverNotifier caregiverState,
     required LocationNotifier locationState,
     required AuthNotifier auth,
-    required List<Booking> activeClientBookings,
     required bool isSenior,
   }) {
     if (caregiverState.caregivers.isEmpty &&
@@ -419,22 +495,10 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
           1 + results.length + (caregiverState.isFetchingCaregivers ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == 0) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (activeClientBookings.isNotEmpty)
-                _buildWeeklyCareSummaryBanner(
-                  context,
-                  activeClientBookings,
-                  isSenior: isSenior,
-                ),
-              _buildAssistantBanner(context, caregiverState, isSenior: isSenior),
-              _buildResultsSummaryRow(
-                caregiverState,
-                count: results.length,
-                isSenior: isSenior,
-              ),
-            ],
+          return _buildResultsSummaryRow(
+            caregiverState,
+            count: results.length,
+            isSenior: isSenior,
           );
         }
 
@@ -593,79 +657,6 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
           ],
         ),
       ],
-    );
-  }
-
-  Widget _buildAssistantBanner(
-    BuildContext context,
-    CaregiverNotifier caregiverState, {
-    required bool isSenior,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () {
-          GuidedMatchingWizard.show(
-            context,
-            caregivers: caregiverState.caregivers,
-            onSelectCaregiver: _openCaregiverProfile,
-            onApplyFilters: (specs, maxRate) {
-              caregiverState.setMaxPriceFilter(maxRate.clamp(6.0, 50.0));
-              caregiverState.setSpecialty(
-                specs.isNotEmpty ? specs.first : 'Todos',
-              );
-            },
-          );
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppTheme.primarySurface.withValues(alpha: 0.75),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: AppTheme.primary.withValues(alpha: 0.24),
-            ),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.auto_awesome_rounded,
-                color: AppTheme.primary,
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '¿No sabes a quién elegir?',
-                      style: TextStyle(
-                        fontSize: isSenior ? 16 : 14,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.darkSlate,
-                      ),
-                    ),
-                    Text(
-                      'Te recomendamos 3 cuidadores ideales en 3 pasos',
-                      style: TextStyle(
-                        fontSize: isSenior ? 14 : 12.5,
-                        color: AppTheme.slateMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 15,
-                color: AppTheme.primary,
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -867,43 +858,54 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 6),
-                        Row(
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 6,
+                          runSpacing: 4,
                           children: [
-                            const Icon(
-                              Icons.star_rounded,
-                              color: AppTheme.amber,
-                              size: 18,
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.star_rounded,
+                                  color: AppTheme.amber,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${c.rating.toStringAsFixed(1)} (${c.reviewsCount})',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: isSenior ? 14.5 : 13,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 3),
-                            Text(
-                              '${c.rating.toStringAsFixed(1)} (${c.reviewsCount})',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: isSenior ? 14.5 : 13,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
                             const Text(
                               '•',
                               style: TextStyle(color: AppTheme.slateMuted),
                             ),
-                            const SizedBox(width: 8),
-                            const Icon(
-                              Icons.near_me_rounded,
-                              size: 14,
-                              color: AppTheme.primary,
-                            ),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                distanceText,
-                                style: TextStyle(
-                                  fontSize: isSenior ? 14 : 12.5,
-                                  color: AppTheme.slateMuted,
-                                  fontWeight: FontWeight.w600,
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.near_me_rounded,
+                                  size: 14,
+                                  color: AppTheme.primary,
                                 ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                                const SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(
+                                    distanceText,
+                                    style: TextStyle(
+                                      fontSize: isSenior ? 14 : 12.5,
+                                      color: AppTheme.slateMuted,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1045,122 +1047,228 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     );
   }
 
-  Widget _buildWeeklyCareSummaryBanner(
+  Widget _buildFeaturedBookingCard(
     BuildContext context,
-    List<Booking> activeBookings, {
+    List<Booking> confirmedBookings, {
     required bool isSenior,
   }) {
-    final sorted = List<Booking>.from(activeBookings)
-      ..sort((a, b) {
-        int rank(Booking bk) {
-          if (bk.checkInTime != null || bk.liveStatus == 'in_progress') {
-            return 0;
-          }
-          if (bk.liveStatus == 'on_the_way') return 1;
-          return 2;
-        }
-
-        return rank(a).compareTo(rank(b));
-      });
-
-    final nextBooking = sorted.first;
+    final nextBooking = confirmedBookings.first;
     final bool isInProgress =
         nextBooking.checkInTime != null ||
         nextBooking.liveStatus == 'in_progress';
     final bool isOnTheWay = nextBooking.liveStatus == 'on_the_way';
 
-    Color statusColor = AppTheme.primary;
-    String statusLabel =
-        'Próxima visita: ${nextBooking.day} (${nextBooking.slot})';
-    if (isInProgress) {
-      statusColor = AppTheme.secondaryColor;
-      statusLabel =
-          'En domicilio ahora con ${nextBooking.caregiverName}';
-    } else if (isOnTheWay) {
-      statusColor = Colors.orange.shade800;
-      statusLabel =
-          '${nextBooking.caregiverName} está en camino al domicilio';
-    }
+    final String statusTag = isInProgress
+        ? 'EN DOMICILIO AHORA'
+        : isOnTheWay
+            ? 'CUIDADOR EN CAMINO'
+            : 'RESERVA CONFIRMADA';
+    final IconData statusIcon = isInProgress
+        ? Icons.verified_user_rounded
+        : isOnTheWay
+            ? Icons.directions_car_rounded
+            : Icons.event_available_rounded;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      key: const Key('explorer_booking_featured_card'),
+      padding: EdgeInsets.all(isSenior ? 16 : 15),
       decoration: BoxDecoration(
-        color: statusColor.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: statusColor.withValues(alpha: 0.3),
-          width: 1.5,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppTheme.primary, AppTheme.secondaryColor],
         ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primary.withValues(alpha: 0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          HapticFeedback.selectionClick();
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => Scaffold(
-                appBar: AppBar(
-                  title: const Text('Resumen y Diario del Cuidado'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                body: const BookingsScreen(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(statusIcon, size: 14, color: Colors.white),
+                    const SizedBox(width: 5),
+                    Text(
+                      statusTag,
+                      style: TextStyle(
+                        fontSize: isSenior ? 12 : 11,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.16),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isInProgress
-                    ? Icons.verified_user_rounded
-                    : isOnTheWay
-                        ? Icons.directions_car_rounded
-                        : Icons.event_available_rounded,
-                color: statusColor,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Resumen semanal (${activeBookings.length} ${activeBookings.length == 1 ? 'reserva activa' : 'reservas activas'})',
+              if (confirmedBookings.length > 1)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Más próxima (1 de ${confirmedBookings.length})',
                     style: TextStyle(
-                      fontSize: isSenior ? 13.5 : 12,
-                      fontWeight: FontWeight.w800,
-                      color: statusColor,
+                      fontSize: isSenior ? 12 : 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    statusLabel,
-                    style: TextStyle(
-                      fontSize: isSenior ? 16 : 14,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.darkSlate,
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            nextBooking.caregiverName,
+            style: TextStyle(
+              fontSize: isSenior ? 21 : 19,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.schedule_rounded, size: 16, color: Colors.white70),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${_formatBookingFriendlyDay(nextBooking)} · ${nextBooking.slot}',
+                  style: TextStyle(
+                    fontSize: isSenior ? 15.5 : 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white.withValues(alpha: 0.95),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _openBookingInReservas(nextBooking),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppTheme.primary,
+                    elevation: 0,
+                    minimumSize: Size(0, isSenior ? 46 : 42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    maxLines: 2,
+                  ),
+                  icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                  label: Text(
+                    'Ver reserva',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: isSenior ? 15 : 13.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniBookingBanner(
+    BuildContext context,
+    List<Booking> confirmedBookings, {
+    required bool isSenior,
+  }) {
+    final nextBooking = confirmedBookings.first;
+    final bool isInProgress =
+        nextBooking.checkInTime != null ||
+        nextBooking.liveStatus == 'in_progress';
+    final bool isOnTheWay = nextBooking.liveStatus == 'on_the_way';
+
+    return Container(
+      key: const Key('explorer_booking_mini_banner'),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppTheme.primary, AppTheme.secondaryColor],
+        ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _openBookingInReservas(nextBooking),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  isInProgress
+                      ? Icons.verified_user_rounded
+                      : isOnTheWay
+                          ? Icons.directions_car_rounded
+                          : Icons.event_available_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Reserva: ${nextBooking.caregiverName} · ${_formatBookingFriendlyDay(nextBooking)} (${nextBooking.slot})',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: isSenior ? 14 : 12.5,
+                    ),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  key: const Key('explorer_booking_expand_button'),
+                  tooltip: 'Ampliar reserva',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                  onPressed: () {
+                    _searchFocusNode.unfocus();
+                    setState(() => _isBookingBannerMinimized = false);
+                  },
+                  icon: const Icon(
+                    Icons.unfold_more_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.arrow_forward_ios_rounded,
-              size: 15,
-              color: statusColor,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1182,6 +1290,14 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
             final priceLabel =
                 clampedPrice >= 50.0 ? 'Sin límite' : '${clampedPrice.round()}€/h';
             final matchingCount = notifier.filteredCaregivers.length;
+            const ratingOptions = <double>[0.0, 3.0, 4.0, 4.5];
+            final currentRatingValue = ratingOptions.contains(notifier.minRatingFilter)
+                ? notifier.minRatingFilter
+                : 0.0;
+            final currentSpecialty =
+                notifier.availableSpecialties.contains(notifier.selectedSpecialty)
+                    ? notifier.selectedSpecialty
+                    : 'Todos';
 
             return SafeArea(
               child: SingleChildScrollView(
@@ -1280,9 +1396,46 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                         }
                       },
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
 
-                    // 2. PRECIO MÁXIMO
+                    // 2. ESPECIALIDAD (antes píldoras bajo el buscador)
+                    Text(
+                      'Tipo de cuidado / Especialidad',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: isSenior ? 18 : 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      key: const Key('explorer_specialty_dropdown'),
+                      isExpanded: true,
+                      initialValue: currentSpecialty,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      items: notifier.availableSpecialties.map((spec) {
+                        return DropdownMenuItem<String>(
+                          value: spec,
+                          child: Text(
+                            spec == 'Todos' ? 'Todas las especialidades' : spec,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setSheetState(() => notifier.setSpecialty(val));
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 18),
+
+                    // 3. PRECIO MÁXIMO
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -1320,7 +1473,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    // 3. VALORACIÓN MÍNIMA
+                    // 4. VALORACIÓN MÍNIMA (desplegable)
                     Text(
                       'Valoración mínima',
                       style: TextStyle(
@@ -1329,38 +1482,34 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [0.0, 3.0, 4.0, 4.5].map((rating) {
-                        final isSelected = notifier.minRatingFilter == rating;
-                        final label = rating == 0.0 ? 'Cualquiera' : '$rating ★';
-                        return ChoiceChip(
-                          label: Text(
+                    DropdownButtonFormField<double>(
+                      key: const Key('explorer_rating_dropdown'),
+                      isExpanded: true,
+                      initialValue: currentRatingValue,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      items: ratingOptions.map((rating) {
+                        final label = rating == 0.0
+                            ? 'Cualquiera'
+                            : '${rating.toStringAsFixed(1)} ★ o más';
+                        return DropdownMenuItem<double>(
+                          value: rating,
+                          child: Text(
                             label,
-                            style: TextStyle(fontSize: isSenior ? 15 : 13.5),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          selected: isSelected,
-                          selectedColor:
-                              AppTheme.primary.withValues(alpha: 0.2),
-                          checkmarkColor: AppTheme.primary,
-                          labelStyle: TextStyle(
-                            color: isSelected
-                                ? AppTheme.primary
-                                : AppTheme.darkSlate,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
-                          onSelected: (val) {
-                            if (val) {
-                              setSheetState(
-                                () => notifier.setMinRatingFilter(rating),
-                              );
-                            }
-                          },
                         );
                       }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setSheetState(() => notifier.setMinRatingFilter(val));
+                        }
+                      },
                     ),
                     const SizedBox(height: 16),
 

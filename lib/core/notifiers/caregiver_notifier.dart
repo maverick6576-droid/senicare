@@ -70,6 +70,7 @@ class CaregiverNotifier extends ChangeNotifier {
   int get activeFilterSheetCount {
     int count = 0;
     if (sortOption != CaregiverSortOption.recommended) count++;
+    if (selectedSpecialty != 'Todos') count++;
     if (maxPriceFilter < 50.0) count++;
     if (minRatingFilter > 0.0) count++;
     if (ignoreDistanceLimit) count++;
@@ -99,11 +100,17 @@ class CaregiverNotifier extends ChangeNotifier {
   }
 
   void resetFilters() {
+    final needsRefetch = selectedSpecialty != 'Todos';
+    selectedSpecialty = 'Todos';
     sortOption = CaregiverSortOption.recommended;
     maxPriceFilter = 50.0;
     minRatingFilter = 0.0;
     ignoreDistanceLimit = false;
-    notifyListeners();
+    if (needsRefetch) {
+      _fetchInitialCaregivers();
+    } else {
+      notifyListeners();
+    }
   }
 
   void resetAllFilters() {

@@ -7,6 +7,7 @@ import 'package:senicare/core/core.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 import 'package:senicare/screens/screens.dart';
+import 'package:senicare/widgets/widgets.dart';
 
 class _TestStatsRepository implements FirestoreStatsRepository {
   @override
@@ -254,7 +255,7 @@ void main() {
 
   group('ExplorerScreen UI, filters & Senior Mode', () {
     testWidgets(
-      'syncs pre-existing search, preserves price/rating filters when toggling Más cercanos, and clears filters',
+      'hides street & assistant banner, places Buscar cuidador at top with Filtrar below, and filters via specialty/rating dropdowns',
       (tester) async {
         tester.view.physicalSize = const Size(1080, 2200);
         tester.view.devicePixelRatio = 1.0;
@@ -286,24 +287,48 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 300));
 
-        // Header shows client address and keeps search input in sync with notifier
-        expect(find.text('Carrer d’Aragó 200, Barcelona'), findsOneWidget);
+        // Street address and "¿No sabes a quién elegir?" are removed; search hint is "Buscar cuidador".
+        expect(find.text('Carrer d’Aragó 200, Barcelona'), findsNothing);
+        expect(find.text('¿No sabes a quién elegir?'), findsNothing);
+        expect(find.text('Buscar cuidador'), findsOneWidget);
         expect(find.text('Elena'), findsWidgets);
         expect(find.text('Filtros (1)'), findsOneWidget);
+
+        // Search bar is above the Filtrar button.
+        final searchTop = tester.getTopLeft(find.byKey(const Key('explorer_search_field'))).dy;
+        final filterTop = tester.getTopLeft(find.byKey(const Key('explorer_filter_button'))).dy;
+        expect(filterTop, greaterThan(searchTop));
 
         // Clearing search via X restores list
         await tester.tap(find.byTooltip('Limpiar búsqueda'));
         await tester.pump(const Duration(milliseconds: 300));
         expect(notifier.searchQuery, '');
 
-        // Toggling 'Más cercanos' keeps maxPriceFilter == 20.0 (does NOT wipe user filters!)
-        await tester.tap(find.text('Más cercanos'));
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(notifier.sortOption, CaregiverSortOption.distanceAsc);
-        expect(notifier.maxPriceFilter, 20.0);
-        expect(find.text('Filtros (2)'), findsOneWidget);
+        // Open filter sheet and select 'Distancia: Más cercanos', specialty 'Movilidad' & rating '4.5' via dropdowns!
+        await tester.tap(find.byKey(const Key('explorer_filter_button')));
+        await tester.pumpAndSettle();
 
-        // María (22€) is excluded because maxPriceFilter is still 20€
+        expect(find.byKey(const Key('explorer_specialty_dropdown')), findsOneWidget);
+        expect(find.byKey(const Key('explorer_rating_dropdown')), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('explorer_specialty_dropdown')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Movilidad').last);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('explorer_rating_dropdown')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('4.5 ★ o más').last);
+        await tester.pumpAndSettle();
+
+        expect(notifier.selectedSpecialty, 'Movilidad');
+        expect(notifier.minRatingFilter, 4.5);
+        expect(notifier.maxPriceFilter, 20.0);
+
+        await tester.tap(find.text('Ver 1 cuidador'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Filtros (3)'), findsOneWidget);
         expect(find.text('María Fernández'), findsNothing);
 
         // Cleaning filters brings María back
@@ -312,6 +337,105 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
         expect(find.text('María Fernández'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'shows nearest confirmed booking in large corporate green above search with dimmed background, and shrinks above search on tap',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 640);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final soonerDay = DateTime.now().add(const Duration(days: 1));
+        final laterDay = DateTime.now().add(const Duration(days: 5));
+        String fmtDay(DateTime d) =>
+            '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+        await mockBookings.createBooking(
+          Booking(
+            id: 'bk_later',
+            clientId: 'client_1',
+            caregiverId: 'cg_2',
+            caregiverName: 'Javier Domínguez',
+            day: fmtDay(laterDay),
+            slot: '16:00-18:00',
+            cost: 30,
+            clientFee: 1,
+            caregiverCommissionRate: 0.18,
+            caregiverCommissionAmount: 5,
+            caregiverPayout: 25,
+            totalPaid: 31,
+            status: BookingStatus.confirmed,
+          ),
+        );
+        await mockBookings.createBooking(
+          Booking(
+            id: 'bk_sooner',
+            clientId: 'client_1',
+            caregiverId: 'cg_1',
+            caregiverName: 'María Fernández',
+            day: fmtDay(soonerDay),
+            slot: '09:00-12:00',
+            cost: 60,
+            clientFee: 2,
+            caregiverCommissionRate: 0.18,
+            caregiverCommissionAmount: 10,
+            caregiverPayout: 50,
+            totalPaid: 62,
+            status: BookingStatus.confirmed,
+          ),
+        );
+
+        final auth = AuthNotifier()
+          ..isAuthenticated = true
+          ..currentUserId = 'client_1'
+          ..currentRole = 'client';
+        final bookingNotifier = BookingNotifier()..updateAuth('client_1', 'client');
+        final caregiverNotifier = CaregiverNotifier()..updateLocation(41.3851, 2.1734);
+        final config = ConfigNotifier()..toggleSeniorMode(true);
+
+        await tester.pumpWidget(
+          buildExplorerHarness(
+            auth: auth,
+            caregiverNotifier: caregiverNotifier,
+            bookingNotifier: bookingNotifier,
+            config: config,
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+
+        // Large featured booking card shows nearest booking ('María Fernández', 1 de 2) above search, with dimmed backdrop.
+        expect(find.byKey(const Key('explorer_booking_featured_card')), findsOneWidget);
+        expect(find.byKey(const Key('explorer_booking_backdrop')), findsOneWidget);
+        expect(find.text('María Fernández'), findsWidgets);
+        expect(find.text('Más próxima (1 de 2)'), findsOneWidget);
+
+        final cardTop =
+            tester.getTopLeft(find.byKey(const Key('explorer_booking_featured_card'))).dy;
+        final searchTop =
+            tester.getTopLeft(find.byKey(const Key('explorer_search_field'))).dy;
+        expect(searchTop, greaterThan(cardTop));
+        expect(tester.takeException(), isNull);
+
+        // Tapping the search bar shrinks the booking banner above search and dismisses the backdrop.
+        await tester.tap(find.byKey(const Key('explorer_search_field')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('explorer_booking_featured_card')), findsNothing);
+        expect(find.byKey(const Key('explorer_booking_backdrop')), findsNothing);
+        expect(find.byKey(const Key('explorer_booking_mini_banner')), findsOneWidget);
+        expect(find.byKey(const Key('explorer_filter_button')), findsOneWidget);
+
+        final miniTop =
+            tester.getTopLeft(find.byKey(const Key('explorer_booking_mini_banner'))).dy;
+        final searchTopAfter =
+            tester.getTopLeft(find.byKey(const Key('explorer_search_field'))).dy;
+        expect(searchTopAfter, greaterThan(miniTop));
+        expect(tester.takeException(), isNull);
+
+        bookingNotifier.dispose();
       },
     );
 
@@ -394,29 +518,40 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
 
-        final auth = AuthNotifier()
-          ..isAuthenticated = true
-          ..currentUserId = 'client_bcn'
-          ..currentRole = 'client'
-          ..currentClient = ClientProfile(
-            id: 'client_bcn',
-            name: 'Sofía Vidal',
-            phone: '+34600555666',
-            patientDetails: 'Mi abuelo',
-            homeAddress: 'Barcelona',
-            latitude: 41.3851,
-            longitude: 2.1734,
-            onboardingComplete: true,
-          );
-
         final notifier = CaregiverNotifier()..updateLocation(41.3851, 2.1734);
 
         await tester.pumpWidget(
-          buildExplorerHarness(auth: auth, caregiverNotifier: notifier),
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<CaregiverNotifier>.value(value: notifier),
+            ],
+            child: MaterialApp(
+              home: Builder(
+                builder: (ctx) => Scaffold(
+                  body: ElevatedButton(
+                    onPressed: () {
+                      GuidedMatchingWizard.show(
+                        ctx,
+                        caregivers: notifier.caregivers,
+                        onSelectCaregiver: (_) {},
+                        onApplyFilters: (specs, maxRate) {
+                          notifier.setMaxPriceFilter(maxRate.clamp(6.0, 50.0));
+                          notifier.setSpecialty(
+                            specs.isNotEmpty ? specs.first : 'Todos',
+                          );
+                        },
+                      );
+                    },
+                    child: const Text('Abrir asistente'),
+                  ),
+                ),
+              ),
+            ),
+          ),
         );
         await tester.pump(const Duration(milliseconds: 200));
 
-        await tester.tap(find.text('¿No sabes a quién elegir?'));
+        await tester.tap(find.text('Abrir asistente'));
         await tester.pumpAndSettle();
 
         // Step 1 -> Step 2
@@ -443,7 +578,7 @@ void main() {
         // Properly mapped to 'Movilidad' instead of 'Movilidad reducida', showing real results!
         expect(notifier.selectedSpecialty, 'Movilidad');
         expect(notifier.filteredCaregivers, isNotEmpty);
-        expect(find.text('Elena Sanz'), findsOneWidget);
+        expect(notifier.filteredCaregivers.any((c) => c.name == 'Elena Sanz'), isTrue);
       },
     );
   });
