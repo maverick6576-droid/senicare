@@ -1,8 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
+import 'package:senicare/screens/screens.dart';
 
 void main() {
   late MockBookingRepository mockRepo;
@@ -10,6 +13,7 @@ void main() {
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
     mockRepo = MockBookingRepository();
+    DependencyInjection.auth = MockAuthRepository();
     DependencyInjection.bookings = mockRepo;
   });
 
@@ -227,6 +231,174 @@ void main() {
       expect(updated.careNotes, 'Paciente comió bien y descansó.');
 
       notifier.dispose();
+    });
+  });
+
+  group('Flexible schedule availability & automatic salary calculation', () {
+    test('computeAvailableIntervals clips past hours, rejects yesterday, and subtracts booked intervals', () {
+      final now = DateTime(2026, 6, 15, 10, 15);
+      final yesterday = DateTime(2026, 6, 14);
+      final today = DateTime(2026, 6, 15);
+
+      final slots = [
+        TimeSlot(
+          id: 'flex_1',
+          dateTime: DateTime(2026, 6, 15, 9, 0),
+          endTime: DateTime(2026, 6, 15, 16, 30),
+          isAvailable: true,
+        ),
+        TimeSlot(
+          id: 'booked_1',
+          dateTime: DateTime(2026, 6, 15, 12, 0),
+          endTime: DateTime(2026, 6, 15, 13, 30),
+          isAvailable: false,
+        ),
+      ];
+
+      expect(
+        FlexibleScheduleHelper.computeAvailableIntervals(
+          day: yesterday,
+          slots: slots,
+          now: now,
+        ),
+        isEmpty,
+      );
+
+      final result = FlexibleScheduleHelper.computeAvailableIntervals(
+        day: today,
+        slots: slots,
+        now: now,
+      );
+      expect(result.length, 2);
+      expect(result[0].startFormatted, '10:15');
+      expect(result[0].endFormatted, '12:00');
+      expect(result[1].startFormatted, '13:30');
+      expect(result[1].endFormatted, '16:30');
+    });
+
+    test('computeExactCost calculates proportional salary with 4h+ discount', () {
+      // 12 €/h × 2h 30min = 30.00 €
+      expect(
+        FlexibleScheduleHelper.computeExactCost(
+          pricePerHour: 12.0,
+          durationMinutes: 150,
+        ),
+        30.00,
+      );
+      // 12 €/h × 4h 30min × 0.95 = 51.30 €
+      expect(
+        FlexibleScheduleHelper.computeExactCost(
+          pricePerHour: 12.0,
+          durationMinutes: 270,
+        ),
+        51.30,
+      );
+    });
+
+    testWidgets('CaregiverCalendarScreen blocks yesterday and offers flexible slot creation', (tester) async {
+      final mockCaregivers = MockCaregiverRepository();
+      DependencyInjection.caregivers = mockCaregivers;
+      final auth = AuthNotifier()
+        ..isAuthenticated = true
+        ..currentUserId = 'cg_flex'
+        ..currentRole = 'caregiver';
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthNotifier>.value(value: auth),
+            ChangeNotifierProvider<ConfigNotifier>.value(value: ConfigNotifier()),
+          ],
+          child: const MaterialApp(home: CaregiverCalendarScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final picker = tester.widget<CalendarDatePicker>(find.byType(CalendarDatePicker));
+      final now = DateTime.now();
+      final todayOnly = DateTime(now.year, now.month, now.day);
+      expect(picker.firstDate, todayOnly);
+      expect(find.byKey(const Key('add_flexible_slot_btn')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('CaregiverDetailScreen displays flexible availability and automatic salary preview', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final mockCaregivers = MockCaregiverRepository();
+      DependencyInjection.caregivers = mockCaregivers;
+      DependencyInjection.reviews = MockReviewRepository();
+
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+      final dayStr =
+          '${tomorrow.year}-${tomorrow.month.toString().padLeft(2, '0')}-${tomorrow.day.toString().padLeft(2, '0')}';
+
+      await mockCaregivers.setBatchTimeSlots('cg_flex_detail', dayStr, [
+        TimeSlot(
+          id: 'flex_tomorrow',
+          dateTime: DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 30),
+          endTime: DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 12, 0),
+          isAvailable: true,
+        ),
+      ]);
+
+      final caregiver = CaregiverProfile(
+        id: 'cg_flex_detail',
+        name: 'Marta Soler',
+        title: 'Auxiliar de Geriatría',
+        bio: 'Experiencia en cuidados a domicilio',
+        pricePerHour: 12.0,
+        rating: 4.9,
+        reviewsCount: 5,
+        distance: '1.2 km',
+        imageUrl: '',
+        specialties: ['Acompañamiento'],
+        verified: true,
+        availableSlots: {},
+        verificationStatus: 'approved',
+        stripeAccountId: 'acct_test_123',
+      );
+
+      final auth = AuthNotifier()
+        ..isAuthenticated = true
+        ..currentUserId = 'client_1'
+        ..currentRole = 'client';
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthNotifier>.value(value: auth),
+            ChangeNotifierProvider<ConfigNotifier>.value(value: ConfigNotifier()),
+            ChangeNotifierProvider<LocationNotifier>(create: (_) => LocationNotifier()),
+          ],
+          child: MaterialApp(home: CaregiverDetailScreen(caregiver: caregiver)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Seleccionar mañana en el calendario (el PageView de CalendarDatePicker renderiza también el mes siguiente a la derecha)
+      final pickerFinder = find.byType(CalendarDatePicker);
+      await tester.ensureVisible(pickerFinder);
+      await tester.pump();
+      if (tomorrow.month == DateTime.now().month) {
+        final tomorrowFinder = find.descendant(
+          of: pickerFinder,
+          matching: find.text('${tomorrow.day}'),
+        ).first;
+        await tester.tap(tomorrowFinder);
+      } else {
+        tester.widget<CalendarDatePicker>(pickerFinder).onDateChanged(tomorrow);
+      }
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('dynamic_salary_preview_card')));
+      await tester.pump();
+      expect(find.byKey(const Key('dynamic_salary_preview_card')), findsOneWidget);
+      expect(find.textContaining('09:30 - 12:00'), findsWidgets);
+      expect(find.textContaining('30.00 €'), findsOneWidget);
+      expect(find.byKey(const Key('reserve_flexible_btn')), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }

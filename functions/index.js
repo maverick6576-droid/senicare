@@ -659,15 +659,19 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
         throw new functions.https.HttpsError("invalid-argument", `Franja horaria inválida: ${slot}`);
       }
       const parsedHours = (endDt.getTime() - startDt.getTime()) / (3600 * 1000);
-      if (!Number.isFinite(parsedHours) || parsedHours < 1 || parsedHours > 24) {
-        throw new functions.https.HttpsError("invalid-argument", `Duración de sesión inválida: ${slot}`);
+      if (!Number.isFinite(parsedHours) || parsedHours < 0.5 || parsedHours > 24) {
+        throw new functions.https.HttpsError("invalid-argument", `Duración de sesión inválida (mínimo 30 min): ${slot}`);
       }
       normalizedSessions.push({
         day,
         slot,
+        startMs: startDt.getTime(),
+        endMs: endDt.getTime(),
         hours: Math.round(parsedHours * 100) / 100,
         startHour: startDt.getHours(),
-        endHour: endDt.getHours() === 0 && endDt.getDate() !== startDt.getDate() ? 24 : endDt.getHours(),
+        endHour: endDt.getHours() === 0 && endDt.getDate() !== startDt.getDate()
+          ? 24
+          : (endDt.getMinutes() > 0 ? endDt.getHours() + 1 : endDt.getHours()),
       });
     }
 
@@ -925,16 +929,46 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
         // Persist bookings, secrets, caregiver client access and slot locks atomically
         await db.runTransaction(async (tx) => {
           const slotChecks = [];
+          const existingDayBookings = [];
           if (!offerId) {
+            const uniqueDays = [...new Set(bookingsToCreate.map((b) => b.session.day))];
+            for (const d of uniqueDays) {
+              const q = db.collection("bookings")
+                .where("caregiverId", "==", caregiverId)
+                .where("day", "==", d)
+                .where("status", "in", ["pendingPayment", "pending", "confirmed"]);
+              const snap = await tx.get(q);
+              snap.docs.forEach((docSnap) => {
+                existingDayBookings.push(docSnap.data() || {});
+              });
+            }
+
             for (const item of bookingsToCreate) {
-              const { day, startHour, endHour } = item.session;
-              for (let h = startHour; h < endHour; h++) {
-                const hh = String(h).padStart(2, "0") + ":00";
-                const slotDocId = `${day}_${hh}`;
-                const slotRef = db.collection("caregivers").doc(caregiverId)
-                  .collection("availability").doc(day)
-                  .collection("slots").doc(slotDocId);
-                slotChecks.push({ slotRef, hh, day, slotDocId, bookingId: item.ref.id });
+              const { day, startMs, endMs, startHour, endHour } = item.session;
+
+              // 1) Verificar solapamiento real contra reservas activas del cuidador ese día
+              for (const existing of existingDayBookings) {
+                const exStart = parseBookingStartDateTime(existing.day, existing.slot);
+                const exEnd = parseBookingEndDateTime(existing.day, existing.slot);
+                if (exStart && exEnd && startMs < exEnd.getTime() && endMs > exStart.getTime()) {
+                  throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    `El horario ${item.session.slot} (${day}) se solapa con otra reserva ya existente.`
+                  );
+                }
+              }
+
+              // 2) Comprobar disponibilidad horaria legacy si el slot es de horas exactas
+              const isExactHour = new Date(startMs).getMinutes() === 0 && new Date(endMs).getMinutes() === 0;
+              if (isExactHour) {
+                for (let h = startHour; h < endHour; h++) {
+                  const hh = String(h).padStart(2, "0") + ":00";
+                  const slotDocId = `${day}_${hh}`;
+                  const slotRef = db.collection("caregivers").doc(caregiverId)
+                    .collection("availability").doc(day)
+                    .collection("slots").doc(slotDocId);
+                  slotChecks.push({ slotRef, hh, day, slotDocId, bookingId: item.ref.id });
+                }
               }
             }
           }
@@ -958,6 +992,24 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
               lockedByBookingId: sc.bookingId,
               updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             }, { merge: true });
+          }
+
+          // Registrar bloqueo exacto por intervalo para franjas flexibles
+          if (!offerId) {
+            for (const item of bookingsToCreate) {
+              const { day, startMs, endMs } = item.session;
+              const blockRef = db.collection("caregivers").doc(caregiverId)
+                .collection("availability").doc(day)
+                .collection("slots").doc(`booked_${item.ref.id}`);
+              tx.set(blockRef, {
+                id: `booked_${item.ref.id}`,
+                dateTime: admin.firestore.Timestamp.fromMillis(startMs),
+                endTime: admin.firestore.Timestamp.fromMillis(endMs),
+                isAvailable: false,
+                lockedByBookingId: item.ref.id,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+            }
           }
 
           for (const item of bookingsToCreate) {
@@ -1104,7 +1156,19 @@ async function reopenBookingSlots(caregiverId, day, slotRange) {
     const endDt = parseBookingEndDateTime(day, slotRange);
     if (slotRange.includes("-") && startDt && endDt && endDt.getTime() > startDt.getTime()) {
       const batch = admin.firestore().batch();
-      const totalHours = Math.min(24, Math.max(1, Math.round((endDt.getTime() - startDt.getTime()) / (3600 * 1000))));
+      const daySlotsSnap = await cgRef.doc(day).collection("slots").get();
+      daySlotsSnap.docs.forEach((sDoc) => {
+        if (sDoc.id.startsWith("booked_")) {
+          const sData = sDoc.data() || {};
+          const sStart = sData.dateTime?.toDate ? sData.dateTime.toDate().getTime() : null;
+          const sEnd = sData.endTime?.toDate ? sData.endTime.toDate().getTime() : null;
+          if (sStart && sEnd && sStart === startDt.getTime() && sEnd === endDt.getTime()) {
+            batch.delete(sDoc.ref);
+          }
+        }
+      });
+
+      const totalHours = Math.min(24, Math.max(1, Math.ceil((endDt.getTime() - startDt.getTime()) / (3600 * 1000))));
       for (let i = 0; i < totalHours; i++) {
         const current = new Date(startDt.getTime() + i * 3600 * 1000);
         const dayStr = formatYmd(current);

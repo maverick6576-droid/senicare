@@ -24,9 +24,16 @@ class CaregiverDetailScreen extends StatefulWidget {
 }
 
 class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
-  DateTime _selectedDate = DateTime.now();
+  DateTime _selectedDate = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
   List<TimeSlot> _slots = [];
   final List<TimeSlot> _selectedSlots = [];
+  TimeInterval? _activeInterval;
+  DateTime? _customStartTime;
+  DateTime? _customEndTime;
   List<Review> _reviews = [];
   bool _isLoading = false;
   bool _isLoadingReviews = false;
@@ -495,13 +502,20 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                   decoration: AppTheme.modernCardDecoration(),
                   child: CalendarDatePicker(
                     initialDate: _selectedDate,
-                    firstDate: DateTime.now(),
+                    firstDate: DateTime(
+                      DateTime.now().year,
+                      DateTime.now().month,
+                      DateTime.now().day,
+                    ),
                     lastDate: DateTime.now().add(const Duration(days: 90)),
                     onDateChanged: (date) {
                       HapticFeedback.selectionClick();
                       setState(() {
                         _selectedDate = date;
                         _selectedSlots.clear();
+                        _activeInterval = null;
+                        _customStartTime = null;
+                        _customEndTime = null;
                       });
                       _loadSlots();
                     },
@@ -510,96 +524,328 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                 const SizedBox(height: 16),
                 Builder(
                   builder: (context) {
-                    final now = DateTime.now();
-                    final isToday = _selectedDate.year == now.year && _selectedDate.month == now.month && _selectedDate.day == now.day;
-                    
-                    final availableSlots = _slots.where((s) {
-                      if (!s.isAvailable) return false;
-                      if (isToday) {
-                        return s.dateTime.isAfter(now.add(const Duration(hours: 2)));
-                      }
-                      return true;
-                    }).toList();
+                    if (_isLoading) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-                    if (_isLoading) return const Center(child: CircularProgressIndicator());
-                    if (availableSlots.isEmpty) return const Text('No hay horarios disponibles para este día.');
-                    
+                    final now = DateTime.now();
+                    final intervals = FlexibleScheduleHelper.computeAvailableIntervals(
+                      day: _selectedDate,
+                      slots: _slots,
+                      now: now,
+                    );
+
+                    if (intervals.isEmpty) {
+                      return const Text('No hay horarios disponibles para este día.');
+                    }
+
+                    // Seleccionar automáticamente el primer intervalo disponible si no hay ninguno o cambió
+                    TimeInterval? chosenInterval = _activeInterval;
+                    if (chosenInterval == null ||
+                        !intervals.any((it) =>
+                            it.start == chosenInterval!.start &&
+                            it.end == chosenInterval.end)) {
+                      chosenInterval = intervals.first;
+                    }
+
+                    final DateTime selStart = _customStartTime != null &&
+                            !_customStartTime!.isBefore(chosenInterval.start) &&
+                            _customStartTime!.isBefore(chosenInterval.end)
+                        ? _customStartTime!
+                        : chosenInterval.start;
+                    final DateTime selEnd = _customEndTime != null &&
+                            !_customEndTime!.isAfter(chosenInterval.end) &&
+                            _customEndTime!.isAfter(selStart)
+                        ? _customEndTime!
+                        : chosenInterval.end;
+
+                    final int durationMinutes = selEnd.difference(selStart).inMinutes;
+                    final double exactHours = durationMinutes / 60.0;
+                    final bool validDuration = durationMinutes >= 30;
+                    final bool minTwoHoursOk = c.pricePerHour >= 8 || durationMinutes >= 120;
+                    final double estimatedServicePay =
+                        FlexibleScheduleHelper.computeExactCost(
+                      pricePerHour: c.pricePerHour,
+                      durationMinutes: durationMinutes,
+                      applyFourHourDiscount: true,
+                    );
+                    final double estimatedTotalClient =
+                        ((estimatedServicePay * 1.03) * 100).roundToDouble() / 100.0;
+                    final selectedInterval = TimeInterval(start: selStart, end: selEnd);
+
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text(
+                          'Franjas disponibles del cuidador:',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.darkSlate,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         Wrap(
-                          spacing: 8, runSpacing: 8,
-                          children: availableSlots.map((slot) {
-                            final timeStr = '${slot.dateTime.hour.toString().padLeft(2, '0')}:${slot.dateTime.minute.toString().padLeft(2, '0')}';
-                            final isSelected = _selectedSlots.contains(slot);
-                            return FilterChip(
-                              label: Text(timeStr),
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: intervals.map((interval) {
+                            final isSelected = interval.start == chosenInterval!.start &&
+                                interval.end == chosenInterval.end;
+                            return ChoiceChip(
+                              label: Text('${interval.formattedRange} (${interval.formattedDuration})'),
                               selected: isSelected,
-                              onSelected: (selected) {
+                              onSelected: (_) {
                                 HapticFeedback.selectionClick();
                                 setState(() {
-                                  if (selected) {
-                                    _selectedSlots.add(slot);
-                                    _selectedSlots.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-                                  } else {
-                                    _selectedSlots.remove(slot);
-                                  }
+                                  _activeInterval = interval;
+                                  _customStartTime = interval.start;
+                                  _customEndTime = interval.end;
                                 });
                               },
                               backgroundColor: AppTheme.backgroundNeutral,
                               selectedColor: AppTheme.primary.withValues(alpha: 0.2),
-                              checkmarkColor: AppTheme.primary,
-                              side: BorderSide(color: isSelected ? AppTheme.primary : Colors.grey.shade300),
+                              side: BorderSide(
+                                color: isSelected ? AppTheme.primary : Colors.grey.shade300,
+                              ),
                             );
                           }).toList(),
                         ),
-                        if (_selectedSlots.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          if (c.pricePerHour < 8 && _selectedSlots.length < 2)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
-                              child: Text(
-                                'Por favor, selecciona un mínimo de 2 horas para poder reservar con esta tarifa.',
-                                style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
-                                textAlign: TextAlign.center,
+                        const SizedBox(height: 16),
+                        Text(
+                          'Elige tu horario exacto dentro de esa franja:',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.darkSlate,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                key: const Key('client_pick_start_time_btn'),
+                                onPressed: () async {
+                                  final picked = await showTimePicker(
+                                    context: context,
+                                    initialTime: TimeOfDay.fromDateTime(selStart),
+                                  );
+                                  if (picked == null) return;
+                                  final candidate = DateTime(
+                                    _selectedDate.year,
+                                    _selectedDate.month,
+                                    _selectedDate.day,
+                                    picked.hour,
+                                    picked.minute,
+                                  );
+                                  if (candidate.isBefore(chosenInterval!.start) ||
+                                      !candidate.isBefore(chosenInterval.end)) {
+                                    if (context.mounted) {
+                                      CustomSnackBar.show(
+                                        context,
+                                        message:
+                                            'Elige una hora de inicio dentro de ${chosenInterval.formattedRange}.',
+                                        type: SnackBarType.warning,
+                                      );
+                                    }
+                                    return;
+                                  }
+                                  setState(() {
+                                    _activeInterval = chosenInterval;
+                                    _customStartTime = candidate;
+                                    if (!selEnd.isAfter(candidate)) {
+                                      _customEndTime = chosenInterval!.end;
+                                    }
+                                  });
+                                },
+                                icon: const Icon(Icons.login_rounded, size: 17),
+                                label: Text('Desde ${TimeInterval.formatHm(selStart)}'),
                               ),
                             ),
-                          if (!c.hasStripeAccount)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
-                              child: Text(
-                                'Este cuidador no tiene cuenta bancaria configurada.',
-                                style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
-                                textAlign: TextAlign.center,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                key: const Key('client_pick_end_time_btn'),
+                                onPressed: () async {
+                                  final picked = await showTimePicker(
+                                    context: context,
+                                    initialTime: TimeOfDay.fromDateTime(selEnd),
+                                  );
+                                  if (picked == null) return;
+                                  final candidate = DateTime(
+                                    _selectedDate.year,
+                                    _selectedDate.month,
+                                    _selectedDate.day,
+                                    picked.hour,
+                                    picked.minute,
+                                  );
+                                  if (!candidate.isAfter(selStart) ||
+                                      candidate.isAfter(chosenInterval!.end)) {
+                                    if (context.mounted) {
+                                      CustomSnackBar.show(
+                                        context,
+                                        message:
+                                            'Elige una hora de salida posterior a ${TimeInterval.formatHm(selStart)} y hasta ${chosenInterval!.endFormatted}.',
+                                        type: SnackBarType.warning,
+                                      );
+                                    }
+                                    return;
+                                  }
+                                  setState(() {
+                                    _activeInterval = chosenInterval;
+                                    _customStartTime = selStart;
+                                    _customEndTime = candidate;
+                                  });
+                                },
+                                icon: const Icon(Icons.logout_rounded, size: 17),
+                                label: Text('Hasta ${TimeInterval.formatHm(selEnd)}'),
                               ),
                             ),
-                          if (!(auth?.canManageFamilyPayments ?? true))
-                            Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 10),
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.shade50,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.amber.shade300),
-                              ),
-                              child: const Text(
-                                'Tu rol es Familiar colaborador. Solo un Administrador de la familia puede confirmar pagos y reservas.',
-                                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                                textAlign: TextAlign.center,
-                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          key: const Key('dynamic_salary_preview_card'),
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primarySurface,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: AppTheme.primary.withValues(alpha: 0.35),
                             ),
-                          SizedBox(
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Horario: ${selectedInterval.formattedRange}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.darkSlate,
+                                    ),
+                                  ),
+                                  Text(
+                                    selectedInterval.formattedDuration,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Sueldo del servicio (${c.pricePerHour.toStringAsFixed(2)} €/h × ${exactHours.toStringAsFixed(2)} h${exactHours >= 4.0 ? " · -5% bono" : ""}): ${estimatedServicePay.toStringAsFixed(2)} €',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.slateMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Total con cobertura plataforma (3%): ${estimatedTotalClient.toStringAsFixed(2)} €',
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        if (!validDuration)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: Text(
+                              'La duración mínima de reserva es de 30 minutos.',
+                              style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        if (!minTwoHoursOk)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: Text(
+                              'Por favor, selecciona un mínimo de 2 horas para poder reservar con esta tarifa.',
+                              style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        if (!c.hasStripeAccount)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: Text(
+                              'Este cuidador no tiene cuenta bancaria configurada.',
+                              style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        if (!(auth?.canManageFamilyPayments ?? true))
+                          Container(
                             width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: (auth?.canManageFamilyPayments ?? true) && (c.pricePerHour >= 8 || _selectedSlots.length >= 2) && c.hasStripeAccount ? () {
-                                final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-                                Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentScreen(caregiver: c, dateString: dateStr, slots: _selectedSlots)));
-                              } : null,
-                              child: Text('Reservar ${_selectedSlots.length} hora${_selectedSlots.length > 1 ? 's' : ''}'),
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.amber.shade300),
                             ),
-                          )
-                        ]
+                            child: const Text(
+                              'Tu rol es Familiar colaborador. Solo un Administrador de la familia puede confirmar pagos y reservas.',
+                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            key: const Key('reserve_flexible_btn'),
+                            onPressed: (auth?.canManageFamilyPayments ?? true) &&
+                                    validDuration &&
+                                    minTwoHoursOk &&
+                                    c.hasStripeAccount
+                                ? () {
+                                    final dateStr =
+                                        '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+                                    final matchingSlots = _slots.where((s) {
+                                      final sStart = s.dateTime;
+                                      final sEnd = s.effectiveEndTime;
+                                      return s.isAvailable &&
+                                          sStart.isBefore(selEnd) &&
+                                          sEnd.isAfter(selStart);
+                                    }).toList();
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => PaymentScreen(
+                                          caregiver: c,
+                                          dateString: dateStr,
+                                          slots: matchingSlots.isNotEmpty
+                                              ? matchingSlots
+                                              : [
+                                                  TimeSlot(
+                                                    id: 'flex_sel',
+                                                    dateTime: selStart,
+                                                    endTime: selEnd,
+                                                  ),
+                                                ],
+                                          customStartTime: selStart,
+                                          customEndTime: selEnd,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            child: Text(
+                              'Reservar ${selectedInterval.formattedDuration} · ${estimatedTotalClient.toStringAsFixed(2)} €',
+                            ),
+                          ),
+                        ),
                       ],
                     );
                   }

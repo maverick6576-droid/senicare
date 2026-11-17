@@ -14,8 +14,17 @@ class PaymentScreen extends StatefulWidget {
   final CaregiverProfile caregiver;
   final String dateString;
   final List<TimeSlot> slots;
+  final DateTime? customStartTime;
+  final DateTime? customEndTime;
 
-  const PaymentScreen({super.key, required this.caregiver, required this.dateString, required this.slots});
+  const PaymentScreen({
+    super.key,
+    required this.caregiver,
+    required this.dateString,
+    required this.slots,
+    this.customStartTime,
+    this.customEndTime,
+  });
 
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
@@ -34,12 +43,27 @@ class _PaymentScreenState extends State<PaymentScreen> {
   // Tracks booking IDs created in Firestore so we can delete them on rollback.
   final List<String> _createdBookingIds = [];
 
+  bool get _hasCustomRange =>
+      widget.customStartTime != null &&
+      widget.customEndTime != null &&
+      widget.customEndTime!.isAfter(widget.customStartTime!);
+
+  double get _exactHours {
+    if (_hasCustomRange) {
+      return widget.customEndTime!
+              .difference(widget.customStartTime!)
+              .inMinutes /
+          60.0;
+    }
+    return widget.slots.length.toDouble();
+  }
+
   @override
   void initState() {
     super.initState();
     final client = context.read<AuthNotifier>().currentClient;
     _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
-    _applyPackDiscount = widget.slots.length >= 4;
+    _applyPackDiscount = _exactHours >= 4.0;
     _loadStats();
     _detectPlatformPay();
   }
@@ -143,14 +167,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
       return;
     }
-    final bool isPackEligible = widget.slots.length >= 4;
+    final bool isPackEligible = _exactHours >= 4.0;
     _applyPackDiscount = isPackEligible;
     final double caregiverCommissionRate =
         FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
-    final int totalHours = widget.slots.length;
+    final double totalHours = _exactHours;
     final double discountMultiplier = isPackEligible ? 0.95 : 1.0;
-    final double baseCost = widget.caregiver.pricePerHour * totalHours * discountMultiplier;
-    double total = baseCost * 1.03;
+    final double baseCost =
+        ((widget.caregiver.pricePerHour * totalHours * discountMultiplier) * 100)
+                .roundToDouble() /
+            100.0;
+    double total = ((baseCost * 1.03) * 100).roundToDouble() / 100.0;
     final double? homeLat = auth.currentClient?.latitude ?? location.latitude;
     final double? homeLon = auth.currentClient?.longitude ?? location.longitude;
 
@@ -213,20 +240,30 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
       // Flujo seguro de producción: precios, comisiones, bloqueo de franjas y PIN en Cloud Function
       try {
-        final sessionsPayload = groupedSlots.map((group) {
-          final startSlot = group.first;
-          final endSlot = group.last;
-          final endDateTime = endSlot.dateTime.add(const Duration(hours: 1));
-          final startTimeStr =
-              '${startSlot.dateTime.hour.toString().padLeft(2, '0')}:${startSlot.dateTime.minute.toString().padLeft(2, '0')}';
-          final endTimeStr =
-              '${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
-          return {
-            'day': widget.dateString,
-            'slot': '$startTimeStr-$endTimeStr',
-            'totalHours': group.length,
-          };
-        }).toList();
+        final sessionsPayload = _hasCustomRange
+            ? [
+                {
+                  'day': widget.dateString,
+                  'slot':
+                      '${TimeInterval.formatHm(widget.customStartTime!)}-${TimeInterval.formatHm(widget.customEndTime!)}',
+                  'totalHours': _exactHours,
+                }
+              ]
+            : groupedSlots.map((group) {
+                final startSlot = group.first;
+                final endSlot = group.last;
+                final endDateTime =
+                    endSlot.dateTime.add(const Duration(hours: 1));
+                final startTimeStr =
+                    '${startSlot.dateTime.hour.toString().padLeft(2, '0')}:${startSlot.dateTime.minute.toString().padLeft(2, '0')}';
+                final endTimeStr =
+                    '${endDateTime.hour.toString().padLeft(2, '0')}:${endDateTime.minute.toString().padLeft(2, '0')}';
+                return {
+                  'day': widget.dateString,
+                  'slot': '$startTimeStr-$endTimeStr',
+                  'totalHours': group.length,
+                };
+              }).toList();
 
         final created = await StripeService.createSecureBooking(
           caregiverId: widget.caregiver.id,
@@ -611,8 +648,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     }
 
-    final int totalHours = widget.slots.length;
-    final double rawBaseCost = widget.caregiver.pricePerHour * totalHours;
+    final double totalHours = _exactHours;
+    final double rawBaseCost =
+        ((widget.caregiver.pricePerHour * totalHours) * 100).roundToDouble() /
+            100.0;
     final double packDiscountAmount = _applyPackDiscount ? rawBaseCost * 0.05 : 0.0;
     final double baseCost = rawBaseCost - packDiscountAmount;
     final double clientFee = baseCost * 0.03;
@@ -652,9 +691,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.darkSlate),
                       ),
                       Text(
-                        widget.slots.length >= 4
-                            ? 'Activado automáticamente: ahorras ${currencyFormat.format(packDiscountAmount)} (reserva de ${widget.slots.length}h)'
-                            : 'Disponible automáticamente al reservar 4 horas o más (llevas ${widget.slots.length}h)',
+                        totalHours >= 4.0
+                            ? 'Activado automáticamente: ahorras ${currencyFormat.format(packDiscountAmount)} (reserva de ${totalHours.toStringAsFixed(totalHours % 1 == 0 ? 0 : 2)}h)'
+                            : 'Disponible automáticamente al reservar 4 horas o más (llevas ${totalHours.toStringAsFixed(totalHours % 1 == 0 ? 0 : 2)}h)',
                         style: const TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
                       ),
                     ],
