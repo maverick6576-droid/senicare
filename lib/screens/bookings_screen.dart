@@ -1418,6 +1418,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                   isClient,
                   state,
                   allBookings,
+                  isActiveTab: isActiveTab,
                 );
                 if (primaryBtn == null) return const SizedBox.shrink();
                 return Padding(
@@ -2195,8 +2196,9 @@ class _BookingsScreenState extends State<BookingsScreen>
     Booking b,
     bool isClient,
     BookingNotifier state,
-    List<Booking> bookings,
-  ) {
+    List<Booking> bookings, {
+    bool isActiveTab = true,
+  }) {
     final bool isBusy = _busyBookingIds.contains(b.id);
     if (isClient) {
       final seniorMode = context.watch<ConfigNotifier>().seniorMode;
@@ -2280,34 +2282,65 @@ class _BookingsScreenState extends State<BookingsScreen>
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: isBusy
-                    ? null
-                    : () => showDialog(
-                          context: context,
-                          builder: (_) => DisputeDialog(booking: b),
-                        ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.deepOrange.shade700,
-                  side: BorderSide(color: Colors.deepOrange.shade300),
-                  padding: btnPad,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            if (isActiveTab) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: isBusy
+                      ? null
+                      : () => showDialog(
+                            context: context,
+                            builder: (_) => DisputeDialog(booking: b),
+                          ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.deepOrange.shade700,
+                    side: BorderSide(color: Colors.deepOrange.shade300),
+                    padding: btnPad,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                ),
-                icon: const Icon(Icons.warning_amber_rounded, size: 18),
-                label: Text(
-                  'Informar de un problema',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: seniorMode ? 15 : 13.5,
+                  icon: const Icon(Icons.warning_amber_rounded, size: 18),
+                  label: Text(
+                    'Informar de un problema',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: seniorMode ? 15 : 13.5,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ] else if (b.tipAmount == 0) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const Key('history_send_tip_btn'),
+                  onPressed: isBusy
+                      ? null
+                      : () => _showQuickTipDialog(context, b, state),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.secondaryColor,
+                    side: BorderSide(
+                      color: AppTheme.secondaryColor.withValues(alpha: 0.55),
+                    ),
+                    padding: btnPad,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.volunteer_activism_rounded, size: 18),
+                  label: Text(
+                    'Enviar propina de agradecimiento',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: seniorMode ? 15 : 13.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         );
       }
@@ -2527,21 +2560,77 @@ class _BookingsScreenState extends State<BookingsScreen>
 
       if (b.status == BookingStatus.completed && b.isReviewed) {
         final canRepeatBooking = context.read<AuthNotifier>().canManageFamilyPayments;
-        return Row(
+        final canSendTip = !isActiveTab && canRepeatBooking && b.tipAmount == 0;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (canRepeatBooking) ...[
-              Expanded(
+            Row(
+              children: [
+                if (canRepeatBooking) ...[
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _repeatBookingNextWeek(context, b),
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.repeat_rounded, size: 17),
+                      label: Text(
+                        'Repetir',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: seniorMode ? 14.5 : 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showLegalReceiptDialog(context, b),
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.receipt_long_rounded, size: 17),
+                    label: Text(
+                      'Justificante',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: seniorMode ? 14.5 : 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (canSendTip) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => _repeatBookingNextWeek(context, b),
+                  key: const Key('history_send_tip_btn'),
+                  onPressed: isBusy
+                      ? null
+                      : () => _showQuickTipDialog(context, b, state),
                   style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.secondaryColor,
+                    side: BorderSide(
+                      color: AppTheme.secondaryColor.withValues(alpha: 0.55),
+                    ),
                     padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  icon: const Icon(Icons.repeat_rounded, size: 17),
+                  icon: const Icon(Icons.volunteer_activism_rounded, size: 18),
                   label: Text(
-                    'Repetir',
-                    overflow: TextOverflow.ellipsis,
+                    'Enviar propina de agradecimiento',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: seniorMode ? 14.5 : 13,
@@ -2549,27 +2638,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
             ],
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _showLegalReceiptDialog(context, b),
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                icon: const Icon(Icons.receipt_long_rounded, size: 17),
-                label: Text(
-                  'Justificante',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: seniorMode ? 14.5 : 13,
-                  ),
-                ),
-              ),
-            ),
           ],
         );
       }
@@ -3259,9 +3328,9 @@ class _BookingsScreenState extends State<BookingsScreen>
                 ),
               if (isClient && b.status != BookingStatus.cancelled && b.status != BookingStatus.cancelledLate)
                 ListTile(
-                  leading: const Icon(Icons.receipt_long_rounded, color: AppTheme.darkSlate),
-                  title: const Text('Descargar Justificante Legal', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: const Text('Documento oficial con seguro RC y horas prestadas'),
+                  leading: const Icon(Icons.picture_as_pdf_rounded, color: AppTheme.primary),
+                  title: const Text('Descargar Justificante PDF', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('Documento oficial en PDF con seguro RC y horas prestadas'),
                   onTap: () {
                     Navigator.pop(ctx);
                     _showLegalReceiptDialog(context, b);
@@ -4175,7 +4244,7 @@ class _BookingsScreenState extends State<BookingsScreen>
     HapticFeedback.selectionClick();
     final profile = await _getClientProfile(b.clientId);
     if (!context.mounted) return;
-    final receiptNumber = 'SC-${b.day.replaceAll("-", "")}-${b.id.substring(0, b.id.length > 5 ? 5 : b.id.length).toUpperCase()}';
+    final receiptNumber = ReceiptPdfService.buildReceiptNumber(b);
     final receiptText = '🧾 JUSTIFICANTE OFICIAL DE SERVICIO ASISTENCIAL — SENICARE\n'
         'Nº Justificante: $receiptNumber\n'
         'Plataforma: SeniCare Asistencia Domiciliaria S.L. (Directiva Europea DAC7 / RGPD Art. 9)\n'
@@ -4192,69 +4261,121 @@ class _BookingsScreenState extends State<BookingsScreen>
         'Ref. Transacción Stripe Escrow: ${b.paymentIntentId ?? "Verificada"}\n'
         'Estado: Servicio prestado y verificado en domicilio.';
 
+    bool isDownloadingPdf = false;
+
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: const Row(
-          children: [
-            Icon(Icons.receipt_long_rounded, color: AppTheme.primary),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Justificante Oficial de Gasto',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          title: const Row(
             children: [
-              const Text(
-                'Válido como comprobante para ayudas a la Ley de Dependencia, seguros privados de salud o deducciones autonómicas:',
-                style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.backgroundNeutral,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
+              Icon(Icons.receipt_long_rounded, color: AppTheme.primary),
+              SizedBox(width: 8),
+              Expanded(
                 child: Text(
-                  receiptText,
-                  style: const TextStyle(fontSize: 11.5, height: 1.45, fontFamily: 'monospace'),
+                  'Justificante Oficial de Gasto',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                 ),
               ),
             ],
           ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Válido como comprobante para ayudas a la Ley de Dependencia, seguros privados de salud o deducciones autonómicas:',
+                  style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.backgroundNeutral,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  child: Text(
+                    receiptText,
+                    style: const TextStyle(fontSize: 11.5, height: 1.45, fontFamily: 'monospace'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isDownloadingPdf ? null : () => Navigator.pop(ctx),
+              child: const Text('Cerrar'),
+            ),
+            TextButton.icon(
+              onPressed: isDownloadingPdf
+                  ? null
+                  : () async {
+                      await Clipboard.setData(ClipboardData(text: receiptText));
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (context.mounted) {
+                        CustomSnackBar.show(
+                          context,
+                          message: 'Texto del justificante copiado al portapapeles.',
+                          type: SnackBarType.info,
+                        );
+                      }
+                    },
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text('Copiar'),
+            ),
+            FilledButton.icon(
+              key: const Key('download_receipt_pdf_btn'),
+              onPressed: isDownloadingPdf
+                  ? null
+                  : () async {
+                      setDialogState(() => isDownloadingPdf = true);
+                      try {
+                        final pdfBytes = await ReceiptPdfService.generateLegalReceiptPdf(
+                          booking: b,
+                          clientProfile: profile,
+                        );
+                        final fileName = 'Justificante_SeniCare_$receiptNumber.pdf';
+                        final savedPath = await ReceiptPdfService.saveReceiptPdf(
+                          bytes: pdfBytes,
+                          fileName: fileName,
+                        );
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted && savedPath != null) {
+                          CustomSnackBar.show(
+                            context,
+                            message: '📄 Justificante PDF descargado ($fileName).',
+                            type: SnackBarType.success,
+                          );
+                        }
+                      } catch (e) {
+                        if (ctx.mounted) {
+                          setDialogState(() => isDownloadingPdf = false);
+                        }
+                        if (context.mounted) {
+                          CustomSnackBar.show(
+                            context,
+                            message: 'No se pudo generar el PDF: $e',
+                            type: SnackBarType.error,
+                          );
+                        }
+                      }
+                    },
+              icon: isDownloadingPdf
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.picture_as_pdf_rounded, size: 17),
+              label: Text(isDownloadingPdf ? 'Generando...' : 'Descargar PDF'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cerrar'),
-          ),
-          FilledButton.icon(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: receiptText));
-              if (ctx.mounted) Navigator.pop(ctx);
-              if (context.mounted) {
-                CustomSnackBar.show(
-                  context,
-                  message: '🧾 Justificante oficial copiado al portapapeles para guardar o imprimir.',
-                  type: SnackBarType.success,
-                );
-              }
-            },
-            icon: const Icon(Icons.copy_rounded, size: 17),
-            label: const Text('Copiar / Descargar'),
-          ),
-        ],
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 import 'package:senicare/screens/bookings_screen.dart';
 import 'package:senicare/widgets/widgets.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 class _TestAuthNotifier extends AuthNotifier {
   _TestAuthNotifier({
@@ -644,6 +646,109 @@ void main() {
       expect(find.byKey(const Key('booking_caregiver_late_banner')), findsOneWidget);
       expect(find.textContaining('El cuidador llega tarde'), findsWidgets);
       expect(tester.takeException(), isNull);
+      notifier.dispose();
+    });
+
+    test('ReceiptPdfService generates valid corporate SeniCare PDF bytes', () async {
+      final booking = _makeClientBooking(
+        id: 'bk_pdf_1234',
+        caregiverName: 'Elena Martín',
+        day: '2026-06-15',
+        slot: '10:00-12:00',
+        status: BookingStatus.completed,
+        cost: 40.0,
+      );
+      final profile = ClientProfile(
+        id: 'client_1',
+        name: 'Carmen López',
+        phone: '600112233',
+        homeAddress: 'Calle Mayor 10, Madrid',
+        patientDetails: 'Dieta sin sal',
+        onboardingComplete: true,
+      );
+
+      final bytes = await ReceiptPdfService.generateLegalReceiptPdf(
+        booking: booking,
+        clientProfile: profile,
+      );
+      expect(bytes, isNotEmpty);
+      expect(ascii.decode(bytes.sublist(0, 5)), '%PDF-');
+
+      final parsed = PdfDocument(inputBytes: bytes);
+      final extracted = PdfTextExtractor(parsed).extractText();
+      parsed.dispose();
+
+      expect(extracted, contains('SENICARE'));
+      expect(extracted, contains('SC-20260615-BK_PDF'));
+      expect(extracted, contains('Elena Martín'));
+      expect(extracted, contains('41.20 EUR'));
+    });
+
+    testWidgets('Historial replaces Informar de un problema with Enviar propina and offers Descargar PDF receipt', (tester) async {
+      final repo = MockBookingRepository();
+      await repo.createBooking(_makeClientBooking(
+        id: 'hist_completed_held',
+        caregiverName: 'Carlos Vega',
+        day: '2026-05-01',
+        slot: '10:00-12:00',
+        status: BookingStatus.completed,
+        liveStatus: 'completed',
+        escrowStatus: 'held',
+        checkInTime: DateTime(2026, 5, 1, 10, 0),
+        checkOutTime: DateTime(2026, 5, 1, 12, 0),
+      ));
+      await repo.createBooking(_makeClientBooking(
+        id: 'hist_reviewed',
+        caregiverName: 'Elena Martín',
+        day: '2026-04-20',
+        slot: '09:00-11:00',
+        status: BookingStatus.completed,
+        liveStatus: 'completed',
+        escrowStatus: 'released_auto',
+        isReviewed: true,
+      ));
+      DependencyInjection.bookings = repo;
+
+      final auth = _TestAuthNotifier();
+      final notifier = BookingNotifier()..updateAuth('client_1', 'client');
+      final config = ConfigNotifier()..toggleSeniorMode(true);
+
+      await tester.binding.setSurfaceSize(const Size(360, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(_wrapClientBookingsHarness(
+        auth: auth,
+        bookingNotifier: notifier,
+        config: config,
+      ));
+      await tester.pump(const Duration(milliseconds: 60));
+
+      await tester.tap(find.text('Historial (2)'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(find.text('Informar de un problema'), findsNothing);
+      expect(find.text('Enviar propina de agradecimiento'), findsWidgets);
+
+      await tester.scrollUntilVisible(
+        find.text('Justificante'),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pump();
+      await tester.tap(find.text('Justificante'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byKey(const Key('download_receipt_pdf_btn')), findsOneWidget);
+      expect(find.text('Descargar PDF'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
       notifier.dispose();
     });
   });

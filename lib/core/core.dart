@@ -17,4 +17,5 @@ export 'caregiver_tutorial_service.dart';
 export 'client_tutorial_service.dart';
 export 'observability_service.dart';
 export 'map_config.dart';
+export 'receipt_pdf_service.dart';
 export '../l10n/app_localizations.dart';
