@@ -5,6 +5,7 @@ abstract class JobOfferRepository {
   Stream<List<JobOffer>> streamClientOffers(String clientId, {int limit = 10});
   Stream<List<JobOffer>> streamNearbyOffers(double lat, double lng, double maxDistanceKm, {int? limit});
   Future<void> updateOfferStatus(String offerId, JobOfferStatus status, {String? acceptedCaregiverId, String? acceptedApplicationId});
+  Future<void> promoteOfferToUrgent(String offerId, {double bonusRate = 0.10});
   
   Future<void> applyToOffer(JobApplication application);
   Stream<List<JobApplication>> streamOfferApplications(String offerId, {int limit = 20});

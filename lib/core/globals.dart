@@ -5,6 +5,7 @@ final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey = GlobalKey<Sca
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 final ValueNotifier<Map<String, dynamic>?> pendingPushRoute = ValueNotifier<Map<String, dynamic>?>(null);
 final ValueNotifier<String?> pendingTrackingBookingId = ValueNotifier<String?>(null);
+final ValueNotifier<Map<String, dynamic>?> pendingBookingFocus = ValueNotifier<Map<String, dynamic>?>(null);
 
 void showNetworkError(String contextInfo, [Object? error]) {
   rootScaffoldMessengerKey.currentState?.showSnackBar(

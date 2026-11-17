@@ -20,12 +20,18 @@ class BookingsScreen extends StatefulWidget {
   State<BookingsScreen> createState() => _BookingsScreenState();
 }
 
-class _BookingsScreenState extends State<BookingsScreen> {
+class _BookingsScreenState extends State<BookingsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
   final ScrollController _scrollActive = ScrollController();
   final ScrollController _scrollHistory = ScrollController();
   final Map<String, Future<ClientProfile?>> _clientFutures = {};
   final Map<String, Future<String?>> _bookingPinFutures = {};
+  final Map<String, GlobalKey> _bookingCardKeys = {};
   final Set<String> _busyBookingIds = {};
+  String? _highlightedBookingId;
+  String? _highlightedOfferTitle;
+  int _focusLoadMoreAttempts = 0;
 
   Future<String?> _getBookingSecretPin(Booking b) {
     final directPin = b.bookingPin?.trim();
@@ -194,8 +200,106 @@ class _BookingsScreenState extends State<BookingsScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _scrollActive.addListener(_onScroll);
     _scrollHistory.addListener(_onScroll);
+    pendingBookingFocus.addListener(_onPendingBookingFocusChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onPendingBookingFocusChanged();
+    });
+  }
+
+  void _onPendingBookingFocusChanged() {
+    if (!mounted || pendingBookingFocus.value == null) return;
+    _focusLoadMoreAttempts = 0;
+    final state = context.read<BookingNotifier>();
+    final isClient = context.read<AuthNotifier>().currentRole == 'client';
+    final visible = state.bookings
+        .where((b) => isClient || b.status != BookingStatus.pendingPayment)
+        .toList();
+    _consumePendingBookingFocus(visible, state, isClient);
+  }
+
+  Booking? _matchBookingFromTarget(
+    List<Booking> bookings,
+    Map<String, dynamic> target,
+  ) {
+    final targetBookingId = target['bookingId']?.toString();
+    if (targetBookingId != null && targetBookingId.isNotEmpty) {
+      final direct = bookings.where((b) => b.id == targetBookingId).firstOrNull;
+      if (direct != null) return direct;
+    }
+    final targetOfferId = target['offerId']?.toString();
+    if (targetOfferId != null && targetOfferId.isNotEmpty) {
+      final caregiverId = target['caregiverId']?.toString();
+      final scheduledMs = target['scheduledStartMs'];
+      final scheduledStart = scheduledMs is int
+          ? DateTime.fromMillisecondsSinceEpoch(scheduledMs)
+          : null;
+      final candidates = bookings
+          .where((b) => b.matchesOffer(
+                targetOfferId,
+                caregiverId: caregiverId,
+                scheduledStart: scheduledStart,
+              ))
+          .toList();
+      if (candidates.isNotEmpty) {
+        final activeCandidate = candidates.where((b) => b.isActive).firstOrNull;
+        return activeCandidate ?? candidates.first;
+      }
+    }
+    return null;
+  }
+
+  void _consumePendingBookingFocus(
+    List<Booking> bookings,
+    BookingNotifier state,
+    bool isClient,
+  ) {
+    final target = pendingBookingFocus.value;
+    if (target == null || !mounted) return;
+
+    final matched = _matchBookingFromTarget(bookings, target);
+    if (matched == null) {
+      if (state.isLoadingBookings) return;
+      if (state.hasMore && _focusLoadMoreAttempts < 2) {
+        _focusLoadMoreAttempts++;
+        state.loadMoreBookings();
+        return;
+      }
+      pendingBookingFocus.value = null;
+      return;
+    }
+
+    pendingBookingFocus.value = null;
+    _focusLoadMoreAttempts = 0;
+    final int targetTab = _belongsToActiveTab(matched, isClient) ? 0 : 1;
+
+    setState(() {
+      if (isClient) {
+        _clientFilter = 'all';
+      } else {
+        _caregiverFilter = 'all';
+      }
+      _highlightedBookingId = matched.id;
+      _highlightedOfferTitle = target['offerTitle']?.toString();
+    });
+
+    if (_tabController.index != targetTab) {
+      _tabController.animateTo(targetTab);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final keyCtx = _bookingCardKeys[matched.id]?.currentContext;
+      if (keyCtx != null) {
+        Scrollable.ensureVisible(
+          keyCtx,
+          duration: const Duration(milliseconds: 300),
+          alignment: 0.1,
+        );
+      }
+    });
   }
 
   void _onScroll() {
@@ -212,6 +316,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   @override
   void dispose() {
+    pendingBookingFocus.removeListener(_onPendingBookingFocusChanged);
+    _tabController.dispose();
     _scrollActive.dispose();
     _scrollHistory.dispose();
     super.dispose();
@@ -339,6 +445,13 @@ class _BookingsScreenState extends State<BookingsScreen> {
         if (mounted) _checkPendingReviews(bookings);
       });
     }
+    if (pendingBookingFocus.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _consumePendingBookingFocus(bookings, bookingState, isClient);
+        }
+      });
+    }
 
     final int caregiverPendingCount =
         activeBookings.where((b) => b.status == BookingStatus.pending).length;
@@ -384,131 +497,130 @@ class _BookingsScreenState extends State<BookingsScreen> {
             return true;
           }).toList();
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        body: Column(
-          children: [
-            Container(
-              key: isClient
-                  ? AppTutorialTargets.maybeClientOf(context)
-                      ?.clientBookingsHeaderKey
-                  : null,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
-              ),
-              child: TabBar(
-                labelColor: AppTheme.primary,
-                unselectedLabelColor: AppTheme.slateMuted,
-                indicatorColor: AppTheme.primary,
-                indicatorWeight: 3,
-                labelStyle: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: seniorMode ? 16.5 : 15,
-                ),
-                tabs: [
-                  Tab(text: 'Activas (${activeBookings.length})'),
-                  Tab(text: 'Historial (${historyBookings.length})'),
-                ],
-              ),
+    return Scaffold(
+      body: Column(
+        children: [
+          Container(
+            key: isClient
+                ? AppTutorialTargets.maybeClientOf(context)
+                    ?.clientBookingsHeaderKey
+                : null,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
             ),
-            Expanded(
-              child: bookingState.isLoadingBookings && bookings.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 14),
-                            Text(
-                              'Cargando tus reservas...',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.slateMuted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : (bookingState.bookingError != null && bookings.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(28),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.cloud_off_rounded,
-                                  size: 52,
-                                  color: Colors.red.shade400,
-                                ),
-                                const SizedBox(height: 14),
-                                const Text(
-                                  'No pudimos cargar tus reservas',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppTheme.darkSlate,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  bookingState.bookingError!,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: AppTheme.slateMuted,
-                                  ),
-                                ),
-                                const SizedBox(height: 18),
-                                FilledButton.icon(
-                                  onPressed: bookingState.retryBookings,
-                                  icon: const Icon(Icons.refresh_rounded),
-                                  label: const Text('Reintentar'),
-                                ),
-                              ],
+            child: TabBar(
+              controller: _tabController,
+              labelColor: AppTheme.primary,
+              unselectedLabelColor: AppTheme.slateMuted,
+              indicatorColor: AppTheme.primary,
+              indicatorWeight: 3,
+              labelStyle: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: seniorMode ? 16.5 : 15,
+              ),
+              tabs: [
+                Tab(text: 'Activas (${activeBookings.length})'),
+                Tab(text: 'Historial (${historyBookings.length})'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: bookingState.isLoadingBookings && bookings.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 14),
+                          Text(
+                            'Cargando tus reservas...',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.slateMuted,
                             ),
                           ),
-                        )
-                      : TabBarView(
-                          children: [
-                            _buildBookingsList(
-                              context,
-                              filteredActiveBookings,
-                              isClient,
-                              auth,
-                              bookingState,
-                              isActiveTab: true,
-                              controller: _scrollActive,
-                              caregiverTotalActiveCount: activeBookings.length,
-                              caregiverPendingCount: caregiverPendingCount,
-                              caregiverTodayCount: caregiverTodayCount,
-                              clientTotalActiveCount: activeBookings.length,
-                              clientAttentionCount: clientAttentionCount,
-                              clientTodayCount: clientTodayCount,
-                              seniorMode: seniorMode,
-                            ),
-                            _buildBookingsList(
-                              context,
-                              historyBookings,
-                              isClient,
-                              auth,
-                              bookingState,
-                              isActiveTab: false,
-                              controller: _scrollHistory,
-                              seniorMode: seniorMode,
-                            ),
-                          ],
-                        )),
-            ),
-          ],
-        ),
+                        ],
+                      ),
+                    ),
+                  )
+                : (bookingState.bookingError != null && bookings.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(28),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.cloud_off_rounded,
+                                size: 52,
+                                color: Colors.red.shade400,
+                              ),
+                              const SizedBox(height: 14),
+                              const Text(
+                                'No pudimos cargar tus reservas',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.darkSlate,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                bookingState.bookingError!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: AppTheme.slateMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              FilledButton.icon(
+                                onPressed: bookingState.retryBookings,
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Reintentar'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildBookingsList(
+                            context,
+                            filteredActiveBookings,
+                            isClient,
+                            auth,
+                            bookingState,
+                            isActiveTab: true,
+                            controller: _scrollActive,
+                            caregiverTotalActiveCount: activeBookings.length,
+                            caregiverPendingCount: caregiverPendingCount,
+                            caregiverTodayCount: caregiverTodayCount,
+                            clientTotalActiveCount: activeBookings.length,
+                            clientAttentionCount: clientAttentionCount,
+                            clientTodayCount: clientTodayCount,
+                            seniorMode: seniorMode,
+                          ),
+                          _buildBookingsList(
+                            context,
+                            historyBookings,
+                            isClient,
+                            auth,
+                            bookingState,
+                            isActiveTab: false,
+                            controller: _scrollHistory,
+                            seniorMode: seniorMode,
+                          ),
+                        ],
+                      )),
+          ),
+        ],
       ),
     );
   }
@@ -976,16 +1088,23 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final bool hasUrgentBorder = !isClient &&
         isActiveTab &&
         (b.isInProgressAwaitingCheckOut || b.status == BookingStatus.pending);
+    final bool isHighlighted = b.id == _highlightedBookingId && b.id.isNotEmpty;
+    final cardKey = isHighlighted
+        ? _bookingCardKeys.putIfAbsent(b.id, () => GlobalKey())
+        : null;
 
     return Card(
+      key: cardKey,
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
         side: BorderSide(
-          color: hasUrgentBorder
-              ? badge.color.withValues(alpha: 0.45)
-              : AppTheme.borderSubtle,
-          width: hasUrgentBorder ? 1.5 : 1,
+          color: isHighlighted
+              ? AppTheme.primary
+              : (hasUrgentBorder
+                  ? badge.color.withValues(alpha: 0.45)
+                  : AppTheme.borderSubtle),
+          width: isHighlighted ? 2.2 : (hasUrgentBorder ? 1.5 : 1),
         ),
       ),
       child: Padding(
@@ -993,6 +1112,54 @@ class _BookingsScreenState extends State<BookingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (isHighlighted) ...[
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: AppTheme.primary.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.event_available_rounded,
+                      size: 16,
+                      color: AppTheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _highlightedOfferTitle != null &&
+                                _highlightedOfferTitle!.isNotEmpty
+                            ? 'Reserva de tu oferta: $_highlightedOfferTitle'
+                            : 'Reserva vinculada a tu oferta',
+                        style: TextStyle(
+                          fontSize: seniorMode ? 14 : 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => setState(() {
+                        _highlightedBookingId = null;
+                        _highlightedOfferTitle = null;
+                      }),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        size: 17,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

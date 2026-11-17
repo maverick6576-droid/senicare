@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/firebase/firestore_stats_repository.dart';
+import 'package:senicare/screens/bookings_screen.dart';
 import 'package:senicare/screens/caregiver_profile_edit_screen.dart';
 import 'package:senicare/screens/job_offers/create_offer_screen.dart';
 import 'package:senicare/screens/job_offers/offer_detail_screen.dart';
+import 'package:senicare/screens/main_layout.dart';
 import 'package:senicare/widgets/widgets.dart';
 
 class OffersHubScreen extends StatelessWidget {
@@ -27,13 +29,15 @@ class _ClientOffersView extends StatefulWidget {
   State<_ClientOffersView> createState() => _ClientOffersViewState();
 }
 
-class _ClientOffersViewState extends State<_ClientOffersView> {
+class _ClientOffersViewState extends State<_ClientOffersView>
+    with WidgetsBindingObserver {
   final ScrollController _scrollActive = ScrollController();
   final ScrollController _scrollHistory = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollActive.addListener(() => _onScroll(_scrollActive));
     _scrollHistory.addListener(() => _onScroll(_scrollHistory));
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -46,6 +50,14 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
     });
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      context.read<JobOfferNotifier>().checkClientUrgency();
+      setState(() {});
+    }
+  }
+
   void _onScroll(ScrollController controller) {
     if (!controller.hasClients) return;
     if (controller.position.pixels >= controller.position.maxScrollExtent - 180) {
@@ -55,6 +67,7 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollActive.dispose();
     _scrollHistory.dispose();
     super.dispose();
@@ -77,16 +90,51 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
     );
   }
 
+  Booking? _findLinkedBooking(JobOffer offer, List<Booking> bookings) {
+    final matches = bookings
+        .where((b) => b.matchesOffer(
+              offer.id,
+              caregiverId: offer.acceptedCaregiverId,
+              scheduledStart: offer.effectiveStartDateTime,
+            ))
+        .toList();
+    if (matches.isEmpty) return null;
+    return matches.where((b) => b.isActive).firstOrNull ?? matches.first;
+  }
+
+  void _openBookingForOffer(JobOffer offer, Booking? linkedBooking) {
+    pendingBookingFocus.value = {
+      if (linkedBooking != null) 'bookingId': linkedBooking.id,
+      'offerId': offer.id,
+      if (offer.acceptedCaregiverId != null) 'caregiverId': offer.acceptedCaregiverId,
+      'scheduledStartMs': offer.effectiveStartDateTime.millisecondsSinceEpoch,
+      'offerTitle': offer.title,
+    };
+    if (linkedBooking != null) {
+      pendingTrackingBookingId.value = linkedBooking.id;
+    }
+    if (!MainLayout.switchTab(context, 2)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Reservas')),
+            body: const BookingsScreen(),
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final jobNotifier = context.watch<JobOfferNotifier>();
     final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+    final bookings = Provider.of<BookingNotifier?>(context, listen: true)?.bookings ?? const <Booking>[];
     final offers = jobNotifier.clientOffers;
     final appsMap = jobNotifier.applicationsByOffer;
 
-    final activeOffers = offers
-        .where((o) => o.status == JobOfferStatus.inProgress || (o.status == JobOfferStatus.open && !o.isExpired))
-        .toList()
+    final activeOffers = offers.where((o) => o.isActiveForClient).toList()
       ..sort((a, b) {
         int pendingCount(JobOffer o) =>
             (appsMap[o.id] ?? const []).where((app) => app.status == JobApplicationStatus.pending).length;
@@ -99,12 +147,10 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
         if (a.status != b.status) {
           return a.status == JobOfferStatus.inProgress ? -1 : 1;
         }
-        return a.startDate.compareTo(b.startDate);
+        return a.effectiveStartDateTime.compareTo(b.effectiveStartDateTime);
       });
 
-    final historyOffers = offers
-        .where((o) => o.status != JobOfferStatus.inProgress && (o.status != JobOfferStatus.open || o.isExpired))
-        .toList()
+    final historyOffers = offers.where((o) => !o.isActiveForClient).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     final pendingToReview = activeOffers.fold<int>(
@@ -147,6 +193,7 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
                     jobNotifier: jobNotifier,
                     offers: activeOffers,
                     appsMap: appsMap,
+                    bookings: bookings,
                     controller: _scrollActive,
                     isActiveTab: true,
                     pendingCandidatesCount: pendingToReview,
@@ -157,6 +204,7 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
                     jobNotifier: jobNotifier,
                     offers: historyOffers,
                     appsMap: appsMap,
+                    bookings: bookings,
                     controller: _scrollHistory,
                     isActiveTab: false,
                     pendingCandidatesCount: pendingToReview,
@@ -191,6 +239,7 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
     required JobOfferNotifier jobNotifier,
     required List<JobOffer> offers,
     required Map<String, List<JobApplication>> appsMap,
+    required List<Booking> bookings,
     required ScrollController controller,
     required bool isActiveTab,
     required int pendingCandidatesCount,
@@ -299,9 +348,11 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
                 }
                 final offer = offers[offerIndex];
                 final apps = appsMap[offer.id] ?? const [];
+                final linkedBooking = _findLinkedBooking(offer, bookings);
                 return _ClientOfferCard(
                   offer: offer,
                   applications: apps,
+                  linkedBooking: linkedBooking,
                   seniorMode: seniorMode,
                   onOpenDetail: () {
                     Navigator.push(
@@ -309,6 +360,7 @@ class _ClientOffersViewState extends State<_ClientOffersView> {
                       MaterialPageRoute(builder: (_) => OfferDetailScreen(offer: offer)),
                     );
                   },
+                  onViewBooking: () => _openBookingForOffer(offer, linkedBooking),
                   onRepublish: () => _openCreateOffer(offer),
                 );
               },
@@ -507,15 +559,19 @@ class _ClientEmptyOffersCard extends StatelessWidget {
 class _ClientOfferCard extends StatelessWidget {
   final JobOffer offer;
   final List<JobApplication> applications;
+  final Booking? linkedBooking;
   final bool seniorMode;
   final VoidCallback onOpenDetail;
+  final VoidCallback onViewBooking;
   final VoidCallback onRepublish;
 
   const _ClientOfferCard({
     required this.offer,
     required this.applications,
+    this.linkedBooking,
     required this.seniorMode,
     required this.onOpenDetail,
+    required this.onViewBooking,
     required this.onRepublish,
   });
 
@@ -545,6 +601,14 @@ class _ClientOfferCard extends StatelessWidget {
           text: AppTheme.primary,
         );
       case JobOfferStatus.inProgress:
+        if (offer.isBookingTimePassed) {
+          return (
+            label: 'Reserva iniciada',
+            bg: Colors.teal.shade50,
+            border: Colors.teal.shade200,
+            text: Colors.teal.shade800,
+          );
+        }
         return (
           label: 'Cuidador confirmado',
           bg: Colors.green.shade50,
@@ -572,9 +636,11 @@ class _ClientOfferCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final pendingCount = applications.where((a) => a.status == JobApplicationStatus.pending).length;
     final acceptedApp = applications.where((a) => a.status == JobApplicationStatus.accepted).firstOrNull;
+    final chosenCaregiverName = acceptedApp?.caregiverName ?? linkedBooking?.caregiverName;
+    final isEffectiveUrgent = offer.effectiveUrgency(hasApplications: applications.isNotEmpty);
     final status = _statusStyle(pendingCount);
     final totalEstimate = offer.pricePerHour * offer.totalHours;
-    final d = offer.startDate;
+    final d = offer.effectiveStartDateTime;
     final dateText =
         '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year} • ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
@@ -630,7 +696,7 @@ class _ClientOfferCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (offer.isUrgent && offer.status == JobOfferStatus.open && !offer.isExpired) ...[
+              if (isEffectiveUrgent && offer.status == JobOfferStatus.open && !offer.isExpired) ...[
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
@@ -690,7 +756,9 @@ class _ClientOfferCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (acceptedApp != null && offer.status == JobOfferStatus.inProgress) ...[
+              if (chosenCaregiverName != null &&
+                  (offer.status == JobOfferStatus.inProgress ||
+                      offer.status == JobOfferStatus.completed)) ...[
                 const SizedBox(height: 10),
                 Container(
                   width: double.infinity,
@@ -700,7 +768,7 @@ class _ClientOfferCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    'Cuidador elegido: ${acceptedApp.caregiverName}',
+                    'Cuidador elegido: $chosenCaregiverName',
                     style: TextStyle(
                       fontSize: seniorMode ? 14.5 : 13,
                       fontWeight: FontWeight.w700,
@@ -731,6 +799,80 @@ class _ClientOfferCard extends StatelessWidget {
                     ),
                   ],
                 )
+              else if (offer.status == JobOfferStatus.inProgress && !offer.isBookingTimePassed)
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: onOpenDetail,
+                        icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                        label: Text(
+                          'Ver cuidador y chatear',
+                          style: TextStyle(
+                            fontSize: seniorMode ? 15 : 13.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: onViewBooking,
+                        icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                        label: Text(
+                          'Ver reserva',
+                          style: TextStyle(
+                            fontSize: seniorMode ? 15.5 : 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else if (offer.status == JobOfferStatus.inProgress || offer.status == JobOfferStatus.completed)
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: onViewBooking,
+                        icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                        label: Text(
+                          'Ver reserva',
+                          style: TextStyle(
+                            fontSize: seniorMode ? 15.5 : 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onRepublish,
+                            icon: const Icon(Icons.replay_rounded, size: 18),
+                            label: const Text(
+                              'Volver a publicar',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: onOpenDetail,
+                          child: const Text('Ver detalle'),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
               else
                 SizedBox(
                   width: double.infinity,
@@ -749,9 +891,7 @@ class _ClientOfferCard extends StatelessWidget {
                       : OutlinedButton(
                           onPressed: onOpenDetail,
                           child: Text(
-                            offer.status == JobOfferStatus.inProgress
-                                ? 'Ver cuidador y chatear'
-                                : 'Ver detalle de la oferta',
+                            'Ver detalle de la oferta',
                             style: TextStyle(
                               fontSize: seniorMode ? 15 : 13.5,
                               fontWeight: FontWeight.w700,
@@ -776,7 +916,8 @@ class _CaregiverOffersView extends StatefulWidget {
   State<_CaregiverOffersView> createState() => _CaregiverOffersViewState();
 }
 
-class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
+class _CaregiverOffersViewState extends State<_CaregiverOffersView>
+    with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   _CaregiverOfferFilter _selectedFilter = _CaregiverOfferFilter.all;
   DateTime _lastLoadMoreAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -784,8 +925,16 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureInitialSync());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _ensureInitialSync() async {
@@ -833,6 +982,7 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     super.dispose();
   }
@@ -894,7 +1044,7 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
   List<JobOffer> _applyFilter(List<JobOffer> source) {
     final filtered = source.where((o) {
       if (o.isExpired || o.status != JobOfferStatus.open) return false;
-      if (_selectedFilter == _CaregiverOfferFilter.urgentOnly) return o.isUrgent;
+      if (_selectedFilter == _CaregiverOfferFilter.urgentOnly) return o.effectiveUrgency();
       return true;
     }).toList();
 
@@ -902,7 +1052,7 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
       filtered.sort((a, b) {
         final priceCmp = b.pricePerHour.compareTo(a.pricePerHour);
         if (priceCmp != 0) return priceCmp;
-        return a.startDate.compareTo(b.startDate);
+        return a.effectiveStartDateTime.compareTo(b.effectiveStartDateTime);
       });
     }
     return filtered;
@@ -942,7 +1092,9 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
     final maxDistance = caregiver?.maxDistanceRadius ?? 50.0;
 
     final availableOffers = _applyFilter(jobOfferState.nearbyOffers);
-    final myApps = jobOfferState.myApplications;
+    final myApps = jobOfferState.myApplications
+        .where((e) => !e.offer.isExpired)
+        .toList();
     final myAppsMap = jobOfferState.myApplicationsByOfferId;
     final unappliedCount = jobOfferState.nearbyOffers
         .where((o) => !o.isExpired && o.status == JobOfferStatus.open && !myAppsMap.containsKey(o.id))
@@ -1386,10 +1538,13 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
     required bool isApplicationsTab,
   }) {
     final effectiveHourlyRate = application?.proposedPrice ?? offer.pricePerHour;
+    final bool? hasApps = application != null ? true : null;
+    final bool isUrgentOffer = offer.effectiveUrgency(hasApplications: hasApps);
+    final double urgencyBonus = offer.effectiveUrgencyBonusRate(hasApplications: hasApps);
     final estimatedNet = FirestoreStatsRepository.estimateOfferNetTotal(
       totalHours: offer.totalHours,
       hourlyRate: effectiveHourlyRate,
-      urgencyBonusRate: offer.urgencyBonusRate,
+      urgencyBonusRate: urgencyBonus,
     );
     final statusBadge = _buildStatusBadge(offer, application, isApplicationsTab);
 
@@ -1412,7 +1567,7 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
                   runSpacing: 6,
                   children: [
                     ?statusBadge,
-                    if (offer.isUrgent)
+                    if (isUrgentOffer)
                       _buildTagPill(
                         label: '⚡ Urgente • Menos comisión',
                         bgColor: Colors.orange.shade50,
@@ -1428,7 +1583,7 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView> {
                       ),
                   ],
                 ),
-                if (statusBadge != null || offer.isUrgent || distanceKm != null) const SizedBox(height: 10),
+                if (statusBadge != null || isUrgentOffer || distanceKm != null) const SizedBox(height: 10),
                 Text(
                   offer.familyLabel,
                   style: const TextStyle(color: AppTheme.slateMuted, fontSize: 13, fontWeight: FontWeight.w600),

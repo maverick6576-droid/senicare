@@ -54,7 +54,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
   double _effectiveCommissionRate(JobOffer offer) {
     return FirestoreStatsRepository.calculateEffectiveOfferCommissionRate(
       _accumulatedHours,
-      offer.urgencyBonusRate,
+      offer.effectiveUrgencyBonusRate(),
     );
   }
 
@@ -62,7 +62,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     return FirestoreStatsRepository.estimateOfferNetTotal(
       totalHours: offer.totalHours,
       hourlyRate: hourlyRate,
-      urgencyBonusRate: offer.urgencyBonusRate,
+      urgencyBonusRate: offer.effectiveUrgencyBonusRate(),
       accumulatedHours: _accumulatedHours,
     );
   }
@@ -513,7 +513,11 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                 offer.description,
                 style: const TextStyle(fontSize: 14.5, color: AppTheme.slateMuted, height: 1.45),
               ),
-              if (offer.isUrgent) ...[
+              if (offer.effectiveUrgency(
+                hasApplications: isClient
+                    ? (isLoadingClientApps ? null : clientApps.isNotEmpty)
+                    : (myApp != null ? true : null),
+              )) ...[
                 const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -800,6 +804,47 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     return sorted;
   }
 
+  void _openBookingFromDetail(BuildContext context, JobOffer offer) {
+    final bookings =
+        Provider.of<BookingNotifier?>(context, listen: false)?.bookings ??
+            const <Booking>[];
+    final matches = bookings
+        .where((b) => b.matchesOffer(
+              offer.id,
+              caregiverId: offer.acceptedCaregiverId,
+              scheduledStart: offer.effectiveStartDateTime,
+            ))
+        .toList();
+    final matched =
+        matches.where((b) => b.isActive).firstOrNull ?? matches.firstOrNull;
+
+    pendingBookingFocus.value = {
+      if (matched != null) 'bookingId': matched.id,
+      'offerId': offer.id,
+      if (offer.acceptedCaregiverId != null)
+        'caregiverId': offer.acceptedCaregiverId,
+      'scheduledStartMs': offer.effectiveStartDateTime.millisecondsSinceEpoch,
+      'offerTitle': offer.title,
+    };
+    if (matched != null) {
+      pendingTrackingBookingId.value = matched.id;
+    }
+    if (MainLayout.switchTab(context, 2)) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.popUntil((route) => route.isFirst);
+    } else {
+      nav.push(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Reservas')),
+            body: const BookingsScreen(),
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _buildClientStatusGuide({
     required BuildContext context,
     required JobOffer offer,
@@ -858,35 +903,58 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: border),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: fg, size: seniorMode ? 24 : 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: seniorMode ? 15.5 : 14,
-                    color: fg,
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: fg, size: seniorMode ? 24 : 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: seniorMode ? 15.5 : 14,
+                        color: fg,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: seniorMode ? 14 : 12.5,
+                        color: fg.withValues(alpha: 0.88),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: seniorMode ? 14 : 12.5,
-                    color: fg.withValues(alpha: 0.88),
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+          if (offer.status == JobOfferStatus.inProgress ||
+              offer.status == JobOfferStatus.completed) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => _openBookingFromDetail(context, offer),
+                icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                label: Text(
+                  'Ver reserva',
+                  style: TextStyle(
+                    fontSize: seniorMode ? 15.5 : 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

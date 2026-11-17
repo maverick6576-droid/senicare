@@ -92,10 +92,12 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
       }
 
       matches.sort((a, b) {
-        if (a.offer.isUrgent != b.offer.isUrgent) {
-          return a.offer.isUrgent ? -1 : 1;
+        final aUrgent = a.offer.effectiveUrgency();
+        final bUrgent = b.offer.effectiveUrgency();
+        if (aUrgent != bUrgent) {
+          return aUrgent ? -1 : 1;
         }
-        final dateCmp = a.offer.startDate.compareTo(b.offer.startDate);
+        final dateCmp = a.offer.effectiveStartDateTime.compareTo(b.offer.effectiveStartDateTime);
         if (dateCmp != 0) return dateCmp;
         return a.distance.compareTo(b.distance);
       });
@@ -115,6 +117,18 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
     } catch (e) {
       debugPrint('Error updating offer: $e');
       rethrow;
+    }
+  }
+
+  @override
+  Future<void> promoteOfferToUrgent(String offerId, {double bonusRate = 0.10}) async {
+    try {
+      await _offersRef.doc(offerId).update({
+        'isUrgent': true,
+        'urgencyBonusRate': bonusRate,
+      });
+    } catch (e) {
+      debugPrint('Error promoting offer to urgent: $e');
     }
   }
 

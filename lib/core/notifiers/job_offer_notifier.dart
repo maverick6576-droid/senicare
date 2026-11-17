@@ -24,6 +24,7 @@ class JobOfferNotifier extends ChangeNotifier {
 
   final Map<String, List<JobApplication>> applicationsByOffer = {};
   final Map<String, StreamSubscription> _appSubs = {};
+  final Set<String> _promotedUrgentOfferIds = {};
 
   bool isCreating = false;
   bool isLoadingNearby = false;
@@ -37,6 +38,14 @@ class JobOfferNotifier extends ChangeNotifier {
   bool _hasMoreClientOffers = false;
   String? clientError;
   Completer<void>? _clientRefreshCompleter;
+
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
 
   bool get hasMoreClientOffers => _hasMoreClientOffers;
 
@@ -115,7 +124,7 @@ class JobOfferNotifier extends ChangeNotifier {
         }
 
         for (final offer in offers) {
-          if (offer.status == JobOfferStatus.open || offer.status == JobOfferStatus.inProgress) {
+          if (offer.isActiveForClient) {
             _subscribeToApplications(offer.id);
           } else {
             _unsubscribeFromApplications(offer.id, notify: false);
@@ -213,10 +222,11 @@ class JobOfferNotifier extends ChangeNotifier {
 
   Future<void> refreshMyApplications([String? caregiverId]) async {
     final cid = (caregiverId != null && caregiverId.isNotEmpty) ? caregiverId : _caregiverId;
-    if (cid == null || cid.isEmpty) return;
+    if (cid == null || cid.isEmpty || _disposed) return;
     _caregiverId = cid;
 
     await Future.microtask(() {});
+    if (_disposed || _caregiverId != cid) return;
     isLoadingMyApplications = true;
     notifyListeners();
 
@@ -230,6 +240,7 @@ class JobOfferNotifier extends ChangeNotifier {
         cid,
         candidateOfferIds: candidateIds,
       );
+      if (_disposed || _caregiverId != cid) return;
 
       final mapped = rawEntries
           .map((e) => CaregiverOfferApplication(offer: e.key, application: e.value))
@@ -263,11 +274,51 @@ class JobOfferNotifier extends ChangeNotifier {
     }
   }
 
+  void _maybePromoteOfferToUrgent(String offerId, List<JobApplication> apps) {
+    if (_promotedUrgentOfferIds.contains(offerId)) return;
+    final offer = clientOffers.where((o) => o.id == offerId).firstOrNull;
+    if (offer == null ||
+        offer.isUrgent ||
+        offer.status != JobOfferStatus.open ||
+        offer.isExpired) {
+      return;
+    }
+    if (offer.effectiveUrgency(hasApplications: apps.isNotEmpty)) {
+      _promotedUrgentOfferIds.add(offerId);
+      offer.isUrgent = true;
+      if (offer.urgencyBonusRate <= 0) {
+        offer.urgencyBonusRate = 0.10;
+      }
+      unawaited(
+        DependencyInjection.jobOffers
+            .promoteOfferToUrgent(offerId, bonusRate: offer.urgencyBonusRate)
+            .catchError((_) {}),
+      );
+    }
+  }
+
+  void checkClientUrgency() {
+    bool changed = false;
+    for (final offer in clientOffers) {
+      if (offer.isUrgent || offer.status != JobOfferStatus.open || offer.isExpired) {
+        continue;
+      }
+      final apps = applicationsByOffer[offer.id];
+      if (apps != null) {
+        final before = offer.isUrgent;
+        _maybePromoteOfferToUrgent(offer.id, apps);
+        if (offer.isUrgent != before) changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
   void _subscribeToApplications(String offerId) {
     if (_appSubs.containsKey(offerId)) return;
     _appSubs[offerId] = DependencyInjection.jobOffers.streamOfferApplications(offerId, limit: 20).listen(
       (apps) {
         applicationsByOffer[offerId] = apps;
+        _maybePromoteOfferToUrgent(offerId, apps);
         notifyListeners();
       },
       onError: (_) {},
@@ -443,6 +494,7 @@ class JobOfferNotifier extends ChangeNotifier {
     myApplications = [];
     myApplicationsByOfferId.clear();
     applicationsByOffer.clear();
+    _promotedUrgentOfferIds.clear();
     _lastClientId = null;
     _clientLimit = 10;
     _lastLat = null;
@@ -463,6 +515,7 @@ class JobOfferNotifier extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _clientRefreshCompleter?.complete();
     _clientRefreshCompleter = null;
     _clientSub?.cancel();

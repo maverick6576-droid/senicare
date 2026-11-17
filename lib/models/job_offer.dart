@@ -22,14 +22,57 @@ class JobOffer {
   JobOfferStatus status;
   String? acceptedCaregiverId;
   String? acceptedApplicationId;
-  final bool isUrgent;
-  final double urgencyBonusRate;
+  bool isUrgent;
+  double urgencyBonusRate;
   final double clientFeeRate;
+  int applicationsCount;
   String? paymentIntentId;
   String? transferGroup;
   final DateTime createdAt;
 
-  bool get isExpired => status == JobOfferStatus.open && startDate.isBefore(DateTime.now());
+  DateTime get effectiveStartDateTime {
+    if (isRecurring &&
+        recurringStartTime.contains(':') &&
+        startDate.hour == 0 &&
+        startDate.minute == 0) {
+      final parts = recurringStartTime.split(':');
+      final h = int.tryParse(parts[0]) ?? 0;
+      final m = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+      return DateTime(startDate.year, startDate.month, startDate.day, h, m);
+    }
+    return startDate;
+  }
+
+  bool get isExpired =>
+      status == JobOfferStatus.open &&
+      !effectiveStartDateTime.isAfter(DateTime.now());
+
+  bool get isBookingTimePassed =>
+      !effectiveStartDateTime.isAfter(DateTime.now());
+
+  bool get isActiveForClient {
+    if (status == JobOfferStatus.open) return !isExpired;
+    if (status == JobOfferStatus.inProgress) return !isBookingTimePassed;
+    return false;
+  }
+
+  bool effectiveUrgency({bool? hasApplications, DateTime? now}) {
+    if (isUrgent) return true;
+    if (status != JobOfferStatus.open) return false;
+    final refNow = now ?? DateTime.now();
+    if (!effectiveStartDateTime.isAfter(refNow)) return false;
+    final noApps = hasApplications != null ? !hasApplications : (applicationsCount == 0);
+    if (!noApps) return false;
+    final elapsedSinceCreated = refNow.difference(createdAt);
+    final timeUntilStart = effectiveStartDateTime.difference(refNow);
+    return elapsedSinceCreated >= const Duration(hours: 24) ||
+        timeUntilStart < const Duration(hours: 24);
+  }
+
+  double effectiveUrgencyBonusRate({bool? hasApplications, DateTime? now}) {
+    if (urgencyBonusRate > 0) return urgencyBonusRate;
+    return effectiveUrgency(hasApplications: hasApplications, now: now) ? 0.10 : 0.0;
+  }
 
   String get familyLabel {
     final clean = clientName.trim();
@@ -69,6 +112,7 @@ class JobOffer {
     required this.isUrgent,
     required this.urgencyBonusRate,
     this.clientFeeRate = 0.03,
+    this.applicationsCount = 0,
     this.paymentIntentId,
     this.transferGroup,
     required this.createdAt,
@@ -102,6 +146,8 @@ class JobOffer {
         .where((d) => d >= 1 && d <= 7)
         .toList();
 
+    final createdAt = _parseDate(data['createdAt']) ?? DateTime.now();
+
     return JobOffer(
       id: doc.id,
       clientId: data['clientId']?.toString() ?? '',
@@ -117,7 +163,9 @@ class JobOffer {
       recurringHoursPerDay: _parseInt(data['recurringHoursPerDay']),
       recurringWeeks: _parseInt(data['recurringWeeks']),
       recurringStartTime: data['recurringStartTime']?.toString() ?? '',
-      startDate: _parseDate(data['startDate']) ?? DateTime.now(),
+      startDate: _parseDate(data['startDate']) ??
+          _parseDate(data['createdAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0),
       endDate: _parseDate(data['endDate']),
       status: JobOfferStatus.values.firstWhere(
         (e) => e.toString().split('.').last == data['status']?.toString(),
@@ -128,9 +176,10 @@ class JobOffer {
       isUrgent: data['isUrgent'] == true,
       urgencyBonusRate: _parseDouble(data['urgencyBonusRate']),
       clientFeeRate: _parseDouble(data['clientFeeRate'], fallback: 0.03),
+      applicationsCount: _parseInt(data['applicationsCount']),
       paymentIntentId: data['paymentIntentId']?.toString(),
       transferGroup: data['transferGroup']?.toString(),
-      createdAt: _parseDate(data['createdAt']) ?? DateTime.now(),
+      createdAt: createdAt,
     );
   }
 
@@ -157,6 +206,7 @@ class JobOffer {
       'isUrgent': isUrgent,
       'urgencyBonusRate': urgencyBonusRate,
       'clientFeeRate': clientFeeRate,
+      'applicationsCount': applicationsCount,
       'paymentIntentId': paymentIntentId,
       'transferGroup': transferGroup,
       'createdAt': Timestamp.fromDate(createdAt),

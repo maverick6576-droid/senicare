@@ -1924,6 +1924,50 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
   } catch (legacyQueryErr) {
     console.error("Cron Error querying legacy disputes:", legacyQueryErr.message);
   }
+
+  // 4. Mantenimiento automático de ofertas de empleo (urgencia a las 24h sin solicitudes y cierre al llegar la reserva)
+  try {
+    const openOffersSnap = await db.collection("job_offers").where("status", "==", "open").get();
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    for (const offerDoc of openOffersSnap.docs) {
+      try {
+        const offer = offerDoc.data() || {};
+        if (offer.isUrgent === true) continue;
+        const startDate = offer.startDate?.toDate ? offer.startDate.toDate() : null;
+        if (!startDate || startDate <= now) continue;
+        const createdAt = offer.createdAt?.toDate ? offer.createdAt.toDate() : null;
+        const elapsedSinceCreated = createdAt ? (now.getTime() - createdAt.getTime()) : 0;
+        const timeUntilStart = startDate.getTime() - now.getTime();
+        if (elapsedSinceCreated >= twentyFourHoursMs || timeUntilStart < twentyFourHoursMs) {
+          const appsSnap = await offerDoc.ref.collection("applications").limit(1).get();
+          if (appsSnap.empty) {
+            await offerDoc.ref.update({
+              isUrgent: true,
+              urgencyBonusRate: 0.10,
+              applicationsCount: 0,
+            });
+          }
+        }
+      } catch (offerErr) {
+        console.warn(`Cron error checking open offer ${offerDoc.id}:`, offerErr.message);
+      }
+    }
+
+    const inProgressOffersSnap = await db.collection("job_offers").where("status", "==", "inProgress").get();
+    for (const offerDoc of inProgressOffersSnap.docs) {
+      try {
+        const offer = offerDoc.data() || {};
+        const startDate = offer.startDate?.toDate ? offer.startDate.toDate() : null;
+        if (startDate && startDate <= now) {
+          await offerDoc.ref.update({ status: "completed" });
+        }
+      } catch (offerErr) {
+        console.warn(`Cron error completing inProgress offer ${offerDoc.id}:`, offerErr.message);
+      }
+    }
+  } catch (offersCronErr) {
+    console.warn("Cron error maintaining job_offers:", offersCronErr.message);
+  }
   
   return null;
 });
@@ -2723,9 +2767,14 @@ exports.pushOnApplicationCreated = onDocumentCreated({
   const application = event.data.data();
   
   // Obtenemos la oferta para saber quién es el cliente
-  const offerDoc = await admin.firestore().collection("job_offers").doc(event.params.offerId).get();
+  const offerRef = admin.firestore().collection("job_offers").doc(event.params.offerId);
+  const offerDoc = await offerRef.get();
   if (!offerDoc.exists) return null;
   const offer = offerDoc.data();
+
+  await offerRef.update({
+    applicationsCount: admin.firestore.FieldValue.increment(1),
+  }).catch(() => {});
 
   await sendPushNotification(
     offer.clientId, 

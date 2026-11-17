@@ -160,4 +160,61 @@ void main() {
     expect(notifier.nearbyOffers, isEmpty);
     notifier.dispose();
   });
+
+  test('Ofertas sin solicitudes tras 24h pasan a urgentes y las que tienen solicitud no', () async {
+    final baseStart = DateTime.now().add(const Duration(days: 3));
+    final unappliedId = await repo.createOffer(JobOffer(
+      id: '',
+      clientId: 'client_1',
+      clientName: 'Familia Uno',
+      clientLatitude: 41.3851,
+      clientLongitude: 2.1734,
+      title: 'Sin solicitudes 25h',
+      description: 'Cuidado',
+      pricePerHour: 14.0,
+      totalHours: 3,
+      isRecurring: false,
+      startDate: baseStart,
+      isUrgent: false,
+      urgencyBonusRate: 0.0,
+      createdAt: DateTime.now().subtract(const Duration(hours: 25)),
+    ));
+
+    final appliedId = await repo.createOffer(JobOffer(
+      id: '',
+      clientId: 'client_2',
+      clientName: 'Familia Dos',
+      clientLatitude: 41.3851,
+      clientLongitude: 2.1734,
+      title: 'Con solicitud 25h',
+      description: 'Cuidado',
+      pricePerHour: 15.0,
+      totalHours: 3,
+      isRecurring: false,
+      startDate: baseStart,
+      isUrgent: false,
+      urgencyBonusRate: 0.0,
+      createdAt: DateTime.now().subtract(const Duration(hours: 25)),
+    ));
+
+    await repo.applyToOffer(JobApplication(
+      id: 'app_cg',
+      offerId: appliedId,
+      caregiverId: 'cg_1',
+      caregiverName: 'Elena',
+      caregiverImageUrl: '',
+      caregiverRating: 4.9,
+      caregiverReviewsCount: 10,
+      message: 'Me interesa',
+      proposedPrice: 15.0,
+      appliedAt: DateTime.now(),
+    ));
+
+    final nearby = await repo.streamNearbyOffers(41.3851, 2.1734, 25.0).first;
+    expect(nearby.length, 2);
+    expect(nearby.first.id, unappliedId);
+    expect(nearby.first.effectiveUrgency(), isTrue);
+    expect(nearby.last.id, appliedId);
+    expect(nearby.last.effectiveUrgency(), isFalse);
+  });
 }

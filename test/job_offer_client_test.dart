@@ -51,6 +51,8 @@ void main() {
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
+    pendingBookingFocus.value = null;
+    pendingTrackingBookingId.value = null;
     mockJobOffers = _ErrorableJobOfferRepository();
     mockAuth = MockAuthRepository();
     mockCaregivers = MockCaregiverRepository();
@@ -119,6 +121,7 @@ void main() {
     required Widget child,
     AuthNotifier? auth,
     JobOfferNotifier? jobOfferNotifier,
+    BookingNotifier? bookingNotifier,
     ConfigNotifier? config,
   }) {
     final loc = LocationNotifier()
@@ -132,7 +135,7 @@ void main() {
         ChangeNotifierProvider<ConfigNotifier>.value(value: config ?? ConfigNotifier()),
         ChangeNotifierProvider<JobOfferNotifier>.value(value: jobOfferNotifier ?? JobOfferNotifier()),
         ChangeNotifierProvider<CaregiverNotifier>(create: (_) => CaregiverNotifier()),
-        ChangeNotifierProvider<BookingNotifier>(create: (_) => BookingNotifier()),
+        ChangeNotifierProvider<BookingNotifier>.value(value: bookingNotifier ?? BookingNotifier()),
         ChangeNotifierProvider<ChatNotifier>(create: (_) => ChatNotifier()),
       ],
       child: MaterialApp(
@@ -365,6 +368,118 @@ void main() {
       expect(find.text('Volver a Publicar Oferta'), findsOneWidget);
       expect(find.text('Oferta ya pasada'), findsWidgets);
     });
+
+    testWidgets(
+      'moves past-date inProgress offers to Historial, auto-promotes unapplied >24h offers to Urgent, and Ver reserva navigates directly to highlighted booking',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 640);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final futureDate = DateTime.now().add(const Duration(days: 2));
+        final futureOfferId = await mockJobOffers.createOffer(
+          makeOffer(
+            title: 'Cuidado futuro aceptado',
+            status: JobOfferStatus.inProgress,
+            startDate: futureDate,
+          ),
+        );
+        // Old accepted offer from 60 days ago must NOT appear in Activas!
+        await mockJobOffers.createOffer(
+          makeOffer(
+            title: 'Oferta de hace meses',
+            status: JobOfferStatus.inProgress,
+            startDate: DateTime.now().subtract(const Duration(days: 60)),
+            createdAt: DateTime.now().subtract(const Duration(days: 62)),
+          ),
+        );
+        // Open offer created >24h ago with 0 applications must auto-become Urgent.
+        await mockJobOffers.createOffer(
+          makeOffer(
+            title: 'Oferta sin candidatos 24h',
+            status: JobOfferStatus.open,
+            isUrgent: false,
+            startDate: DateTime.now().add(const Duration(days: 4)),
+            createdAt: DateTime.now().subtract(const Duration(hours: 25)),
+          ),
+        );
+
+        final bookingDay =
+            '${futureDate.year}-${futureDate.month.toString().padLeft(2, '0')}-${futureDate.day.toString().padLeft(2, '0')}';
+        await mockBookings.createBooking(
+          Booking(
+            id: 'bk_offer_future',
+            clientId: 'client_1',
+            caregiverId: 'cg_1',
+            caregiverName: 'Elena Ruiz',
+            day: bookingDay,
+            slot: '10:00-14:00',
+            cost: 60,
+            clientFee: 1.8,
+            caregiverCommissionRate: 0.18,
+            caregiverCommissionAmount: 10.8,
+            caregiverPayout: 49.2,
+            totalPaid: 61.8,
+            status: BookingStatus.confirmed,
+            offerId: futureOfferId,
+          ),
+        );
+
+        final bookingNotifier = BookingNotifier()..updateAuth('client_1', 'client');
+        final config = ConfigNotifier()..toggleSeniorMode(true);
+
+        await tester.pumpWidget(
+          wrapWithProviders(
+            config: config,
+            bookingNotifier: bookingNotifier,
+            child: const OffersHubScreen(),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 250));
+
+        // Only the upcoming inProgress + open unapplied offers stay in Activas; the 60-day-old offer is in Historial.
+        expect(find.text('Activas (2)'), findsOneWidget);
+        expect(find.text('Historial (1)'), findsOneWidget);
+        expect(find.text('Cuidado futuro aceptado'), findsOneWidget);
+        expect(find.text('Oferta de hace meses'), findsNothing);
+        expect(find.text('Ver cuidador y chatear'), findsOneWidget);
+        expect(find.text('Ver reserva'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        // Scroll down to inspect the auto-escalated Urgent offer (>24h with 0 applications).
+        final activeListScrollable = find.descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(Scrollable),
+        ).first;
+        await tester.scrollUntilVisible(
+          find.text('Oferta sin candidatos 24h'),
+          150,
+          scrollable: activeListScrollable,
+        );
+        await tester.pump();
+        expect(find.text('Oferta sin candidatos 24h'), findsOneWidget);
+        expect(find.text('Urgente (<24h)'), findsOneWidget);
+
+        // Scroll back up to 'Ver reserva' and tap it to navigate directly to Reservas.
+        await tester.scrollUntilVisible(
+          find.text('Ver reserva'),
+          -150,
+          scrollable: activeListScrollable,
+        );
+        await tester.ensureVisible(find.text('Ver reserva'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Ver reserva'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(BookingsScreen), findsOneWidget);
+        expect(find.text('Reserva de tu oferta: Cuidado futuro aceptado'), findsOneWidget);
+        expect(find.text('Elena Ruiz'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        bookingNotifier.dispose();
+      },
+    );
   });
 
   group('CreateOfferScreen & OfferDetailScreen client flows', () {

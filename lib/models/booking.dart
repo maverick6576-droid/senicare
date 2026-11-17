@@ -55,6 +55,8 @@ class Booking {
   final double caregiverPayout;
   final double totalPaid;
   final String? transferGroup;
+  final String? offerId;
+  final String? applicationId;
   final String? paymentIntentId;
   final String? paymentMethodType;
   final String? paymentStatus;
@@ -179,6 +181,24 @@ class Booking {
     return cost * (1.0 - rate);
   }
 
+  bool matchesOffer(
+    String targetOfferId, {
+    String? caregiverId,
+    DateTime? scheduledStart,
+  }) {
+    if (offerId == targetOfferId) return true;
+    if ((transferGroup ?? '').startsWith('offer_${targetOfferId}_')) return true;
+    if (caregiverId != null &&
+        caregiverId.isNotEmpty &&
+        this.caregiverId == caregiverId &&
+        scheduledStart != null &&
+        scheduledStartTime != null) {
+      return scheduledStartTime!.difference(scheduledStart).abs() <=
+          const Duration(minutes: 5);
+    }
+    return false;
+  }
+
   /// Estimated caregiver net payout if [refundAmount] is deducted from [cost].
   double estimateNetAfterDispute(double refundAmount) {
     if (cost <= 0) return 0.0;
@@ -210,6 +230,8 @@ class Booking {
     required this.caregiverPayout,
     required this.totalPaid,
     this.transferGroup,
+    this.offerId,
+    this.applicationId,
     this.paymentIntentId,
     this.paymentMethodType,
     this.paymentStatus,
@@ -269,6 +291,8 @@ class Booking {
         caregiverPayout: (data['caregiverPayout'] ?? 0).toDouble(),
         totalPaid: (data['totalPaid'] ?? 0).toDouble(),
         transferGroup: data['transferGroup']?.toString(),
+        offerId: data['offerId']?.toString(),
+        applicationId: data['applicationId']?.toString(),
         paymentIntentId: data['paymentIntentId']?.toString(),
         paymentMethodType: data['paymentMethodType']?.toString(),
         paymentStatus: data['paymentStatus']?.toString(),
@@ -338,6 +362,8 @@ class Booking {
       'caregiverPayout': caregiverPayout,
       'totalPaid': totalPaid,
       'transferGroup': transferGroup,
+      if (offerId != null) 'offerId': offerId,
+      if (applicationId != null) 'applicationId': applicationId,
       'paymentIntentId': paymentIntentId,
       if (paymentMethodType != null) 'paymentMethodType': paymentMethodType,
       if (paymentStatus != null) 'paymentStatus': paymentStatus,
@@ -381,6 +407,8 @@ class Booking {
     double? caregiverPayout,
     double? totalPaid,
     String? transferGroup,
+    String? offerId,
+    String? applicationId,
     String? paymentIntentId,
     String? paymentMethodType,
     String? paymentStatus,
@@ -424,6 +452,8 @@ class Booking {
       caregiverPayout: caregiverPayout ?? this.caregiverPayout,
       totalPaid: totalPaid ?? this.totalPaid,
       transferGroup: transferGroup ?? this.transferGroup,
+      offerId: offerId ?? this.offerId,
+      applicationId: applicationId ?? this.applicationId,
       paymentIntentId: paymentIntentId ?? this.paymentIntentId,
       paymentMethodType: paymentMethodType ?? this.paymentMethodType,
       paymentStatus: paymentStatus ?? this.paymentStatus,

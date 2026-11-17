@@ -144,7 +144,7 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
   bool get _isUrgent {
     final start = _selectedStartDateTime;
     final now = DateTime.now();
-    return start.isAfter(now) && start.difference(now).inHours < 24;
+    return start.isAfter(now) && start.difference(now) < const Duration(hours: 24);
   }
 
   Future<void> _submit() async {

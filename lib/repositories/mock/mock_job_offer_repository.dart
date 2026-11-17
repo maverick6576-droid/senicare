@@ -6,6 +6,7 @@ import 'package:senicare/core/globals.dart';
 class MockJobOfferRepository implements JobOfferRepository {
   final List<JobOffer> _offers = [];
   final Map<String, List<JobApplication>> _applications = {};
+  int _idSeq = 0;
   
   final _offersController = StreamController<List<JobOffer>>.broadcast();
   final Map<String, StreamController<List<JobApplication>>> _appsControllers = {};
@@ -23,7 +24,9 @@ class MockJobOfferRepository implements JobOfferRepository {
   @override
   Future<String> createOffer(JobOffer offer) async {
     final newOffer = JobOffer(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: offer.id.isNotEmpty
+          ? offer.id
+          : '${DateTime.now().microsecondsSinceEpoch}_${++_idSeq}',
       clientId: offer.clientId,
       clientName: offer.clientName,
       clientLatitude: offer.clientLatitude,
@@ -40,9 +43,14 @@ class MockJobOfferRepository implements JobOfferRepository {
       startDate: offer.startDate,
       endDate: offer.endDate,
       status: offer.status,
+      acceptedCaregiverId: offer.acceptedCaregiverId,
+      acceptedApplicationId: offer.acceptedApplicationId,
       isUrgent: offer.isUrgent,
       urgencyBonusRate: offer.urgencyBonusRate,
       clientFeeRate: offer.clientFeeRate,
+      applicationsCount: offer.applicationsCount,
+      paymentIntentId: offer.paymentIntentId,
+      transferGroup: offer.transferGroup,
       createdAt: offer.createdAt,
     );
     _offers.add(newOffer);
@@ -74,10 +82,12 @@ class MockJobOfferRepository implements JobOfferRepository {
         }
       }
       matches.sort((a, b) {
-        if (a.offer.isUrgent != b.offer.isUrgent) {
-          return a.offer.isUrgent ? -1 : 1;
+        final aUrgent = a.offer.effectiveUrgency();
+        final bUrgent = b.offer.effectiveUrgency();
+        if (aUrgent != bUrgent) {
+          return aUrgent ? -1 : 1;
         }
-        final dateCmp = a.offer.startDate.compareTo(b.offer.startDate);
+        final dateCmp = a.offer.effectiveStartDateTime.compareTo(b.offer.effectiveStartDateTime);
         if (dateCmp != 0) return dateCmp;
         return a.distance.compareTo(b.distance);
       });
@@ -95,6 +105,16 @@ class MockJobOfferRepository implements JobOfferRepository {
       _offers[idx].status = status;
       if (acceptedCaregiverId != null) _offers[idx].acceptedCaregiverId = acceptedCaregiverId;
       if (acceptedApplicationId != null) _offers[idx].acceptedApplicationId = acceptedApplicationId;
+      _notifyOffers();
+    }
+  }
+
+  @override
+  Future<void> promoteOfferToUrgent(String offerId, {double bonusRate = 0.10}) async {
+    final idx = _offers.indexWhere((o) => o.id == offerId);
+    if (idx != -1) {
+      _offers[idx].isUrgent = true;
+      _offers[idx].urgencyBonusRate = bonusRate;
       _notifyOffers();
     }
   }
@@ -145,6 +165,11 @@ class MockJobOfferRepository implements JobOfferRepository {
     );
 
     _applications[offerId]!.add(newApp);
+    final offerIdx = _offers.indexWhere((o) => o.id == offerId);
+    if (offerIdx != -1) {
+      _offers[offerIdx].applicationsCount = _applications[offerId]!.length;
+      _notifyOffers();
+    }
     _notifyApps(offerId);
   }
 
@@ -225,6 +250,11 @@ class MockJobOfferRepository implements JobOfferRepository {
   Future<void> withdrawApplication(String offerId, String applicationId, String caregiverId) async {
     if (_applications.containsKey(offerId)) {
       _applications[offerId]!.removeWhere((a) => a.id == applicationId || a.caregiverId == caregiverId);
+      final offerIdx = _offers.indexWhere((o) => o.id == offerId);
+      if (offerIdx != -1) {
+        _offers[offerIdx].applicationsCount = _applications[offerId]!.length;
+        _notifyOffers();
+      }
       _notifyApps(offerId);
     }
   }

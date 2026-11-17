@@ -39,14 +39,26 @@ class _MainLayoutState extends State<MainLayout> {
   void initState() {
     super.initState();
     pendingPushRoute.addListener(_onPendingPushRouteChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _consumePendingPushRoute());
+    pendingBookingFocus.addListener(_onPendingBookingFocusChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _consumePendingPushRoute();
+      _onPendingBookingFocusChanged();
+    });
   }
 
   @override
   void dispose() {
     pendingPushRoute.removeListener(_onPendingPushRouteChanged);
+    pendingBookingFocus.removeListener(_onPendingBookingFocusChanged);
     _autoTutorialTimer?.cancel();
     super.dispose();
+  }
+
+  void _onPendingBookingFocusChanged() {
+    if (!mounted) return;
+    if (pendingBookingFocus.value != null) {
+      _selectTab(2);
+    }
   }
 
   void _onPendingPushRouteChanged() {
