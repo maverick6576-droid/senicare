@@ -335,22 +335,50 @@ class BookingNotifier extends ChangeNotifier {
     }
   }
 
-  Future<void> completeService(String bookingId) async {
+  Future<Map<String, dynamic>> completeService(String bookingId, {String? careNotes}) async {
     final b = bookings.where((b) => b.id == bookingId).firstOrNull;
     final now = DateTime.now();
+    final trimmedNotes = (careNotes ?? b?.careNotes ?? '').trim();
+    if (trimmedNotes.isEmpty) {
+      throw Exception('Es obligatorio escribir un resumen en el diario para registrar la salida.');
+    }
+
+    Map<String, dynamic> result = {'success': true};
+
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      try {
+        result = await StripeService.recordBookingCheckOut(
+          bookingId: bookingId,
+          careNotes: trimmedNotes,
+        );
+      } catch (e) {
+        // Fallback directo a Firestore si falla la función en red pero estamos autenticados
+        await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+          'liveStatus': 'completed',
+          'status': 'completed',
+          'checkOutTime': Timestamp.fromDate(now),
+          'careNotes': trimmedNotes,
+        });
+      }
+    }
+
     if (b != null) {
       b.liveStatus = 'completed';
       b.status = BookingStatus.completed;
       b.checkOutTime = now;
+      b.careNotes = trimmedNotes;
+      if (result['isEarlyCheckOut'] == true) {
+        b.isEarlyCheckOut = true;
+        b.minutesEarlyCheckOut = (result['minutesEarly'] as num?)?.toInt();
+        b.earlyCheckOutRefundAmount = (result['refundAmount'] as num?)?.toDouble();
+        if (result['newPayout'] != null) {
+          b.caregiverPayout = (result['newPayout'] as num).toDouble();
+        }
+      }
       notifyListeners();
     }
-    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-        'liveStatus': 'completed',
-        'status': 'completed',
-        'checkOutTime': Timestamp.fromDate(now),
-      });
-    }
+
+    return result;
   }
 
   Future<void> markOnTheWay(String bookingId) async {

@@ -1274,6 +1274,147 @@ exports.verifyBookingCheckIn = functions.region("europe-west1").https.onCall(asy
   return { success: true, checkInMethod: method };
 });
 
+/**
+ * Fichaje de salida (Check-out) obligatorio por parte del cuidador:
+ * - Exige resumen obligatorio en el diario (careNotes no vacío).
+ * - Si ficha más de 15 minutos antes de la hora teórica de fin: penalización económica,
+ *   se le paga únicamente el tiempo real trabajado (prorrateado por minuto), la app mantiene
+ *   su comisión porcentual sobre lo trabajado y se devuelve el importe no trabajado al cliente.
+ */
+exports.recordBookingCheckOut = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = context.auth.uid;
+  const bookingId = typeof data?.bookingId === "string" ? data.bookingId.trim() : "";
+  const careNotes = typeof data?.careNotes === "string" ? data.careNotes.trim() : "";
+
+  if (!bookingId) {
+    throw new functions.https.HttpsError("invalid-argument", "bookingId requerido.");
+  }
+  if (!careNotes) {
+    throw new functions.https.HttpsError("invalid-argument", "Es obligatorio escribir un resumen en el diario para registrar la salida.");
+  }
+
+  const db = admin.firestore();
+  const stripe = require("stripe")(stripeSecret.value());
+  const bookingRef = db.collection("bookings").doc(bookingId);
+  let lockAcquired = false;
+
+  try {
+    const lockRes = await acquireEscrowLock(bookingRef, "recordBookingCheckOut", async (b) => {
+      if (b.caregiverId !== uid) {
+        throw new functions.https.HttpsError("permission-denied", "Solo el cuidador asignado puede registrar el check-out.");
+      }
+      if (!b.checkInTime) {
+        throw new functions.https.HttpsError("failed-precondition", "No se puede fichar la salida sin haber realizado el check-in.");
+      }
+      if (b.checkOutTime) {
+        return { skip: true, alreadyCheckedOut: true };
+      }
+      return {};
+    });
+
+    if (lockRes.skip && lockRes.alreadyCheckedOut) {
+      return { success: true, alreadyCheckedOut: true };
+    }
+    lockAcquired = lockRes.acquired;
+    const booking = lockRes.booking;
+
+    const startDt = parseBookingStartDateTime(booking.day, booking.slot);
+    const endDt = parseBookingEndDateTime(booking.day, booking.slot);
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    let isEarlyCheckOut = false;
+    let minutesEarly = 0;
+    let earlyRefundAmount = 0;
+    let updatedCost = Number(booking.cost) || 0;
+    let updatedCommission = Number(booking.caregiverCommissionAmount) || 0;
+    let updatedPayout = Number(booking.caregiverPayout) || 0;
+
+    if (startDt && endDt) {
+      const scheduledEndMs = endDt.getTime();
+      const scheduledStartMs = startDt.getTime();
+      const diffEndMs = scheduledEndMs - nowMs;
+      const minutesBeforeEnd = Math.floor(diffEndMs / 60000);
+
+      // Si el cuidador sale más de 15 minutos antes de la hora prevista de fin
+      if (minutesBeforeEnd > 15) {
+        isEarlyCheckOut = true;
+        minutesEarly = minutesBeforeEnd;
+
+        const totalTheoreticalMinutes = Math.max(1, Math.round((scheduledEndMs - scheduledStartMs) / 60000));
+        const checkInMs = booking.checkInTime ? booking.checkInTime.toDate().getTime() : scheduledStartMs;
+        const actualStartMs = Math.max(scheduledStartMs, checkInMs);
+        const actualWorkedMinutes = Math.max(0, Math.min(totalTheoreticalMinutes, Math.round((nowMs - actualStartMs) / 60000)));
+
+        const pricePerMinute = (Number(booking.cost) || 0) / totalTheoreticalMinutes;
+        const workedCost = Math.min(Number(booking.cost) || 0, Math.max(0, actualWorkedMinutes * pricePerMinute));
+        earlyRefundAmount = Math.max(0, (Number(booking.cost) || 0) - workedCost);
+
+        updatedCost = workedCost;
+        const commissionRate = Number(booking.caregiverCommissionRate) || 0.18;
+        updatedCommission = updatedCost * commissionRate;
+        updatedPayout = Math.max(0, updatedCost - updatedCommission);
+
+        // Devolución inmediata del dinero restante al cliente
+        if (booking.paymentIntentId && earlyRefundAmount > 0) {
+          try {
+            await createIdempotentRefund(stripe, {
+              paymentIntentId: booking.paymentIntentId,
+              amountInCents: Math.round(earlyRefundAmount * 100),
+              idempotencyKey: `early_checkout_refund_${bookingId}`,
+            });
+          } catch (refundErr) {
+            console.error(`Error refunding early checkout on booking ${bookingId}:`, refundErr);
+          }
+        }
+      }
+    }
+
+    const updatePayload = {
+      checkOutTime: admin.firestore.FieldValue.serverTimestamp(),
+      liveStatus: "completed",
+      status: "completed",
+      careNotes: careNotes,
+      isEarlyCheckOut,
+      escrowLock: admin.firestore.FieldValue.delete(),
+    };
+
+    if (isEarlyCheckOut) {
+      updatePayload.minutesEarlyCheckOut = minutesEarly;
+      updatePayload.earlyCheckOutRefundAmount = earlyRefundAmount;
+      updatePayload.cost = updatedCost;
+      updatePayload.caregiverCommissionAmount = updatedCommission;
+      updatePayload.caregiverPayout = updatedPayout;
+      updatePayload.escrowStatus = "released_partial";
+    }
+
+    await bookingRef.update(updatePayload);
+    lockAcquired = false;
+
+    // Notificar a la familia
+    await sendPushNotification(
+      booking.clientId,
+      "Servicio finalizado",
+      isEarlyCheckOut
+        ? `${booking.caregiverName || "El cuidador"} ha finalizado la salida con ${minutesEarly} min de antelación. Se ha reembolsado la parte no trabajada.`
+        : `${booking.caregiverName || "El cuidador"} ha completado el turno y registrado el resumen del día.`,
+      { type: "booking", bookingId, senderId: uid },
+      { excludeUserIds: [uid] }
+    );
+
+    return {
+      success: true,
+      isEarlyCheckOut,
+      minutesEarly,
+      refundAmount: earlyRefundAmount,
+      newPayout: updatedPayout,
+    };
+  } finally {
+    if (lockAcquired) await releaseEscrowLock(bookingRef);
+  }
+});
+
 exports.cancelPendingCheckout = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
@@ -2090,6 +2231,97 @@ exports.monitorLateBookingsCron = functions.region("europe-west1").runWith({ sec
         }
       }
     }
+
+    // Monitorización de Check-out para cuidadores que hicieron Check-in:
+    // El cuidador tiene hasta 15 minutos después de la finalización de la reserva para fichar la salida.
+    // Pasados 15 minutos tras el fin del servicio:
+    // 1) Se envía notificación push de que debe hacer el check-out de inmediato.
+    // 2) Si sigue sin fichar la salida pasado un margen adicional (p. ej. 30 minutos tras el fin del servicio),
+    //    se le anota una falta y se le penaliza con una incidencia leve (5 incidencias leves = 1 normal).
+    const activeCheckIns = await db
+      .collection("bookings")
+      .where("status", "==", "confirmed")
+      .get();
+
+    for (const doc of activeCheckIns.docs) {
+      const b = doc.data() || {};
+      if (!b.checkInTime || b.checkOutTime) continue;
+
+      const endDt = parseBookingEndDateTime(b.day, b.slot);
+      if (!endDt) continue;
+
+      const endMs = endDt.getTime();
+      const fifteenMinAfterEnd = endMs + (15 * 60 * 1000);
+      const penaltyDeadline = endMs + (30 * 60 * 1000);
+
+      // Si han pasado más de 15 minutos desde el fin y no se le ha enviado aviso de check-out
+      if (nowMs > fifteenMinAfterEnd && !b.checkOutReminderSentAt && b.caregiverId) {
+        try {
+          const claimed = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(doc.ref);
+            if (!snap.exists) return false;
+            const cur = snap.data() || {};
+            if (!cur.checkInTime || cur.checkOutTime || cur.checkOutReminderSentAt) return false;
+            tx.update(doc.ref, {
+              checkOutReminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            return true;
+          });
+
+          if (claimed) {
+            await sendPushNotification(
+              b.caregiverId,
+              "⏳ Debes registrar la salida (Check-out)",
+              `Ha finalizado el horario del servicio del ${formatDateEs(b.day)} (${b.slot}). Debes fichar la salida y escribir el resumen del día en el diario obligatoriamente para evitar una falta.`,
+              { type: "booking", bookingId: doc.id, senderId: b.clientId || "" },
+              { excludeUserIds: b.clientId ? [b.clientId] : [] }
+            );
+          }
+        } catch (warnErr) {
+          console.warn(`Error sending checkout reminder for ${doc.id}:`, warnErr.message);
+        }
+      }
+
+      // Si han pasado más de 30 minutos desde el fin y sigue sin fichar la salida, penalizar con incidencia leve
+      if (nowMs > penaltyDeadline && !b.missingCheckOutPenalizedAt && b.caregiverId) {
+        let lockAcquired = false;
+        try {
+          const lockRes = await acquireEscrowLock(doc.ref, "cronMissingCheckOutPenalty", async (cur) => {
+            if (!cur.checkInTime || cur.checkOutTime || cur.missingCheckOutPenalizedAt) {
+              return { skip: true };
+            }
+            return {};
+          });
+
+          if (lockRes.acquired) {
+            lockAcquired = true;
+            await doc.ref.update({
+              missingCheckOutPenalizedAt: admin.firestore.FieldValue.serverTimestamp(),
+              hasMissingCheckOutFault: true,
+              escrowLock: admin.firestore.FieldValue.delete(),
+            });
+            lockAcquired = false;
+
+            await addMinorIncidentToCaregiver(
+              b.caregiverId,
+              `Falta de check-out en la reserva del ${b.day} (${b.slot})`
+            );
+
+            await sendPushNotification(
+              b.caregiverId,
+              "⚠️ Incidencia leve por falta de Check-out",
+              `No registraste la salida del servicio del ${formatDateEs(b.day)} dentro del plazo. Se ha anotado una falta e incidencia leve en tu perfil (5 incidencias leves equivalen a 1 normal y restan puntos en las búsquedas).`,
+              { type: "booking", bookingId: doc.id, senderId: b.clientId || "" },
+              { excludeUserIds: b.clientId ? [b.clientId] : [] }
+            );
+          }
+        } catch (penErr) {
+          console.error(`Error penalizing missing check-out for ${doc.id}:`, penErr);
+        } finally {
+          if (lockAcquired) await releaseEscrowLock(doc.ref);
+        }
+      }
+    }
   } catch (err) {
     console.error("monitorLateBookingsCron query error:", err.message);
   }
@@ -2560,6 +2792,43 @@ async function addIncidentToCaregiver(caregiverId) {
   if (cgDoc.exists) writes.push(cgRef.set(updateData, { merge: true }));
   if (userDoc.exists) writes.push(userRef.set(updateData, { merge: true }));
   await Promise.all(writes);
+}
+
+/**
+ * Añade una incidencia leve al cuidador (por ejemplo, por no fichar salida).
+ * 5 incidencias leves equivalen a 1 incidencia normal.
+ * Las incidencias leves también restan puntuación en las búsquedas.
+ */
+async function addMinorIncidentToCaregiver(caregiverId, reason) {
+  if (!caregiverId) return;
+  const db = admin.firestore();
+  const cgRef = db.collection("caregivers").doc(caregiverId);
+  const userRef = db.collection("users").doc(caregiverId);
+  const [cgDoc, userDoc] = await Promise.all([cgRef.get(), userRef.get()]);
+  if (!cgDoc.exists && !userDoc.exists) return;
+
+  const baseData = (cgDoc.exists ? cgDoc.data() : userDoc.data()) || {};
+  const currentMinor = Number(baseData.minorIncidentsCount) || 0;
+  const newMinor = currentMinor + 1;
+  const convertedMajor = Math.floor(newMinor / 5);
+  const remainingMinor = newMinor % 5;
+
+  const writes = [];
+  const updateData = {
+    minorIncidentsCount: remainingMinor,
+    lastMinorIncidentAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastMinorIncidentReason: reason || "Falta de check-out obligatorio",
+  };
+  if (cgDoc.exists) writes.push(cgRef.set(updateData, { merge: true }));
+  if (userDoc.exists) writes.push(userRef.set(updateData, { merge: true }));
+  await Promise.all(writes);
+
+  if (convertedMajor > 0) {
+    for (let i = 0; i < convertedMajor; i++) {
+      await addIncidentToCaregiver(caregiverId);
+    }
+    console.log(`[Incidencia Leve] Cuidador ${caregiverId} acumuló 5 leves -> convertidas a ${convertedMajor} incidencia normal.`);
+  }
 }
 
 // 3. Actualización de Reserva (Confirmación, Cancelación, Pagos, Estados en Vivo y Disputas) (V2)

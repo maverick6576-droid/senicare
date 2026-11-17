@@ -200,5 +200,33 @@ void main() {
 
       notifier.dispose();
     });
+
+    test('completeService enforces non-empty careNotes for mandatory checkout summary', () async {
+      final b = makeBooking(
+        id: 'checkout_test_1',
+        status: BookingStatus.confirmed,
+        checkInTime: DateTime.now().subtract(const Duration(hours: 1)),
+      );
+      await mockRepo.createBooking(b);
+      final notifier = BookingNotifier();
+      notifier.updateAuth('cg_1', 'caregiver');
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // Vacío debe lanzar excepción
+      expect(
+        () => notifier.completeService('checkout_test_1', careNotes: '   '),
+        throwsA(isA<Exception>()),
+      );
+
+      // Con notas válidas completa el servicio
+      await notifier.completeService('checkout_test_1', careNotes: 'Paciente comió bien y descansó.');
+      final updated = notifier.bookings.firstWhere((item) => item.id == 'checkout_test_1');
+      expect(updated.liveStatus, 'completed');
+      expect(updated.status, BookingStatus.completed);
+      expect(updated.checkOutTime, isNotNull);
+      expect(updated.careNotes, 'Paciente comió bien y descansó.');
+
+      notifier.dispose();
+    });
   });
 }

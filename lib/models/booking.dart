@@ -47,12 +47,12 @@ class Booking {
   final double? clientLongitude;
   final String? bookingPin;
   BookingStatus status;
-  final double cost;
+  double cost;
   final double clientFee;
   final double? clientFeeRate;
   final double caregiverCommissionRate;
-  final double caregiverCommissionAmount;
-  final double caregiverPayout;
+  double caregiverCommissionAmount;
+  double caregiverPayout;
   final double totalPaid;
   final String? transferGroup;
   final String? offerId;
@@ -79,6 +79,9 @@ class Booking {
   String liveStatus;
   DateTime? onTheWayAt;
   double tipAmount;
+  bool? isEarlyCheckOut;
+  double? earlyCheckOutRefundAmount;
+  int? minutesEarlyCheckOut;
 
   DateTime? get scheduledStartTime {
     try {
@@ -279,6 +282,9 @@ class Booking {
     this.liveStatus = 'scheduled',
     this.onTheWayAt,
     this.tipAmount = 0.0,
+    this.isEarlyCheckOut,
+    this.earlyCheckOutRefundAmount,
+    this.minutesEarlyCheckOut,
   })  : createdAt = createdAt ?? DateTime.now(),
         careChecklist = careChecklist ?? [],
         carePhotoUrls = carePhotoUrls ?? [];
@@ -348,6 +354,9 @@ class Booking {
             ? (data['onTheWayAt'] as Timestamp).toDate()
             : null,
         tipAmount: (data['tipAmount'] as num?)?.toDouble() ?? 0.0,
+        isEarlyCheckOut: data['isEarlyCheckOut'] as bool?,
+        earlyCheckOutRefundAmount: (data['earlyCheckOutRefundAmount'] as num?)?.toDouble(),
+        minutesEarlyCheckOut: (data['minutesEarlyCheckOut'] as num?)?.toInt(),
       );
     } catch (e) {
       debugPrint('Error parsing Booking ${doc.id}: $e');
@@ -411,6 +420,9 @@ class Booking {
       'liveStatus': liveStatus,
       if (onTheWayAt != null) 'onTheWayAt': Timestamp.fromDate(onTheWayAt!),
       if (tipAmount > 0) 'tipAmount': tipAmount,
+      if (isEarlyCheckOut != null) 'isEarlyCheckOut': isEarlyCheckOut,
+      if (earlyCheckOutRefundAmount != null) 'earlyCheckOutRefundAmount': earlyCheckOutRefundAmount,
+      if (minutesEarlyCheckOut != null) 'minutesEarlyCheckOut': minutesEarlyCheckOut,
     };
   }
 
@@ -456,6 +468,9 @@ class Booking {
     String? liveStatus,
     DateTime? onTheWayAt,
     double? tipAmount,
+    bool? isEarlyCheckOut,
+    double? earlyCheckOutRefundAmount,
+    int? minutesEarlyCheckOut,
   }) {
     return Booking(
       id: id ?? this.id,
@@ -502,6 +517,9 @@ class Booking {
       liveStatus: liveStatus ?? this.liveStatus,
       onTheWayAt: onTheWayAt ?? this.onTheWayAt,
       tipAmount: tipAmount ?? this.tipAmount,
+      isEarlyCheckOut: isEarlyCheckOut ?? this.isEarlyCheckOut,
+      earlyCheckOutRefundAmount: earlyCheckOutRefundAmount ?? this.earlyCheckOutRefundAmount,
+      minutesEarlyCheckOut: minutesEarlyCheckOut ?? this.minutesEarlyCheckOut,
     );
   }
 }

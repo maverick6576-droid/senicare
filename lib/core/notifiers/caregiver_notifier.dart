@@ -209,6 +209,10 @@ class CaregiverNotifier extends ChangeNotifier {
           if (a.isSuperCaregiver != b.isSuperCaregiver) {
             return a.isSuperCaregiver ? -1 : 1;
           }
+          // Las incidencias leves restan puntos en las búsquedas
+          if (a.minorIncidentsCount != b.minorIncidentsCount) {
+            return a.minorIncidentsCount.compareTo(b.minorIncidentsCount);
+          }
           final ratingCmp = b.rating.compareTo(a.rating);
           return ratingCmp != 0 ? ratingCmp : b.reviewsCount.compareTo(a.reviewsCount);
         });

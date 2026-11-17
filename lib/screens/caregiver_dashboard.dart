@@ -1234,18 +1234,114 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () async {
-                  final confirm = await CustomDialog.showConfirmation(
-                    context,
-                    title: 'Finalizar Servicio',
-                    message: '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
-                    confirmText: 'Finalizar y Salir',
-                    cancelText: 'Continuar turno',
+                  final scheduledEnd = activeService.scheduledEndTime;
+                  final now = DateTime.now();
+                  final bool isEarly = scheduledEnd != null &&
+                      scheduledEnd.difference(now).inMinutes > 15;
+                  final int minsBefore = scheduledEnd != null
+                      ? scheduledEnd.difference(now).inMinutes
+                      : 0;
+
+                  final noteController = TextEditingController(text: activeService.careNotes);
+                  String? validationError;
+
+                  final note = await showDialog<String>(
+                    context: context,
+                    builder: (ctx) => StatefulBuilder(
+                      builder: (ctx, setDialogState) => AlertDialog(
+                        title: const Row(
+                          children: [
+                            Icon(Icons.assignment_outlined, color: AppTheme.primary),
+                            SizedBox(width: 8),
+                            Text('Resumen de Salida', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        content: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (isEarly) ...[
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.shade50,
+                                    border: Border.all(color: Colors.amber.shade600),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900, size: 20),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Faltan $minsBefore min para terminar el horario acordado. Al salir con más de 15 min de antelación se calculará el pago únicamente por el tiempo real trabajado.',
+                                          style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              const Text(
+                                'El resumen en el diario es obligatorio para registrar la salida:',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: noteController,
+                                maxLines: 4,
+                                autofocus: true,
+                                decoration: InputDecoration(
+                                  hintText: 'Describe cómo ha ido la jornada, comidas, medicación, estado del paciente...',
+                                  errorText: validationError,
+                                  border: const OutlineInputBorder(),
+                                ),
+                                onChanged: (_) {
+                                  if (validationError != null) {
+                                    setDialogState(() => validationError = null);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancelar'),
+                          ),
+                          FilledButton.icon(
+                            onPressed: () {
+                              final text = noteController.text.trim();
+                              if (text.isEmpty) {
+                                setDialogState(() {
+                                  validationError = 'El resumen es obligatorio para fichar la salida.';
+                                });
+                                return;
+                              }
+                              Navigator.pop(ctx, text);
+                            },
+                            icon: const Icon(Icons.check_circle_rounded, size: 18),
+                            label: const Text('Confirmar Salida'),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
-                  if (confirm == true && context.mounted) {
+
+                  if (note != null && note.trim().isNotEmpty && context.mounted) {
                     HapticFeedback.heavyImpact();
-                    await bookingState.completeService(activeService.id);
+                    await bookingState.completeService(activeService.id, careNotes: note.trim());
                     if (context.mounted) {
-                      CustomSnackBar.show(context, message: '🎉 ¡Servicio finalizado con éxito! Buen descanso.', type: SnackBarType.success);
+                      CustomSnackBar.show(
+                        context,
+                        message: isEarly
+                            ? '🏁 Salida registrada con antelación ($minsBefore min antes). Ajuste aplicado.'
+                            : '🎉 ¡Servicio finalizado con éxito! Buen descanso.',
+                        type: SnackBarType.success,
+                      );
                     }
                   }
                 },

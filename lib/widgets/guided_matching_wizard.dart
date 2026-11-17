@@ -82,6 +82,9 @@ class _GuidedMatchingWizardState extends State<GuidedMatchingWizard> {
         score += _prioritizeSuperCaregivers ? 10 : 5;
       }
       if (c.verified) score += 5;
+      if (c.minorIncidentsCount > 0) {
+        score -= (c.minorIncidentsCount * 4);
+      }
 
       for (final need in _selectedNeeds) {
         final item = _needsCatalog.firstWhere(

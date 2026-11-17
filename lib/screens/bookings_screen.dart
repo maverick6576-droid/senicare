@@ -2720,21 +2720,74 @@ class _BookingsScreenState extends State<BookingsScreen>
           onPressed: isBusy
               ? null
               : () async {
-                  final confirm = await CustomDialog.showConfirmation(
-                    context,
-                    title: 'Finalizar Servicio',
-                    message:
-                        '¿Confirmas que has terminado el turno y vas a salir del domicilio? Se registrará la salida y la familia recibirá el aviso.',
-                    confirmText: 'Finalizar y Salir',
-                    cancelText: 'Continuar turno',
+                  final scheduledEnd = b.scheduledEndTime;
+                  final now = DateTime.now();
+                  final bool isEarly = scheduledEnd != null &&
+                      scheduledEnd.difference(now).inMinutes > 15;
+                  final int minsBefore = scheduledEnd != null
+                      ? scheduledEnd.difference(now).inMinutes
+                      : 0;
+
+                  final note = await showDialog<String>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Row(
+                        children: [
+                          Icon(Icons.assignment_outlined, color: AppTheme.primary),
+                          SizedBox(width: 8),
+                          Text('Resumen de Salida', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      content: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (isEarly) ...[
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade50,
+                                  border: Border.all(color: Colors.amber.shade600),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900, size: 20),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Faltan $minsBefore min para terminar el horario acordado. Al salir con más de 15 min de antelación se calculará el pago únicamente por el tiempo real trabajado.',
+                                        style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            const Text(
+                              'El resumen en el diario es obligatorio para registrar la salida:',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            _BookingCheckOutForm(
+                              initialValue: b.careNotes,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   );
-                  if (confirm == true && context.mounted) {
+
+                  if (note != null && note.trim().isNotEmpty && context.mounted) {
                     HapticFeedback.heavyImpact();
                     await _runBookingAction(
                       b.id,
-                      () => state.completeService(b.id),
-                      successMessage:
-                          '🎉 ¡Servicio finalizado con éxito! Buen descanso.',
+                      () => state.completeService(b.id, careNotes: note.trim()),
+                      successMessage: isEarly
+                          ? '🏁 Salida registrada con antelación ($minsBefore min antes). Ajuste aplicado.'
+                          : '🎉 ¡Servicio finalizado con éxito! Buen descanso.',
                     );
                   }
                 },
@@ -4508,6 +4561,80 @@ class _BookingsScreenState extends State<BookingsScreen>
           ],
         ),
       ),
+    );
+  }
+}
+
+class _BookingCheckOutForm extends StatefulWidget {
+  final String initialValue;
+  const _BookingCheckOutForm({this.initialValue = ''});
+
+  @override
+  State<_BookingCheckOutForm> createState() => _BookingCheckOutFormState();
+}
+
+class _BookingCheckOutFormState extends State<_BookingCheckOutForm> {
+  late final TextEditingController _controller;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) {
+      setState(() {
+        _error = 'El resumen es obligatorio para fichar la salida.';
+      });
+      return;
+    }
+    Navigator.pop(context, text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: _controller,
+          maxLines: 4,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: 'Describe cómo ha ido la jornada, comidas, medicación, estado del paciente...',
+            errorText: _error,
+            border: const OutlineInputBorder(),
+          ),
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              onPressed: _submit,
+              icon: const Icon(Icons.check_circle_rounded, size: 18),
+              label: const Text('Confirmar Salida'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

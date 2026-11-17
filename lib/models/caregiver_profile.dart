@@ -49,6 +49,7 @@ class CaregiverProfile {
   final List<DateTime> incidentDates;
   final DateTime? blockedUntil;
   final String accountStatus;
+  final int minorIncidentsCount;
 
   CaregiverProfile({
     required this.id,
@@ -81,6 +82,7 @@ class CaregiverProfile {
     this.incidentDates = const [],
     this.blockedUntil,
     this.accountStatus = 'active',
+    this.minorIncidentsCount = 0,
   })  : hasDniSubmitted = hasDniSubmitted ?? dniUrl.trim().isNotEmpty,
         hasCriminalSubmitted = hasCriminalSubmitted ?? criminalRecordUrl.trim().isNotEmpty;
 
@@ -122,6 +124,7 @@ class CaregiverProfile {
         incidentDates: (data['incidentDates'] as List<dynamic>?)?.map((d) => (d as Timestamp).toDate()).toList() ?? [],
         blockedUntil: (data['blockedUntil'] as Timestamp?)?.toDate(),
         accountStatus: data['status']?.toString() ?? 'active',
+        minorIncidentsCount: (data['minorIncidentsCount'] as num?)?.toInt() ?? 0,
       );
     } catch (e) {
       debugPrint('Error parsing CaregiverProfile ${doc.id}: $e');
@@ -182,6 +185,7 @@ class CaregiverProfile {
       'incidentDates': incidentDates.map((d) => Timestamp.fromDate(d)).toList(),
       if (blockedUntil != null) 'blockedUntil': Timestamp.fromDate(blockedUntil!),
       'status': accountStatus,
+      'minorIncidentsCount': minorIncidentsCount,
     };
   }
 }

@@ -272,6 +272,28 @@ class StripeService {
     }
   }
 
+  /// Registra el Check-out oficial del cuidador con resumen obligatorio del diario
+  /// y liquidación proporcional si sale con más de 15 minutos de antelación.
+  static Future<Map<String, dynamic>> recordBookingCheckOut({
+    required String bookingId,
+    required String careNotes,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable(
+        'recordBookingCheckOut',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+      );
+      final response = await callable.call({
+        'bookingId': bookingId,
+        'careNotes': careNotes,
+      });
+      return Map<String, dynamic>.from(response.data as Map);
+    } on FirebaseFunctionsException catch (e) {
+      throw Exception(e.message ?? 'No se pudo registrar la salida (${e.code}).');
+    }
+  }
+
   /// Libera franjas y borra borradores `pendingPayment` de forma atómica si el pago se cancela.
   static Future<void> cancelPendingCheckout(List<String> bookingIds) async {
     if (bookingIds.isEmpty) return;
