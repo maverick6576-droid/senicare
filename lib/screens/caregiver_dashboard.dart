@@ -1627,15 +1627,14 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                               '📅 ${_formatFriendlyDay(req.day)} · ⏰ ${req.slot}',
                               style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
                             ),
-                            if (profile != null && profile.homeAddress.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                '📍 ${profile.homeAddress}',
-                                style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                            const SizedBox(height: 8),
+                            CareBasicInfoCard(
+                              booking: req,
+                              clientProfile: profile,
+                              isLoadingClient:
+                                  snap.connectionState == ConnectionState.waiting,
+                              seniorMode: context.watch<ConfigNotifier>().seniorMode,
+                            ),
                             const SizedBox(height: 10),
                             Row(
                               children: [

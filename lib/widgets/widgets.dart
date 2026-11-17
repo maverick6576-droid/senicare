@@ -13,3 +13,4 @@ export 'client_tutorial_overlay.dart';
 export 'spotlight_tutorial_overlay.dart';
 export 'family_join_dialog.dart';
 export 'payment_method_selector.dart';
+export 'care_basic_info_card.dart';

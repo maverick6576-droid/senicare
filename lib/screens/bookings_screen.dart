@@ -1254,96 +1254,21 @@ class _BookingsScreenState extends State<BookingsScreen>
             ],
             if (!isClient &&
                 isActiveTab &&
-                b.status == BookingStatus.confirmed &&
-                clientProfile != null &&
-                (clientProfile.patientDetails.isNotEmpty ||
-                    clientProfile.homeAddress.isNotEmpty)) ...[
+                (b.status == BookingStatus.pending ||
+                    b.status == BookingStatus.confirmed)) ...[
               const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.medical_information_rounded,
-                          size: 17,
-                          color: Colors.amber.shade900,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Ficha del domicilio y paciente',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.amber.shade900,
-                            ),
-                          ),
-                        ),
-                        if (clientProfile.homeAddress.isNotEmpty ||
-                            b.clientLatitude != null ||
-                            clientProfile.latitude != null)
-                          TextButton.icon(
-                            onPressed: () =>
-                                _openMapsForBooking(b, clientProfile),
-                            icon: const Icon(Icons.directions_rounded, size: 17),
-                            label: const Text(
-                              'Cómo llegar',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 12.5,
-                              ),
-                            ),
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppTheme.primary,
-                              backgroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              minimumSize: const Size(0, 32),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                side: BorderSide(
-                                  color: AppTheme.primary.withValues(alpha: 0.3),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (clientProfile.homeAddress.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        '📍 ${clientProfile.homeAddress}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.darkSlate,
-                        ),
-                      ),
-                    ],
-                    if (clientProfile.patientDetails.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '📋 ${clientProfile.patientDetails}',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          color: AppTheme.darkSlate,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+              CareBasicInfoCard(
+                booking: b,
+                clientProfile: clientProfile,
+                isLoadingClient: isLoadingClient,
+                initiallyExpanded: b.status == BookingStatus.confirmed,
+                seniorMode: seniorMode,
+                showDirectionsButton: b.status == BookingStatus.confirmed &&
+                    clientProfile != null &&
+                    (clientProfile.homeAddress.isNotEmpty ||
+                        b.clientLatitude != null ||
+                        clientProfile.latitude != null),
+                onOpenMaps: () => _openMapsForBooking(b, clientProfile),
               ),
             ],
             if (!isClient &&

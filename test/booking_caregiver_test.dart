@@ -6,6 +6,7 @@ import 'package:senicare/core/core.dart';
 import 'package:senicare/models/models.dart';
 import 'package:senicare/repositories/repositories.dart';
 import 'package:senicare/screens/screens.dart';
+import 'package:senicare/widgets/widgets.dart';
 
 void main() {
   late MockBookingRepository mockRepo;
@@ -400,5 +401,201 @@ void main() {
       expect(find.byKey(const Key('reserve_flexible_btn')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+  });
+
+  group('CareBasicInfoCard & expandable care details', () {
+    ClientProfile buildRichClientProfile() {
+      return ClientProfile(
+        id: 'client_1',
+        name: 'Familia García',
+        phone: '+34 600 111 222',
+        homeAddress: 'Calle Mayor 45, Madrid',
+        patientDetails: 'Necesita acompañamiento tranquilo por la tarde.',
+        onboardingComplete: true,
+        careRecipientName: 'Antonio García',
+        mobilityLevel: 'Usa andador',
+        cognitiveNeeds: 'Alzhéimer leve',
+        dietNotes: 'Dieta blanda sin sal',
+        emergencyPhone: '+34 600 999 888',
+        homeAccessNotes: '3º B, portero automático 12#',
+        defaultCareChecklist: const ['Dar medicación 17:00', 'Paseo corto'],
+      );
+    }
+
+    testWidgets(
+      'CareBasicInfoCard expands and collapses cleanly in Senior Mode at 360x640',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 640);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        final booking = makeBooking(
+          id: 'b_info_1',
+          status: BookingStatus.pending,
+        )..careChecklist = [
+            CareChecklistItem(id: 'c1', title: 'Control de tensión'),
+          ];
+        final profile = buildRichClientProfile();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(12),
+                child: CareBasicInfoCard(
+                  booking: booking,
+                  clientProfile: profile,
+                  seniorMode: true,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Información básica del cuidado'), findsOneWidget);
+        expect(find.text('Desplegar'), findsOneWidget);
+        expect(find.textContaining('Dieta blanda sin sal'), findsNothing);
+
+        await tester.tap(find.byKey(const Key('toggle_care_info_b_info_1')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Ocultar'), findsOneWidget);
+        expect(find.textContaining('Antonio García', findRichText: true), findsWidgets);
+        expect(find.textContaining('Usa andador', findRichText: true), findsWidgets);
+        expect(find.textContaining('Alzhéimer leve', findRichText: true), findsWidgets);
+        expect(find.textContaining('Dieta blanda sin sal', findRichText: true), findsWidgets);
+        expect(find.textContaining('Calle Mayor 45, Madrid', findRichText: true), findsWidgets);
+        expect(find.textContaining('3º B, portero automático 12#', findRichText: true), findsWidgets);
+        expect(find.textContaining('+34 600 999 888', findRichText: true), findsWidgets);
+        expect(find.text('Control de tensión'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'CaregiverDashboard pending request expands to show all basic care info',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 640);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        final mockClients = MockClientRepository();
+        mockClients.seedClient(buildRichClientProfile());
+        DependencyInjection.clients = mockClients;
+        DependencyInjection.caregivers = MockCaregiverRepository();
+        DependencyInjection.reviews = MockReviewRepository();
+        DependencyInjection.jobOffers = MockJobOfferRepository();
+        DependencyInjection.chats = MockChatRepository();
+
+        final pendingBooking = makeBooking(
+          id: 'pending_1',
+          status: BookingStatus.pending,
+        )..careChecklist = [
+            CareChecklistItem(id: 't1', title: 'Merienda sin azúcar'),
+          ];
+        await mockRepo.createBooking(pendingBooking);
+
+        final auth = AuthNotifier()
+          ..isAuthenticated = true
+          ..currentUserId = 'cg_1'
+          ..currentRole = 'caregiver';
+        final config = ConfigNotifier();
+        final bookingNotifier = BookingNotifier()..updateAuth('cg_1', 'caregiver');
+
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthNotifier>.value(value: auth),
+              ChangeNotifierProvider<ConfigNotifier>.value(value: config),
+              ChangeNotifierProvider<BookingNotifier>.value(value: bookingNotifier),
+              ChangeNotifierProvider<CaregiverNotifier>(create: (_) => CaregiverNotifier()),
+              ChangeNotifierProvider<LocationNotifier>(create: (_) => LocationNotifier()),
+              ChangeNotifierProvider<JobOfferNotifier>(create: (_) => JobOfferNotifier()),
+              ChangeNotifierProvider<ChatNotifier>(create: (_) => ChatNotifier()),
+            ],
+            child: const MaterialApp(
+              home: Scaffold(body: CaregiverDashboard()),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+
+        final toggleFinder = find.byKey(const Key('toggle_care_info_pending_1'));
+        await tester.ensureVisible(toggleFinder);
+        await tester.pump();
+        expect(toggleFinder, findsOneWidget);
+        expect(find.text('Merienda sin azúcar'), findsNothing);
+
+        await tester.tap(toggleFinder);
+        await tester.pump(const Duration(milliseconds: 200));
+
+        expect(find.textContaining('Antonio García', findRichText: true), findsWidgets);
+        expect(find.textContaining('Usa andador', findRichText: true), findsWidgets);
+        expect(find.textContaining('Alzhéimer leve', findRichText: true), findsWidgets);
+        expect(find.textContaining('Dieta blanda sin sal', findRichText: true), findsWidgets);
+        expect(find.text('Merienda sin azúcar'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'BookingsScreen in caregiver mode displays expandable basic care info for pending requests',
+      (tester) async {
+        final mockClients = MockClientRepository();
+        mockClients.seedClient(buildRichClientProfile());
+        DependencyInjection.clients = mockClients;
+        DependencyInjection.caregivers = MockCaregiverRepository();
+        DependencyInjection.reviews = MockReviewRepository();
+        DependencyInjection.jobOffers = MockJobOfferRepository();
+        DependencyInjection.chats = MockChatRepository();
+
+        final pendingBooking = makeBooking(
+          id: 'pending_res_1',
+          status: BookingStatus.pending,
+        )..careChecklist = [
+            CareChecklistItem(id: 't2', title: 'Preparar cena ligera'),
+          ];
+        await mockRepo.createBooking(pendingBooking);
+
+        final auth = AuthNotifier()
+          ..isAuthenticated = true
+          ..currentUserId = 'cg_1'
+          ..currentRole = 'caregiver';
+        final config = ConfigNotifier();
+        final bookingNotifier = BookingNotifier()..updateAuth('cg_1', 'caregiver');
+
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AuthNotifier>.value(value: auth),
+              ChangeNotifierProvider<ConfigNotifier>.value(value: config),
+              ChangeNotifierProvider<BookingNotifier>.value(value: bookingNotifier),
+              ChangeNotifierProvider<CaregiverNotifier>(create: (_) => CaregiverNotifier()),
+              ChangeNotifierProvider<LocationNotifier>(create: (_) => LocationNotifier()),
+              ChangeNotifierProvider<JobOfferNotifier>(create: (_) => JobOfferNotifier()),
+              ChangeNotifierProvider<ChatNotifier>(create: (_) => ChatNotifier()),
+            ],
+            child: const MaterialApp(home: BookingsScreen()),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+
+        final toggleFinder = find.byKey(const Key('toggle_care_info_pending_res_1'));
+        await tester.ensureVisible(toggleFinder);
+        await tester.pump();
+        expect(toggleFinder, findsOneWidget);
+        expect(find.text('Preparar cena ligera'), findsNothing);
+
+        await tester.tap(toggleFinder);
+        await tester.pump(const Duration(milliseconds: 200));
+
+        expect(find.textContaining('Antonio García', findRichText: true), findsWidgets);
+        expect(find.textContaining('Dieta blanda sin sal', findRichText: true), findsWidgets);
+        expect(find.textContaining('3º B, portero automático 12#', findRichText: true), findsWidgets);
+        expect(find.text('Preparar cena ligera'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }
