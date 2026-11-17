@@ -404,31 +404,30 @@ void main() {
       expect(find.text('Activas (2)'), findsOneWidget);
       expect(find.text('Historial (1)'), findsOneWidget);
 
-      // Client header & filters
-      expect(find.text('Pago protegido hasta que termine el cuidado'), findsOneWidget);
-      expect(find.text('Todas (2)'), findsOneWidget);
-      expect(find.text('Por confirmar (1)'), findsOneWidget);
-      expect(find.text('Hoy / En curso (1)'), findsOneWidget);
+      // Client header & filters removed in Client Mode
+      expect(find.text('Pago protegido hasta que termine el cuidado'), findsNothing);
+      expect(find.text('Todas (2)'), findsNothing);
+      expect(find.text('Por confirmar (1)'), findsNothing);
+      expect(find.text('Hoy / En curso (1)'), findsNothing);
 
-      // PIN & release CTAs directly visible (filter to Por confirmar first to bring second card into 640px viewport, after verifying PIN button on first card)
+      // PIN & both active cards visible directly in scrollable list
+      expect(find.text('María Ruiz'), findsOneWidget);
       expect(find.textContaining('4821'), findsWidgets);
 
-      // Filter to 'Por confirmar (1)' -> only Carlos Vega shows with release & problem buttons
-      await tester.ensureVisible(find.text('Por confirmar (1)'));
+      await tester.scrollUntilVisible(
+        find.text('Carlos Vega'),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       await tester.pump();
-      await tester.tap(find.text('Por confirmar (1)'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
       expect(find.text('Carlos Vega'), findsOneWidget);
       expect(find.text('Confirmar y liberar pago'), findsOneWidget);
       expect(find.text('Informar de un problema'), findsOneWidget);
-      expect(find.text('María Ruiz'), findsNothing);
-
-      // Reset to Todas (2)
-      await tester.tap(find.text('Todas (2)'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-      expect(find.text('María Ruiz'), findsOneWidget);
 
       // Switch to Historial tab -> expired pending MUST NOT show 'Esperando confirmación'
       await tester.tap(find.text('Historial (1)'));
@@ -580,6 +579,70 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
 
       expect(find.text('Tomar pastilla 13:00'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      notifier.dispose();
+    });
+
+    test('Booking.isCaregiverLate detects late arrival only between start and end without check-in', () {
+      final ref = DateTime(2026, 6, 15, 10, 20);
+      final lateBooking = _makeClientBooking(
+        id: 'late_1',
+        caregiverName: 'Lucía Fernández',
+        day: '2026-06-15',
+        slot: '10:00-12:00',
+        status: BookingStatus.confirmed,
+      );
+
+      expect(lateBooking.isCaregiverLate(now: DateTime(2026, 6, 15, 9, 55)), isFalse);
+      expect(lateBooking.isCaregiverLate(now: ref), isTrue);
+      expect(lateBooking.minutesLateNow(now: ref), 20);
+      expect(lateBooking.isCaregiverLate(now: DateTime(2026, 6, 15, 12, 5)), isFalse);
+
+      final checkedInBooking = _makeClientBooking(
+        id: 'ok_1',
+        caregiverName: 'Lucía Fernández',
+        day: '2026-06-15',
+        slot: '10:00-12:00',
+        status: BookingStatus.confirmed,
+        checkInTime: DateTime(2026, 6, 15, 10, 5),
+      );
+      expect(checkedInBooking.isCaregiverLate(now: ref), isFalse);
+      expect(checkedInBooking.minutesLateNow(now: ref), 0);
+    });
+
+    testWidgets('shows late caregiver warning banner and badge when confirmed booking started without check-in', (tester) async {
+      final repo = MockBookingRepository();
+      final now = DateTime.now();
+      final start = now.subtract(const Duration(minutes: 20));
+      final end = now.add(const Duration(hours: 2));
+      String two(int n) => n.toString().padLeft(2, '0');
+      final slot = '${two(start.hour)}:${two(start.minute)}-${two(end.hour)}:${two(end.minute)}';
+
+      await repo.createBooking(_makeClientBooking(
+        id: 'late_booking_ui',
+        caregiverName: 'Lucía Fernández',
+        day: _formatDate(start),
+        slot: slot,
+        status: BookingStatus.confirmed,
+      ));
+      DependencyInjection.bookings = repo;
+
+      final auth = _TestAuthNotifier();
+      final notifier = BookingNotifier()..updateAuth('client_1', 'client');
+      final config = ConfigNotifier()..toggleSeniorMode(true);
+
+      await tester.binding.setSurfaceSize(const Size(360, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(_wrapClientBookingsHarness(
+        auth: auth,
+        bookingNotifier: notifier,
+        config: config,
+      ));
+      await tester.pump(const Duration(milliseconds: 60));
+
+      expect(find.byKey(const Key('booking_caregiver_late_banner')), findsOneWidget);
+      expect(find.textContaining('El cuidador llega tarde'), findsWidgets);
       expect(tester.takeException(), isNull);
       notifier.dispose();
     });

@@ -581,5 +581,76 @@ void main() {
         expect(notifier.filteredCaregivers.any((c) => c.name == 'Elena Sanz'), isTrue);
       },
     );
+
+    testWidgets(
+      'displays late caregiver notice on Explorer featured booking card and mini banner in Senior Mode',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 640);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final mockBookings = MockBookingRepository();
+        DependencyInjection.bookings = mockBookings;
+
+        final now = DateTime.now();
+        final start = now.subtract(const Duration(minutes: 25));
+        final end = now.add(const Duration(hours: 2));
+        String two(int n) => n.toString().padLeft(2, '0');
+        final fmtDay = '${start.year}-${two(start.month)}-${two(start.day)}';
+        final slot = '${two(start.hour)}:${two(start.minute)}-${two(end.hour)}:${two(end.minute)}';
+
+        await mockBookings.createBooking(
+          Booking(
+            id: 'bk_late_explorer',
+            clientId: 'client_1',
+            caregiverId: 'cg_1',
+            caregiverName: 'María Fernández',
+            day: fmtDay,
+            slot: slot,
+            cost: 40,
+            clientFee: 1.2,
+            caregiverCommissionRate: 0.18,
+            caregiverCommissionAmount: 7.2,
+            caregiverPayout: 32.8,
+            totalPaid: 41.2,
+            status: BookingStatus.confirmed,
+          ),
+        );
+
+        final auth = AuthNotifier()
+          ..isAuthenticated = true
+          ..currentUserId = 'client_1'
+          ..currentRole = 'client';
+        final bookingNotifier = BookingNotifier()..updateAuth('client_1', 'client');
+        final caregiverNotifier = CaregiverNotifier()..updateLocation(41.3851, 2.1734);
+        final config = ConfigNotifier()..toggleSeniorMode(true);
+
+        await tester.pumpWidget(
+          buildExplorerHarness(
+            auth: auth,
+            caregiverNotifier: caregiverNotifier,
+            bookingNotifier: bookingNotifier,
+            config: config,
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(find.byKey(const Key('explorer_booking_featured_card')), findsOneWidget);
+        expect(find.byKey(const Key('explorer_booking_late_notice')), findsOneWidget);
+        expect(find.text('EL CUIDADOR LLEGA TARDE'), findsOneWidget);
+        expect(find.textContaining('El cuidador llega tarde'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('explorer_search_field')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(find.byKey(const Key('explorer_booking_mini_banner')), findsOneWidget);
+        expect(find.textContaining('El cuidador llega tarde'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        bookingNotifier.dispose();
+      },
+    );
   });
 }

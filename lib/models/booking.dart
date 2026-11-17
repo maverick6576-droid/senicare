@@ -134,6 +134,31 @@ class Booking {
     return end.isBefore(DateTime.now());
   }
 
+  /// Devuelve true si la reserva confirmada ya ha superado su hora de inicio,
+  /// el cuidador aún no ha fichado la entrada y todavía no ha vencido la hora de fin.
+  bool isCaregiverLate({DateTime? now}) {
+    if (status != BookingStatus.confirmed ||
+        checkInTime != null ||
+        isEscrowSettled) {
+      return false;
+    }
+    final start = scheduledStartTime;
+    final end = scheduledEndTime;
+    if (start == null || end == null) return false;
+    final ref = now ?? DateTime.now();
+    return ref.isAfter(start) && ref.isBefore(end);
+  }
+
+  /// Minutos de retraso actuales mientras el servicio confirmado sigue sin check-in.
+  int minutesLateNow({DateTime? now}) {
+    if (!isCaregiverLate(now: now)) return 0;
+    final start = scheduledStartTime;
+    if (start == null) return 0;
+    final ref = now ?? DateTime.now();
+    final diff = ref.difference(start).inMinutes;
+    return diff > 0 ? diff : 1;
+  }
+
   bool get isEscrowSettled => const {
         'released',
         'released_manual',

@@ -1048,6 +1048,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   (b.status == BookingStatus.confirmed ||
                       b.status == BookingStatus.completed),
             );
+            final hasLateBooking = isClient &&
+                bookings.any(
+                  (b) =>
+                      b.clientId == widget.clientId &&
+                      b.caregiverId == widget.caregiverId &&
+                      b.isCaregiverLate(),
+                );
 
             return Scaffold(
               backgroundColor: const Color(0xFFEFEAE2),
@@ -1056,6 +1063,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 conv: conv,
                 isPeerTyping: isPeerTyping,
                 hasConfirmedBooking: hasConfirmedBooking,
+                hasLateBooking: hasLateBooking,
               ),
               body: Column(
                 children: [
@@ -1266,15 +1274,20 @@ class _ChatScreenState extends State<ChatScreen> {
     required ChatConversation? conv,
     required bool isPeerTyping,
     required bool hasConfirmedBooking,
+    bool hasLateBooking = false,
   }) {
     final statusLabel = isPeerTyping
         ? 'escribiendo...'
-        : (hasConfirmedBooking
-            ? 'Reserva confirmada'
-            : 'Entrevista previa segura');
+        : (hasLateBooking
+            ? 'El cuidador llega tarde'
+            : (hasConfirmedBooking
+                ? 'Reserva confirmada'
+                : 'Entrevista previa segura'));
     final statusColor = isPeerTyping
         ? const Color(0xFF16A34A)
-        : (hasConfirmedBooking ? AppTheme.primary : AppTheme.slateMuted);
+        : (hasLateBooking
+            ? Colors.deepOrange.shade700
+            : (hasConfirmedBooking ? AppTheme.primary : AppTheme.slateMuted));
 
     return AppBar(
       titleSpacing: 0,

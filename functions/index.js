@@ -1202,7 +1202,7 @@ exports.verifyBookingCheckIn = functions.region("europe-west1").https.onCall(asy
     // Cloud Functions run in UTC; bookings are scheduled in Europe/Madrid local time (+1h/+2h)
     const nowMs = Date.now();
     const minAllowedMs = startDt.getTime() - (150 * 60 * 1000);
-    const maxAllowedMs = endDt.getTime() + (30 * 60 * 1000);
+    const maxAllowedMs = endDt.getTime();
     if (nowMs < minAllowedMs) {
       throw new functions.https.HttpsError("failed-precondition", "Aún es demasiado pronto para fichar el inicio de este servicio.");
     }
@@ -1599,6 +1599,35 @@ exports.caregiverRejectBooking = functions.region("europe-west1").runWith({ secr
   }
 });
 
+/**
+ * Cancela por No-Show una reserva confirmada cuyo horario ha terminado sin check-in,
+ * emite el reembolso íntegro en Stripe, registra incidencia al cuidador y reabre franjas.
+ * Devuelve true si liberó escrowLock dentro de la actualización.
+ */
+async function settleNoShowBooking(stripe, doc, b) {
+  const fullRefund = Number(b.totalPaid) || Number(b.cost) || 0;
+  if (b.paymentIntentId && fullRefund > 0) {
+    await createIdempotentRefund(stripe, {
+      paymentIntentId: b.paymentIntentId,
+      amountInCents: Math.round(fullRefund * 100),
+      idempotencyKey: `noshow_refund_${doc.id}`,
+    });
+  }
+  await doc.ref.update({
+    status: "cancelledLate",
+    escrowStatus: "refunded",
+    cancellationReason: "No-Show: el cuidador no llegó antes de finalizar el horario",
+    cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+    escrowLock: admin.firestore.FieldValue.delete(),
+  });
+  await Promise.all([
+    addIncidentToCaregiver(b.caregiverId),
+    reopenBookingSlots(b.caregiverId, b.day, b.slot),
+    syncCaregiverClientAccess(b.clientId, b.caregiverId),
+  ]);
+  return true;
+}
+
 exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).pubsub.schedule('every 1 hours').onRun(async (context) => {
   const stripe = require("stripe")(stripeSecret.value());
   const db = admin.firestore();
@@ -1681,7 +1710,7 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
     console.warn("Error expiring unaccepted pending bookings:", pendingErr.message);
   }
 
-  // 1. Manejo de reservas normales y No-Shows (24h tras fin teórico)
+  // 1. Manejo de reservas normales (24h tras fin teórico) y No-Shows (inmediato al fin teórico)
   try {
     const snapshot = await db.collection("bookings").where("escrowStatus", "==", "held").where("status", "==", "confirmed").get();
     
@@ -1693,6 +1722,10 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
           const theoreticalStartTime = parseBookingStartDateTime(b.day, b.slot);
           const theoreticalEndTime = parseBookingEndDateTime(b.day, b.slot);
           if (!theoreticalStartTime || !theoreticalEndTime) return { skip: true };
+          if (!b.checkInTime) {
+            if (now.getTime() < theoreticalEndTime.getTime()) return { skip: true };
+            return {};
+          }
           const payoutTime = new Date(theoreticalEndTime.getTime() + (24 * 60 * 60 * 1000));
           if (now <= payoutTime) return { skip: true };
           return {};
@@ -1711,27 +1744,9 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
         const theoreticalEndTime = parseBookingEndDateTime(b.day, b.slot);
 
         if (!b.checkInTime) {
-          // NO-SHOW: Cancelación fulminante (reembolso íntegro al cliente)
-          const fullRefund = Number(b.totalPaid) || Number(b.cost) || 0;
-          if (b.paymentIntentId && fullRefund > 0) {
-            await createIdempotentRefund(stripe, {
-              paymentIntentId: b.paymentIntentId,
-              amountInCents: Math.round(fullRefund * 100),
-              idempotencyKey: `noshow_refund_${doc.id}`,
-            });
-          }
-          await doc.ref.update({
-            status: "cancelledLate",
-            escrowStatus: "refunded",
-            cancellationReason: "No-Show",
-            escrowLock: admin.firestore.FieldValue.delete(),
-          });
+          // NO-SHOW: Cancelación inmediata al finalizar la hora prevista (reembolso íntegro al cliente)
+          await settleNoShowBooking(stripe, doc, b);
           lockAcquired = false;
-          await Promise.all([
-            addIncidentToCaregiver(b.caregiverId),
-            reopenBookingSlots(b.caregiverId, b.day, b.slot),
-            syncCaregiverClientAccess(b.clientId, b.caregiverId),
-          ]);
         } else {
           // CHECKED IN: Evaluar si llegó tarde
           const checkInDate = b.checkInTime.toDate();
@@ -1969,6 +1984,116 @@ exports.autoReleaseEscrowCron = functions.region("europe-west1").runWith({ secre
     console.warn("Cron error maintaining job_offers:", offersCronErr.message);
   }
   
+  return null;
+});
+
+/**
+ * Monitoriza cada 5 minutos las reservas confirmadas cuya hora de inicio ya ha pasado
+ * sin check-in del cuidador:
+ * - Si sigue dentro de la franja y aún no se avisó: notifica al cuidador de su retraso y del
+ *   margen de cortesía de 15 minutos antes de la penalización económica.
+ * - Si ya alcanzó o superó la hora de finalización sin fichaje: cancela por No-Show al instante
+ *   con reembolso íntegro al cliente e incidencia al cuidador.
+ */
+exports.monitorLateBookingsCron = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).pubsub.schedule("every 5 minutes").onRun(async () => {
+  const stripe = require("stripe")(stripeSecret.value());
+  const db = admin.firestore();
+  const now = new Date();
+  const nowMs = now.getTime();
+  const graceMs = 15 * 60 * 1000;
+
+  try {
+    const snapshot = await db
+      .collection("bookings")
+      .where("escrowStatus", "==", "held")
+      .where("status", "==", "confirmed")
+      .get();
+
+    for (const doc of snapshot.docs) {
+      const raw = doc.data() || {};
+      if (raw.checkInTime) continue;
+
+      const startDt = parseBookingStartDateTime(raw.day, raw.slot);
+      const endDt = parseBookingEndDateTime(raw.day, raw.slot);
+      if (!startDt || !endDt) continue;
+
+      if (nowMs >= endDt.getTime()) {
+        let lockAcquired = false;
+        try {
+          const lockRes = await acquireEscrowLock(doc.ref, "cronNoShowCancel", async (b) => {
+            if (b.escrowStatus !== "held" || b.status !== "confirmed" || b.checkInTime) {
+              return { skip: true };
+            }
+            const lockedEnd = parseBookingEndDateTime(b.day, b.slot);
+            if (!lockedEnd || nowMs < lockedEnd.getTime()) return { skip: true };
+            return {};
+          });
+          if (!lockRes.acquired) continue;
+          lockAcquired = true;
+          const b = lockRes.booking;
+
+          const isPaid = await verifyPaymentIntentIsPaid(stripe, b);
+          if (!isPaid) continue;
+
+          await settleNoShowBooking(stripe, doc, b);
+          lockAcquired = false;
+        } catch (noShowErr) {
+          console.error("monitorLateBookingsCron No-Show error:", doc.id, noShowErr);
+        } finally {
+          if (lockAcquired) await releaseEscrowLock(doc.ref);
+        }
+        continue;
+      }
+
+      if (nowMs > startDt.getTime() && !raw.lateNotificationSentAt && raw.caregiverId) {
+        try {
+          const claimed = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(doc.ref);
+            if (!snap.exists) return false;
+            const current = snap.data() || {};
+            if (
+              current.status !== "confirmed" ||
+              current.escrowStatus !== "held" ||
+              current.checkInTime ||
+              current.lateNotificationSentAt
+            ) {
+              return false;
+            }
+            tx.update(doc.ref, {
+              lateNotificationSentAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            return true;
+          });
+
+          if (claimed) {
+            const graceDeadlineMs = startDt.getTime() + graceMs;
+            const graceCutoffStr = new Intl.DateTimeFormat("es-ES", {
+              timeZone: "Europe/Madrid",
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(new Date(graceDeadlineMs));
+
+            const body = nowMs <= graceDeadlineMs
+              ? `Ya ha empezado tu reserva del ${formatDateEs(raw.day)} (${raw.slot}). Si no fichas antes de las ${graceCutoffStr} (15 min de margen) tendrás una penalización económica, y si no llegas antes del fin se cancelará.`
+              : `Llevas más de 15 minutos de retraso en tu reserva del ${formatDateEs(raw.day)} (${raw.slot}) y aplica penalización económica por minuto. Ficha cuanto antes o la reserva se cancelará al finalizar el horario.`;
+
+            await sendPushNotification(
+              raw.caregiverId,
+              "⏰ Estás llegando tarde al servicio",
+              body,
+              { type: "booking", bookingId: doc.id, senderId: raw.clientId || "" },
+              { excludeUserIds: raw.clientId ? [raw.clientId] : [] }
+            );
+          }
+        } catch (lateWarnErr) {
+          console.warn("monitorLateBookingsCron late warning error:", doc.id, lateWarnErr.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("monitorLateBookingsCron query error:", err.message);
+  }
+
   return null;
 });
 
@@ -2565,7 +2690,24 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
       }
     } else if (after.status === "cancelled" || after.status === "cancelledLate") {
       const reason = String(after.cancellationReason || "").toLowerCase();
-      if (reason.includes("cuidador") || reason.includes("rechazada")) {
+      if (reason.includes("no-show") || reason.includes("no show")) {
+        await Promise.all([
+          sendPushNotification(
+            after.clientId,
+            "Reserva cancelada por ausencia",
+            `El cuidador no llegó antes de finalizar el horario del ${formatDateEs(after.day)}. La reserva se ha cancelado y recibirás el reembolso íntegro.`,
+            { type: "booking", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+            { excludeUserIds: [after.caregiverId] }
+          ),
+          sendPushNotification(
+            after.caregiverId,
+            "Reserva cancelada (No-Show)",
+            `No se registró tu entrada antes de finalizar el servicio del ${formatDateEs(after.day)}. La reserva ha sido cancelada y se ha registrado una incidencia.`,
+            { type: "booking", bookingId: event.params.bookingId, senderId: after.clientId || "" },
+            { excludeUserIds: [after.clientId] }
+          ),
+        ]);
+      } else if (reason.includes("cuidador") || reason.includes("rechazada")) {
         await sendPushNotification(
           after.clientId,
           "Reserva Cancelada",

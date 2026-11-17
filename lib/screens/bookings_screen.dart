@@ -56,7 +56,6 @@ class _BookingsScreenState extends State<BookingsScreen>
     });
   }
   String _caregiverFilter = 'all'; // 'all', 'pending', 'today'
-  String _clientFilter = 'all'; // 'all', 'attention', 'today'
 
   String _extractCaregiverInitials(String? rawName) {
     final clean = (rawName ?? '').trim();
@@ -276,9 +275,7 @@ class _BookingsScreenState extends State<BookingsScreen>
     final int targetTab = _belongsToActiveTab(matched, isClient) ? 0 : 1;
 
     setState(() {
-      if (isClient) {
-        _clientFilter = 'all';
-      } else {
+      if (!isClient) {
         _caregiverFilter = 'all';
       }
       _highlightedBookingId = matched.id;
@@ -458,35 +455,8 @@ class _BookingsScreenState extends State<BookingsScreen>
     final int caregiverTodayCount =
         activeBookings.where(_isScheduledToday).length;
 
-    final int clientAttentionCount = activeBookings.where((b) {
-      return b.status == BookingStatus.pending ||
-          b.status == BookingStatus.pendingPayment ||
-          (b.liveStatus == 'completed' && !b.isEscrowSettled) ||
-          (b.disputeRequested && !b.disputeEscalated);
-    }).length;
-    final int clientTodayCount = activeBookings.where((b) {
-      return _isScheduledToday(b) ||
-          b.isInProgressAwaitingCheckOut ||
-          b.liveStatus == 'on_the_way' ||
-          b.liveStatus == 'in_progress';
-    }).length;
-
     final List<Booking> filteredActiveBookings = isClient
-        ? activeBookings.where((b) {
-            if (_clientFilter == 'attention') {
-              return b.status == BookingStatus.pending ||
-                  b.status == BookingStatus.pendingPayment ||
-                  (b.liveStatus == 'completed' && !b.isEscrowSettled) ||
-                  (b.disputeRequested && !b.disputeEscalated);
-            }
-            if (_clientFilter == 'today') {
-              return _isScheduledToday(b) ||
-                  b.isInProgressAwaitingCheckOut ||
-                  b.liveStatus == 'on_the_way' ||
-                  b.liveStatus == 'in_progress';
-            }
-            return true;
-          }).toList()
+        ? activeBookings
         : activeBookings.where((b) {
             if (_caregiverFilter == 'pending') {
               return b.status == BookingStatus.pending;
@@ -602,9 +572,6 @@ class _BookingsScreenState extends State<BookingsScreen>
                             caregiverTotalActiveCount: activeBookings.length,
                             caregiverPendingCount: caregiverPendingCount,
                             caregiverTodayCount: caregiverTodayCount,
-                            clientTotalActiveCount: activeBookings.length,
-                            clientAttentionCount: clientAttentionCount,
-                            clientTodayCount: clientTodayCount,
                             seniorMode: seniorMode,
                           ),
                           _buildBookingsList(
@@ -749,71 +716,6 @@ class _BookingsScreenState extends State<BookingsScreen>
     );
   }
 
-  Widget _buildClientActivasHeader({
-    required int totalActive,
-    required int attentionCount,
-    required int todayCount,
-    required bool seniorMode,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(16, seniorMode ? 14 : 12, 16, 10),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: AppTheme.borderSubtle)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.verified_user_rounded,
-                  size: 16, color: AppTheme.primary),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Pago protegido hasta que termine el cuidado',
-                  style: TextStyle(
-                    fontSize: seniorMode ? 14 : 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.slateMuted,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _buildFilterChip(
-                selected: _clientFilter == 'all',
-                onSelected: () => setState(() => _clientFilter = 'all'),
-                label: 'Todas ($totalActive)',
-                seniorMode: seniorMode,
-              ),
-              _buildFilterChip(
-                selected: _clientFilter == 'attention',
-                onSelected: () => setState(() => _clientFilter = 'attention'),
-                label: 'Por confirmar ($attentionCount)',
-                dotColor: attentionCount > 0 ? Colors.amber.shade700 : null,
-                seniorMode: seniorMode,
-              ),
-              _buildFilterChip(
-                selected: _clientFilter == 'today',
-                onSelected: () => setState(() => _clientFilter = 'today'),
-                label: 'Hoy / En curso ($todayCount)',
-                dotColor: todayCount > 0 ? AppTheme.secondaryColor : null,
-                seniorMode: seniorMode,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBookingsList(
     BuildContext context,
     List<Booking> bookings,
@@ -825,23 +727,13 @@ class _BookingsScreenState extends State<BookingsScreen>
     int caregiverTotalActiveCount = 0,
     int caregiverPendingCount = 0,
     int caregiverTodayCount = 0,
-    int clientTotalActiveCount = 0,
-    int clientAttentionCount = 0,
-    int clientTodayCount = 0,
     bool seniorMode = false,
   }) {
     final bool showCaregiverToolbar = !isClient && isActiveTab;
-    final bool showClientToolbar = isClient && isActiveTab && clientTotalActiveCount > 0;
-    final bool isCaregiverFilteredEmpty = showCaregiverToolbar &&
+    final bool isFilteredEmpty = showCaregiverToolbar &&
         bookings.isEmpty &&
         caregiverTotalActiveCount > 0 &&
         _caregiverFilter != 'all';
-    final bool isClientFilteredEmpty = isClient &&
-        isActiveTab &&
-        bookings.isEmpty &&
-        clientTotalActiveCount > 0 &&
-        _clientFilter != 'all';
-    final bool isFilteredEmpty = isCaregiverFilteredEmpty || isClientFilteredEmpty;
 
     return Column(
       children: [
@@ -850,13 +742,6 @@ class _BookingsScreenState extends State<BookingsScreen>
             totalActive: caregiverTotalActiveCount,
             pendingCount: caregiverPendingCount,
             todayCount: caregiverTodayCount,
-          ),
-        if (showClientToolbar)
-          _buildClientActivasHeader(
-            totalActive: clientTotalActiveCount,
-            attentionCount: clientAttentionCount,
-            todayCount: clientTodayCount,
-            seniorMode: seniorMode,
           ),
         Expanded(
           child: RefreshIndicator(
@@ -893,13 +778,9 @@ class _BookingsScreenState extends State<BookingsScreen>
                             const SizedBox(height: 18),
                             Text(
                               isFilteredEmpty
-                                  ? (isClient
-                                      ? (_clientFilter == 'attention'
-                                          ? 'No tienes reservas pendientes de confirmar'
-                                          : 'No tienes cuidados programados hoy')
-                                      : (_caregiverFilter == 'pending'
-                                          ? 'No tienes solicitudes pendientes'
-                                          : 'No tienes servicios programados hoy'))
+                                  ? (_caregiverFilter == 'pending'
+                                      ? 'No tienes solicitudes pendientes'
+                                      : 'No tienes servicios programados hoy')
                                   : (isActiveTab
                                       ? 'Aún no tienes cuidados activos'
                                       : 'Tu historial de cuidados está vacío'),
@@ -930,11 +811,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                               const SizedBox(height: 16),
                               OutlinedButton(
                                 onPressed: () => setState(() {
-                                  if (isClient) {
-                                    _clientFilter = 'all';
-                                  } else {
-                                    _caregiverFilter = 'all';
-                                  }
+                                  _caregiverFilter = 'all';
                                 }),
                                 child: const Text('Ver todas las reservas'),
                               ),
@@ -1218,6 +1095,54 @@ class _BookingsScreenState extends State<BookingsScreen>
               ],
             ),
             const SizedBox(height: 12),
+            if (isClient && b.isCaregiverLate()) ...[
+              Container(
+                key: const Key('booking_caregiver_late_banner'),
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: EdgeInsets.all(seniorMode ? 12 : 10),
+                decoration: BoxDecoration(
+                  color: Colors.deepOrange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.deepOrange.shade300),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.schedule_rounded,
+                      size: seniorMode ? 22 : 19,
+                      color: Colors.deepOrange.shade700,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'El cuidador llega tarde (${b.minutesLateNow()} min)',
+                            style: TextStyle(
+                              color: Colors.deepOrange.shade900,
+                              fontWeight: FontWeight.w800,
+                              fontSize: seniorMode ? 14.5 : 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Si no ficha su entrada antes de finalizar el servicio, la reserva se cancelará automáticamente con reembolso íntegro.',
+                            style: TextStyle(
+                              color: Colors.deepOrange.shade800,
+                              fontSize: seniorMode ? 13 : 11.5,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             InkWell(
               onTap: () => _showStatusExplanation(context, b),
               borderRadius: BorderRadius.circular(12),
@@ -1673,6 +1598,15 @@ class _BookingsScreenState extends State<BookingsScreen>
         color: Colors.blue.shade700,
       );
     }
+    if (b.isCaregiverLate()) {
+      final mins = b.minutesLateNow();
+      return (
+        label: '⏰ El cuidador llega tarde ($mins min)',
+        explanation:
+            'Ya ha pasado la hora prevista de inicio y el cuidador todavía no ha fichado su llegada. Si no llega antes de que finalice la franja reservada, la reserva se cancelará automáticamente con reembolso íntegro.',
+        color: Colors.deepOrange.shade700,
+      );
+    }
     if (b.liveStatus == 'on_the_way' &&
         b.checkInTime == null &&
         !isBookingExpired(b) &&
@@ -1733,10 +1667,13 @@ class _BookingsScreenState extends State<BookingsScreen>
           color: Colors.red.shade700,
         );
       case BookingStatus.cancelledLate:
+        final isNoShow =
+            b.cancellationReason.toLowerCase().contains('no-show');
         return (
-          label: 'Cancelada (Tarde)',
-          explanation:
-              'El servicio ha sido cancelado fuera de plazo (con menos de 24h de antelación), lo cual acarrea una penalización.',
+          label: isNoShow ? 'Cancelada (No-Show)' : 'Cancelada (Tarde)',
+          explanation: isNoShow
+              ? 'El cuidador no fichó la entrada antes de finalizar el horario de la reserva. La reserva se ha cancelado automáticamente con reembolso íntegro.'
+              : 'El servicio ha sido cancelado fuera de plazo (con menos de 24h de antelación), lo cual acarrea una penalización.',
           color: Colors.red.shade800,
         );
       case BookingStatus.completed:

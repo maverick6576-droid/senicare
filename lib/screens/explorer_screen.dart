@@ -1056,18 +1056,23 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     final bool isInProgress =
         nextBooking.checkInTime != null ||
         nextBooking.liveStatus == 'in_progress';
+    final bool isLate = nextBooking.isCaregiverLate();
     final bool isOnTheWay = nextBooking.liveStatus == 'on_the_way';
 
     final String statusTag = isInProgress
         ? 'EN DOMICILIO AHORA'
-        : isOnTheWay
-            ? 'CUIDADOR EN CAMINO'
-            : 'RESERVA CONFIRMADA';
+        : isLate
+            ? 'EL CUIDADOR LLEGA TARDE'
+            : isOnTheWay
+                ? 'CUIDADOR EN CAMINO'
+                : 'RESERVA CONFIRMADA';
     final IconData statusIcon = isInProgress
         ? Icons.verified_user_rounded
-        : isOnTheWay
-            ? Icons.directions_car_rounded
-            : Icons.event_available_rounded;
+        : isLate
+            ? Icons.schedule_rounded
+            : isOnTheWay
+                ? Icons.directions_car_rounded
+                : Icons.event_available_rounded;
 
     return Container(
       key: const Key('explorer_booking_featured_card'),
@@ -1106,13 +1111,17 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                   children: [
                     Icon(statusIcon, size: 14, color: Colors.white),
                     const SizedBox(width: 5),
-                    Text(
-                      statusTag,
-                      style: TextStyle(
-                        fontSize: isSenior ? 12 : 11,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 0.3,
+                    Flexible(
+                      child: Text(
+                        statusTag,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isSenior ? 12 : 11,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
                       ),
                     ),
                   ],
@@ -1167,6 +1176,41 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
             ],
           ),
           const SizedBox(height: 12),
+          if (isLate) ...[
+            Container(
+              key: const Key('explorer_booking_late_notice'),
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade100,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade400),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 18,
+                    color: Colors.deepOrange.shade800,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'El cuidador llega tarde (${nextBooking.minutesLateNow()} min). Si no ficha antes de terminar el servicio, la reserva se cancelará.',
+                      style: TextStyle(
+                        color: Colors.deepOrange.shade900,
+                        fontWeight: FontWeight.w800,
+                        fontSize: isSenior ? 13.5 : 12,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           Row(
             children: [
               Expanded(
@@ -1209,6 +1253,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     final bool isInProgress =
         nextBooking.checkInTime != null ||
         nextBooking.liveStatus == 'in_progress';
+    final bool isLate = nextBooking.isCaregiverLate();
     final bool isOnTheWay = nextBooking.liveStatus == 'on_the_way';
 
     return Container(
@@ -1231,18 +1276,22 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                 Icon(
                   isInProgress
                       ? Icons.verified_user_rounded
-                      : isOnTheWay
-                          ? Icons.directions_car_rounded
-                          : Icons.event_available_rounded,
-                  color: Colors.white,
+                      : isLate
+                          ? Icons.schedule_rounded
+                          : isOnTheWay
+                              ? Icons.directions_car_rounded
+                              : Icons.event_available_rounded,
+                  color: isLate ? Colors.amber.shade200 : Colors.white,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Reserva: ${nextBooking.caregiverName} · ${_formatBookingFriendlyDay(nextBooking)} (${nextBooking.slot})',
+                    isLate
+                        ? 'El cuidador llega tarde (${nextBooking.minutesLateNow()} min) · ${nextBooking.caregiverName}'
+                        : 'Reserva: ${nextBooking.caregiverName} · ${_formatBookingFriendlyDay(nextBooking)} (${nextBooking.slot})',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: isLate ? Colors.amber.shade100 : Colors.white,
                       fontWeight: FontWeight.w800,
                       fontSize: isSenior ? 14 : 12.5,
                     ),
