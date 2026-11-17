@@ -89,6 +89,30 @@ class MockClientRepository implements ClientRepository {
       memberUids: List<String>.unmodifiable(memberUids),
       members: Map<String, FamilyMember>.unmodifiable(members),
       familyEmailRoles: Map<String, FamilyRole>.unmodifiable(emailRoles),
+      careRecipientName: data.containsKey('careRecipientName')
+          ? (data['careRecipientName']?.toString() ?? '')
+          : (existing?.careRecipientName ?? ''),
+      mobilityLevel: data.containsKey('mobilityLevel')
+          ? (data['mobilityLevel']?.toString() ?? '')
+          : (existing?.mobilityLevel ?? ''),
+      cognitiveNeeds: data.containsKey('cognitiveNeeds')
+          ? (data['cognitiveNeeds']?.toString() ?? '')
+          : (existing?.cognitiveNeeds ?? ''),
+      dietNotes: data.containsKey('dietNotes')
+          ? (data['dietNotes']?.toString() ?? '')
+          : (existing?.dietNotes ?? ''),
+      emergencyPhone: data.containsKey('emergencyPhone')
+          ? (data['emergencyPhone']?.toString() ?? '')
+          : (existing?.emergencyPhone ?? ''),
+      homeAccessNotes: data.containsKey('homeAccessNotes')
+          ? (data['homeAccessNotes']?.toString() ?? '')
+          : (existing?.homeAccessNotes ?? ''),
+      structuredHealthTags: data.containsKey('structuredHealthTags')
+          ? ((data['structuredHealthTags'] as List<dynamic>?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              const <String>[])
+          : List<String>.from(existing?.structuredHealthTags ?? const []),
     );
   }
 }

@@ -18,6 +18,15 @@ class ClientProfile {
   final Map<String, FamilyMember> members;
   final Map<String, FamilyRole> familyEmailRoles;
 
+  // Campos de personalización de la persona a cuidar y acceso al domicilio
+  final String careRecipientName;
+  final String mobilityLevel;
+  final String cognitiveNeeds;
+  final String dietNotes;
+  final String emergencyPhone;
+  final String homeAccessNotes;
+  final List<String> structuredHealthTags;
+
   ClientProfile({
     required this.id,
     required this.name,
@@ -34,6 +43,13 @@ class ClientProfile {
     this.memberUids = const [],
     this.members = const {},
     this.familyEmailRoles = const {},
+    this.careRecipientName = '',
+    this.mobilityLevel = '',
+    this.cognitiveNeeds = '',
+    this.dietNotes = '',
+    this.emergencyPhone = '',
+    this.homeAccessNotes = '',
+    this.structuredHealthTags = const [],
   });
 
   String get effectiveOwnerUid =>
@@ -162,6 +178,17 @@ class ClientProfile {
       memberUids: rawMemberUids.isNotEmpty ? rawMemberUids : [doc.id],
       members: parsedMembers,
       familyEmailRoles: parseEmailRoles(data['familyEmailRoles']),
+      careRecipientName: data['careRecipientName']?.toString() ?? '',
+      mobilityLevel: data['mobilityLevel']?.toString() ?? '',
+      cognitiveNeeds: data['cognitiveNeeds']?.toString() ?? '',
+      dietNotes: data['dietNotes']?.toString() ?? '',
+      emergencyPhone: data['emergencyPhone']?.toString() ?? '',
+      homeAccessNotes: data['homeAccessNotes']?.toString() ?? '',
+      structuredHealthTags: (data['structuredHealthTags'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .where((e) => e.trim().isNotEmpty)
+              .toList() ??
+          const [],
     );
   }
 
@@ -187,6 +214,14 @@ class ClientProfile {
       if (serializedMembers.isNotEmpty) 'members': serializedMembers,
       if (serializedEmailRoles.isNotEmpty)
         'familyEmailRoles': serializedEmailRoles,
+      if (careRecipientName.isNotEmpty) 'careRecipientName': careRecipientName,
+      if (mobilityLevel.isNotEmpty) 'mobilityLevel': mobilityLevel,
+      if (cognitiveNeeds.isNotEmpty) 'cognitiveNeeds': cognitiveNeeds,
+      if (dietNotes.isNotEmpty) 'dietNotes': dietNotes,
+      if (emergencyPhone.isNotEmpty) 'emergencyPhone': emergencyPhone,
+      if (homeAccessNotes.isNotEmpty) 'homeAccessNotes': homeAccessNotes,
+      if (structuredHealthTags.isNotEmpty)
+        'structuredHealthTags': structuredHealthTags,
     };
   }
 
@@ -207,6 +242,13 @@ class ClientProfile {
     List<String>? memberUids,
     Map<String, FamilyMember>? members,
     Map<String, FamilyRole>? familyEmailRoles,
+    String? careRecipientName,
+    String? mobilityLevel,
+    String? cognitiveNeeds,
+    String? dietNotes,
+    String? emergencyPhone,
+    String? homeAccessNotes,
+    List<String>? structuredHealthTags,
   }) {
     return ClientProfile(
       id: id ?? this.id,
@@ -235,6 +277,15 @@ class ClientProfile {
       familyEmailRoles: familyEmailRoles != null
           ? Map<String, FamilyRole>.unmodifiable(familyEmailRoles)
           : Map<String, FamilyRole>.unmodifiable(this.familyEmailRoles),
+      careRecipientName: careRecipientName ?? this.careRecipientName,
+      mobilityLevel: mobilityLevel ?? this.mobilityLevel,
+      cognitiveNeeds: cognitiveNeeds ?? this.cognitiveNeeds,
+      dietNotes: dietNotes ?? this.dietNotes,
+      emergencyPhone: emergencyPhone ?? this.emergencyPhone,
+      homeAccessNotes: homeAccessNotes ?? this.homeAccessNotes,
+      structuredHealthTags: structuredHealthTags != null
+          ? List<String>.unmodifiable(structuredHealthTags)
+          : List<String>.unmodifiable(this.structuredHealthTags),
     );
   }
 }

@@ -449,5 +449,81 @@ void main() {
       expect(mockAuth.signOutCalls, 1);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+        'allows direct patient needs customization via modal sheet in Senior Mode 360x640 without tabs',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await mockClients.updateClient('cli_custom', {
+        'name': 'Laura Gómez',
+        'phone': '644556677',
+        'homeAddress': 'Calle Sol 12, Sevilla, Sevilla, España',
+        'latitude': 37.3891,
+        'longitude': -5.9845,
+        'patientDetails': 'Cuidado general',
+        'onboardingComplete': true,
+      });
+
+      final auth = AuthNotifier()
+        ..isAuthenticated = true
+        ..currentUserId = 'cli_custom'
+        ..currentRole = 'client';
+      final config = ConfigNotifier()..toggleSeniorMode(true);
+
+      await tester.pumpWidget(wrapScreen(auth, config: config));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TabBar), findsNothing);
+      expect(find.byKey(const Key('customize_patient_needs_btn')), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const Key('customize_patient_needs_btn')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('customize_patient_needs_btn')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'Persona a cuidar (ej. Abuelo Manuel, 84 años)',
+        ),
+        'Abuelo Manuel (84 años)',
+      );
+      await tester.tap(find.text('Silla de ruedas'));
+      await tester.pump();
+      await tester.tap(find.text('Memoria / Alzheimer'));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'Alimentación, dieta o alergias (opcional)',
+        ),
+        'Sin lactosa',
+      );
+      await tester.ensureVisible(find.text('+ Medicación'));
+      await tester.pump();
+      await tester.tap(find.text('+ Medicación'));
+      await tester.pump();
+
+      await tester.ensureVisible(find.byKey(const Key('save_patient_needs_sheet_btn')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('save_patient_needs_sheet_btn')));
+      await tester.pumpAndSettle();
+
+      final saved = await mockClients.getClient('cli_custom');
+      expect(saved, isNotNull);
+      expect(saved!.careRecipientName, 'Abuelo Manuel (84 años)');
+      expect(saved.mobilityLevel, 'Silla de ruedas');
+      expect(saved.cognitiveNeeds, 'Memoria / Alzheimer');
+      expect(saved.dietNotes, 'Sin lactosa');
+      expect(saved.patientDetails, contains('Medicación y horarios:'));
+
+      expect(find.text('Cuidados de Abuelo Manuel (84 años)'), findsOneWidget);
+      expect(find.text('Silla de ruedas'), findsOneWidget);
+      expect(find.text('Memoria / Alzheimer'), findsOneWidget);
+      expect(find.text('Sin lactosa'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

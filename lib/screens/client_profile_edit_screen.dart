@@ -24,6 +24,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   late final TextEditingController _phoneCtrl;
   late final TextEditingController _addressCtrl;
   late final TextEditingController _patientDetailsCtrl;
+  late final TextEditingController _careRecipientNameCtrl;
+  late final TextEditingController _dietNotesCtrl;
+  late final TextEditingController _emergencyPhoneCtrl;
+  late final TextEditingController _homeAccessNotesCtrl;
   final TextEditingController _newChecklistCtrl = TextEditingController();
   final TextEditingController _newFamilyEmailCtrl = TextEditingController();
 
@@ -46,6 +50,29 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   double? _homeLat;
   double? _homeLon;
   String _initialAddressSnapshot = '';
+  String _mobilityLevel = '';
+  String _cognitiveNeeds = '';
+  List<String> _structuredHealthTags = [];
+
+  static const List<String> _mobilityOptions = [
+    'Independiente',
+    'Bastón / Andador',
+    'Silla de ruedas',
+    'Movilidad reducida / Cama',
+  ];
+
+  static const List<String> _cognitiveOptions = [
+    'Orientado',
+    'Memoria / Alzheimer',
+    'Dificultad auditiva o visual',
+    'Apoyo emocional',
+  ];
+
+  static const List<Map<String, String>> _patientNoteTemplates = [
+    {'label': '+ Medicación', 'text': 'Medicación y horarios: '},
+    {'label': '+ Rutina', 'text': 'Rutina diaria: '},
+    {'label': '+ Gustos', 'text': 'Gustos y conversación: '},
+  ];
 
   static const List<String> _quickChecklistPresets = [
     '💊 Tomar medicación pautada',
@@ -75,6 +102,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     _phoneCtrl = TextEditingController();
     _addressCtrl = TextEditingController();
     _patientDetailsCtrl = TextEditingController();
+    _careRecipientNameCtrl = TextEditingController();
+    _dietNotesCtrl = TextEditingController();
+    _emergencyPhoneCtrl = TextEditingController();
+    _homeAccessNotesCtrl = TextEditingController();
     _loadProfile();
   }
 
@@ -84,6 +115,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     _patientDetailsCtrl.dispose();
+    _careRecipientNameCtrl.dispose();
+    _dietNotesCtrl.dispose();
+    _emergencyPhoneCtrl.dispose();
+    _homeAccessNotesCtrl.dispose();
     _newChecklistCtrl.dispose();
     _newFamilyEmailCtrl.dispose();
     super.dispose();
@@ -96,6 +131,13 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
     _addressCtrl.text = profile.homeAddress;
     _initialAddressSnapshot = profile.homeAddress;
     _patientDetailsCtrl.text = profile.patientDetails;
+    _careRecipientNameCtrl.text = profile.careRecipientName;
+    _dietNotesCtrl.text = profile.dietNotes;
+    _emergencyPhoneCtrl.text = profile.emergencyPhone;
+    _homeAccessNotesCtrl.text = profile.homeAccessNotes;
+    _mobilityLevel = profile.mobilityLevel;
+    _cognitiveNeeds = profile.cognitiveNeeds;
+    _structuredHealthTags = List<String>.from(profile.structuredHealthTags);
     _defaultChecklist = List<String>.from(profile.defaultCareChecklist);
     _authorizedFamilyEmails = List<String>.from(profile.authorizedFamilyEmails);
     _familyEmailRoles = Map<String, FamilyRole>.from(profile.familyEmailRoles);
@@ -764,6 +806,13 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
         'phone': cleanPhone,
         'homeAddress': cleanAddress,
         'patientDetails': _patientDetailsCtrl.text.trim(),
+        'careRecipientName': _careRecipientNameCtrl.text.trim(),
+        'mobilityLevel': _mobilityLevel,
+        'cognitiveNeeds': _cognitiveNeeds,
+        'dietNotes': _dietNotesCtrl.text.trim(),
+        'emergencyPhone': _emergencyPhoneCtrl.text.trim(),
+        'homeAccessNotes': _homeAccessNotesCtrl.text.trim(),
+        'structuredHealthTags': _structuredHealthTags,
         'latitude': lat,
         'longitude': lon,
         'onboardingComplete': true,
@@ -792,6 +841,13 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
             longitude: lon,
             clearLocation: coordinatesMissing,
             patientDetails: _patientDetailsCtrl.text.trim(),
+            careRecipientName: _careRecipientNameCtrl.text.trim(),
+            mobilityLevel: _mobilityLevel,
+            cognitiveNeeds: _cognitiveNeeds,
+            dietNotes: _dietNotesCtrl.text.trim(),
+            emergencyPhone: _emergencyPhoneCtrl.text.trim(),
+            homeAccessNotes: _homeAccessNotesCtrl.text.trim(),
+            structuredHealthTags: _structuredHealthTags,
             onboardingComplete: true,
             defaultCareChecklist: _defaultChecklist,
             authorizedFamilyEmails: _authorizedFamilyEmails,
@@ -1359,14 +1415,119 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
   ) {
     final hasAddress = profile.homeAddress.trim().isNotEmpty;
     final hasCoords = profile.latitude != null && profile.longitude != null;
+    final canEdit = context.watch<AuthNotifier>().canManageCareDetails;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // 1. Bloque principal: Persona a cuidar y necesidades personalizadas
         _ClientSectionCard(
-          title: 'Domicilio donde se realiza el cuidado',
+          title: profile.careRecipientName.trim().isNotEmpty
+              ? 'Cuidados de ${profile.careRecipientName.trim()}'
+              : 'Persona a cuidar y necesidades',
+          icon: Icons.favorite_rounded,
+          fontMult: fontMult,
+          trailing: canEdit
+              ? TextButton.icon(
+                  key: const Key('customize_patient_needs_btn'),
+                  onPressed: () => _showPatientNeedsSheet(profile, fontMult, isSenior),
+                  icon: const Icon(Icons.tune_rounded, size: 17),
+                  label: Text(
+                    'Personalizar',
+                    style: TextStyle(
+                      fontSize: 13.5 * fontMult,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              : null,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (profile.mobilityLevel.isNotEmpty ||
+                  profile.cognitiveNeeds.isNotEmpty ||
+                  profile.dietNotes.trim().isNotEmpty) ...[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    if (profile.mobilityLevel.isNotEmpty)
+                      _buildCareMetaPill(
+                        Icons.accessible_forward_rounded,
+                        profile.mobilityLevel,
+                        AppTheme.primary,
+                        fontMult,
+                      ),
+                    if (profile.cognitiveNeeds.isNotEmpty)
+                      _buildCareMetaPill(
+                        Icons.psychology_outlined,
+                        profile.cognitiveNeeds,
+                        Colors.indigo.shade700,
+                        fontMult,
+                      ),
+                    if (profile.dietNotes.trim().isNotEmpty)
+                      _buildCareMetaPill(
+                        Icons.restaurant_rounded,
+                        profile.dietNotes.trim(),
+                        Colors.teal.shade800,
+                        fontMult,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.backgroundNeutral,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: Text(
+                  profile.patientDetails.trim().isEmpty
+                      ? 'Sin especificar. Toca "Personalizar" para describir necesidades, medicación, rutinas o gustos.'
+                      : profile.patientDetails.trim(),
+                  style: TextStyle(
+                    fontSize: 14.5 * fontMult,
+                    color: profile.patientDetails.trim().isEmpty
+                        ? AppTheme.slateMuted
+                        : AppTheme.darkSlate,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Solo visible para cuidadores con reserva o solicitud.',
+                style: TextStyle(
+                  fontSize: 12 * fontMult,
+                  color: AppTheme.slateMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildSeniorPreferencesQuickCard(fontMult),
+        const SizedBox(height: 14),
+        _buildFamilyDefaultChecklistCard(fontMult, isSenior),
+        const SizedBox(height: 14),
+        // 2. Domicilio, acceso y contacto de emergencia
+        _ClientSectionCard(
+          title: 'Domicilio y acceso',
           icon: Icons.location_on_rounded,
           fontMult: fontMult,
+          trailing: canEdit
+              ? TextButton(
+                  key: const Key('customize_home_access_btn'),
+                  onPressed: () => _showHomeAccessSheet(profile, fontMult, isSenior),
+                  child: Text(
+                    'Editar acceso',
+                    style: TextStyle(fontSize: 13 * fontMult),
+                  ),
+                )
+              : null,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1409,9 +1570,33 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                   ),
                 ],
               ),
-              if (hasAddress &&
-                  !hasCoords &&
-                  context.watch<AuthNotifier>().canManageCareDetails) ...[
+              if (profile.homeAccessNotes.trim().isNotEmpty ||
+                  profile.emergencyPhone.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Divider(height: 1),
+                const SizedBox(height: 10),
+                if (profile.homeAccessNotes.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      'Acceso: ${profile.homeAccessNotes.trim()}',
+                      style: TextStyle(
+                        fontSize: 13 * fontMult,
+                        color: AppTheme.slateMuted,
+                      ),
+                    ),
+                  ),
+                if (profile.emergencyPhone.trim().isNotEmpty)
+                  Text(
+                    'Tel. emergencia: ${profile.emergencyPhone.trim()}',
+                    style: TextStyle(
+                      fontSize: 13 * fontMult,
+                      color: AppTheme.slateMuted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+              if (hasAddress && !hasCoords && canEdit) ...[
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed:
@@ -1433,63 +1618,145 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
           ),
         ),
         const SizedBox(height: 14),
-        _ClientSectionCard(
-          title: 'Ficha de la Persona a Cuidar',
-          icon: Icons.favorite_rounded,
-          fontMult: fontMult,
-          trailing: context.watch<AuthNotifier>().canManageCareDetails
-              ? TextButton(
-                  onPressed: () => setState(() => _isEditing = true),
-                  child: Text(
-                    'Editar',
-                    style: TextStyle(fontSize: 13.5 * fontMult),
-                  ),
-                )
-              : null,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppTheme.backgroundNeutral,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
-                child: Text(
-                  profile.patientDetails.trim().isEmpty
-                      ? 'Sin especificar. Añade edad, movilidad, rutinas o cuidados especiales.'
-                      : profile.patientDetails.trim(),
-                  style: TextStyle(
-                    fontSize: 14.5 * fontMult,
-                    color: profile.patientDetails.trim().isEmpty
-                        ? AppTheme.slateMuted
-                        : AppTheme.darkSlate,
-                    height: 1.45,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Esta ficha solo es visible para cuidadores con reserva o solicitud para ofrecer una atención más segura.',
-                style: TextStyle(
-                  fontSize: 12 * fontMult,
-                  color: AppTheme.slateMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _buildSeniorPreferencesQuickCard(fontMult),
-        const SizedBox(height: 14),
-        _buildFamilyDefaultChecklistCard(fontMult, isSenior),
-        const SizedBox(height: 14),
+        // 3. Cuenta Familiar y Acciones de Cuenta
         _buildSharedFamilyAccountCard(fontMult, isSenior),
         const SizedBox(height: 14),
         _buildAccountActionsCard(isSenior, fontMult),
       ],
+    );
+  }
+
+  Widget _buildCareMetaPill(
+    IconData icon,
+    String label,
+    Color color,
+    double fontMult,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14 * fontMult, color: color),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5 * fontMult,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showPatientNeedsSheet(
+    ClientProfile profile,
+    double fontMult,
+    bool isSenior,
+  ) async {
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => _PatientNeedsModalBody(
+        profile: profile,
+        fontMult: fontMult,
+        isSenior: isSenior,
+        mobilityOptions: _mobilityOptions,
+        cognitiveOptions: _cognitiveOptions,
+        templates: _patientNoteTemplates,
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    final nextRecipient = result['careRecipientName'] ?? '';
+    final nextDiet = result['dietNotes'] ?? '';
+    final nextDetails = result['patientDetails'] ?? '';
+    final mobility = result['mobilityLevel'] ?? '';
+    final cognitive = result['cognitiveNeeds'] ?? '';
+
+    final previous = _profile ?? profile;
+    _careRecipientNameCtrl.text = nextRecipient;
+    _dietNotesCtrl.text = nextDiet;
+    _patientDetailsCtrl.text = nextDetails;
+    _mobilityLevel = mobility;
+    _cognitiveNeeds = cognitive;
+
+    await _persistQuickUpdate(
+      fields: {
+        'careRecipientName': nextRecipient,
+        'mobilityLevel': mobility,
+        'cognitiveNeeds': cognitive,
+        'dietNotes': nextDiet,
+        'patientDetails': nextDetails,
+      },
+      optimisticProfile: previous.copyWith(
+        careRecipientName: nextRecipient,
+        mobilityLevel: mobility,
+        cognitiveNeeds: cognitive,
+        dietNotes: nextDiet,
+        patientDetails: nextDetails,
+      ),
+      onRollback: () => _syncDraftFromProfile(previous),
+      successMessage: 'Necesidades del paciente actualizadas.',
+    );
+  }
+
+  Future<void> _showHomeAccessSheet(
+    ClientProfile profile,
+    double fontMult,
+    bool isSenior,
+  ) async {
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => _HomeAccessModalBody(
+        profile: profile,
+        fontMult: fontMult,
+        isSenior: isSenior,
+        onEditFullAddress: () {
+          Navigator.pop(ctx);
+          setState(() => _isEditing = true);
+        },
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    final nextAccess = result['homeAccessNotes'] ?? '';
+    final nextEmergency = result['emergencyPhone'] ?? '';
+
+    final previous = _profile ?? profile;
+    _homeAccessNotesCtrl.text = nextAccess;
+    _emergencyPhoneCtrl.text = nextEmergency;
+
+    await _persistQuickUpdate(
+      fields: {
+        'homeAccessNotes': nextAccess,
+        'emergencyPhone': nextEmergency,
+      },
+      optimisticProfile: previous.copyWith(
+        homeAccessNotes: nextAccess,
+        emergencyPhone: nextEmergency,
+      ),
+      onRollback: () => _syncDraftFromProfile(previous),
+      successMessage: 'Datos de acceso actualizados.',
     );
   }
 
@@ -2322,6 +2589,16 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? 'Requerido' : null,
                 ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _emergencyPhoneCtrl,
+                  style: TextStyle(fontSize: 15.5 * fontMult),
+                  decoration: const InputDecoration(
+                    labelText: 'Teléfono alternativo de emergencia (opcional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
               ],
             ),
           ),
@@ -2352,6 +2629,16 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
                   },
                 ),
                 const SizedBox(height: 12),
+                TextFormField(
+                  controller: _homeAccessNotesCtrl,
+                  style: TextStyle(fontSize: 14.5 * fontMult),
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Indicaciones de acceso (piso, ascensor, portero)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
@@ -2380,17 +2667,105 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
             title: 'Detalles de la Persona a Cuidar',
             icon: Icons.medical_information_outlined,
             fontMult: fontMult,
-            child: TextFormField(
-              controller: _patientDetailsCtrl,
-              style: TextStyle(fontSize: 15.5 * fontMult),
-              decoration: const InputDecoration(
-                labelText: 'Información relevante (edad, movilidad, rutinas)',
-                border: OutlineInputBorder(),
-                alignLabelWithHint: true,
-              ),
-              maxLines: 4,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  controller: _careRecipientNameCtrl,
+                  style: TextStyle(fontSize: 15 * fontMult),
+                  decoration: const InputDecoration(
+                    labelText: 'Persona a cuidar (ej. Abuelo Manuel, 84 años)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Movilidad',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5 * fontMult,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: _mobilityOptions.map((opt) {
+                    return ChoiceChip(
+                      label: Text(opt),
+                      selected: _mobilityLevel == opt,
+                      onSelected: (sel) => setState(() {
+                        _mobilityLevel = sel ? opt : '';
+                      }),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Cognición y comunicación',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5 * fontMult,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: _cognitiveOptions.map((opt) {
+                    return ChoiceChip(
+                      label: Text(opt),
+                      selected: _cognitiveNeeds == opt,
+                      onSelected: (sel) => setState(() {
+                        _cognitiveNeeds = sel ? opt : '';
+                      }),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _dietNotesCtrl,
+                  style: TextStyle(fontSize: 15 * fontMult),
+                  decoration: const InputDecoration(
+                    labelText: 'Alimentación, dieta o alergias (opcional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: _patientNoteTemplates.map((tpl) {
+                    return ActionChip(
+                      label: Text(tpl['label']!, style: const TextStyle(fontSize: 12)),
+                      onPressed: () {
+                        final cur = _patientDetailsCtrl.text.trim();
+                        final insertion = tpl['text']!;
+                        setState(() {
+                          _patientDetailsCtrl.text =
+                              cur.isEmpty ? insertion : '$cur\n$insertion';
+                          _patientDetailsCtrl.selection = TextSelection.collapsed(
+                            offset: _patientDetailsCtrl.text.length,
+                          );
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _patientDetailsCtrl,
+                  style: TextStyle(fontSize: 15.5 * fontMult),
+                  decoration: const InputDecoration(
+                    labelText: 'Información relevante (edad, movilidad, rutinas)',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                  maxLines: 4,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                ),
+              ],
             ),
           ),
         ],
@@ -2516,6 +2891,325 @@ class _ClientQuickTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PatientNeedsModalBody extends StatefulWidget {
+  final ClientProfile profile;
+  final double fontMult;
+  final bool isSenior;
+  final List<String> mobilityOptions;
+  final List<String> cognitiveOptions;
+  final List<Map<String, String>> templates;
+
+  const _PatientNeedsModalBody({
+    required this.profile,
+    required this.fontMult,
+    required this.isSenior,
+    required this.mobilityOptions,
+    required this.cognitiveOptions,
+    required this.templates,
+  });
+
+  @override
+  State<_PatientNeedsModalBody> createState() => _PatientNeedsModalBodyState();
+}
+
+class _PatientNeedsModalBodyState extends State<_PatientNeedsModalBody> {
+  late final TextEditingController _recipientCtrl;
+  late final TextEditingController _dietCtrl;
+  late final TextEditingController _detailsCtrl;
+  late String _mobility;
+  late String _cognitive;
+
+  @override
+  void initState() {
+    super.initState();
+    _recipientCtrl = TextEditingController(text: widget.profile.careRecipientName);
+    _dietCtrl = TextEditingController(text: widget.profile.dietNotes);
+    _detailsCtrl = TextEditingController(text: widget.profile.patientDetails);
+    _mobility = widget.profile.mobilityLevel;
+    _cognitive = widget.profile.cognitiveNeeds;
+  }
+
+  @override
+  void dispose() {
+    _recipientCtrl.dispose();
+    _dietCtrl.dispose();
+    _detailsCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        16,
+        20,
+        MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Personalizar necesidades del paciente',
+              style: TextStyle(
+                fontSize: 18 * widget.fontMult,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.darkSlate,
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _recipientCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Persona a cuidar (ej. Abuelo Manuel, 84 años)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Movilidad',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5 * widget.fontMult,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: widget.mobilityOptions.map((opt) {
+                return ChoiceChip(
+                  label: Text(opt),
+                  selected: _mobility == opt,
+                  onSelected: (sel) => setState(() {
+                    _mobility = sel ? opt : '';
+                  }),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Cognición y comunicación',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5 * widget.fontMult,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: widget.cognitiveOptions.map((opt) {
+                return ChoiceChip(
+                  label: Text(opt),
+                  selected: _cognitive == opt,
+                  onSelected: (sel) => setState(() {
+                    _cognitive = sel ? opt : '';
+                  }),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _dietCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Alimentación, dieta o alergias (opcional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Necesidades y pautas detalladas',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5 * widget.fontMult,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: widget.templates.map((tpl) {
+                return ActionChip(
+                  label: Text(tpl['label']!, style: const TextStyle(fontSize: 12)),
+                  onPressed: () {
+                    final cur = _detailsCtrl.text.trim();
+                    final insertion = tpl['text']!;
+                    setState(() {
+                      _detailsCtrl.text =
+                          cur.isEmpty ? insertion : '$cur\n$insertion';
+                      _detailsCtrl.selection = TextSelection.collapsed(
+                        offset: _detailsCtrl.text.length,
+                      );
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _detailsCtrl,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                hintText:
+                    'Escribe aquí todas las necesidades, horarios de medicación, rutinas, gustos o cuidados especiales...',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const Key('save_patient_needs_sheet_btn'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                minimumSize: Size(double.infinity, widget.isSenior ? 52 : 46),
+              ),
+              onPressed: () {
+                Navigator.pop(context, <String, String>{
+                  'careRecipientName': _recipientCtrl.text.trim(),
+                  'mobilityLevel': _mobility,
+                  'cognitiveNeeds': _cognitive,
+                  'dietNotes': _dietCtrl.text.trim(),
+                  'patientDetails': _detailsCtrl.text.trim(),
+                });
+              },
+              icon: const Icon(Icons.save_rounded),
+              label: const Text('Guardar necesidades'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeAccessModalBody extends StatefulWidget {
+  final ClientProfile profile;
+  final double fontMult;
+  final bool isSenior;
+  final VoidCallback onEditFullAddress;
+
+  const _HomeAccessModalBody({
+    required this.profile,
+    required this.fontMult,
+    required this.isSenior,
+    required this.onEditFullAddress,
+  });
+
+  @override
+  State<_HomeAccessModalBody> createState() => _HomeAccessModalBodyState();
+}
+
+class _HomeAccessModalBodyState extends State<_HomeAccessModalBody> {
+  late final TextEditingController _accessCtrl;
+  late final TextEditingController _emergencyCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _accessCtrl = TextEditingController(text: widget.profile.homeAccessNotes);
+    _emergencyCtrl = TextEditingController(text: widget.profile.emergencyPhone);
+  }
+
+  @override
+  void dispose() {
+    _accessCtrl.dispose();
+    _emergencyCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        16,
+        20,
+        MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Acceso al domicilio y emergencia',
+            style: TextStyle(
+              fontSize: 18 * widget.fontMult,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkSlate,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _accessCtrl,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Indicaciones de acceso (piso, timbre, ascensor...)',
+              border: OutlineInputBorder(),
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _emergencyCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Teléfono alternativo de emergencia',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: widget.onEditFullAddress,
+            icon: const Icon(Icons.edit_location_alt_rounded),
+            label: const Text('Cambiar dirección postal o GPS'),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            key: const Key('save_home_access_sheet_btn'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              minimumSize: Size(double.infinity, widget.isSenior ? 52 : 46),
+            ),
+            onPressed: () {
+              Navigator.pop(context, <String, String>{
+                'homeAccessNotes': _accessCtrl.text.trim(),
+                'emergencyPhone': _emergencyCtrl.text.trim(),
+              });
+            },
+            icon: const Icon(Icons.save_rounded),
+            label: const Text('Guardar acceso'),
+          ),
+        ],
       ),
     );
   }
