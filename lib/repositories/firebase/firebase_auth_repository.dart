@@ -187,6 +187,17 @@ class FirebaseAuthRepository implements AuthRepository {
   @override
   Future<void> signOut() async {
     try {
+      final uid = _auth.currentUser?.uid;
+      if (uid != null) {
+        try {
+          await _firestore.collection('users').doc(uid).set({
+            'fcmToken': FieldValue.delete(),
+            'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } catch (e) {
+          debugPrint('⚠️ No se pudo limpiar fcmToken al cerrar sesión: $e');
+        }
+      }
       await _auth.signOut();
     } catch (e) {
       debugPrint('⚠️ Error en signOut: $e');
@@ -241,9 +252,11 @@ class FirebaseAuthRepository implements AuthRepository {
   @override
   Future<void> updateFCMToken(String token) async {
     final uid = _auth.currentUser?.uid;
-    if (uid != null) {
+    final cleanToken = token.trim();
+    if (uid != null && cleanToken.isNotEmpty) {
       await _firestore.collection('users').doc(uid).set({
-        'fcmToken': token,
+        'fcmToken': cleanToken,
+        'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
   }

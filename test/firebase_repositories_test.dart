@@ -45,6 +45,8 @@ void main() {
 
       await repo.signOut();
       expect(repo.currentUserId, isNull);
+      final afterSignOutDoc = await fakeDb.collection('users').doc(uid).get();
+      expect(afterSignOutDoc.data()?['fcmToken'], isNull);
     });
 
     test('FirestoreBookingRepository creates, streams, updates, releases and deletes bookings', () async {

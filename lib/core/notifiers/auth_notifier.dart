@@ -180,6 +180,7 @@ class AuthNotifier extends ChangeNotifier {
   }
 
   StreamSubscription? _authSubscription;
+  StreamSubscription<String>? _tokenRefreshSubscription;
 
   AuthNotifier() {
     _initAuthListener();
@@ -189,6 +190,9 @@ class AuthNotifier extends ChangeNotifier {
 
   void _initAuthListener() {
     _authSubscription = DependencyInjection.auth.onAuthStateChanged.listen((userId) async {
+      await _tokenRefreshSubscription?.cancel();
+      _tokenRefreshSubscription = null;
+
       if (userId != null) {
         isAuthenticated = true;
         currentUserId = userId;
@@ -196,9 +200,20 @@ class AuthNotifier extends ChangeNotifier {
         await reloadRole();
 
         // Actualizar FCM Token para el usuario actual
-        final fcmToken = await FCMService.getToken();
-        if (fcmToken != null) {
-          await DependencyInjection.auth.updateFCMToken(fcmToken);
+        try {
+          final fcmToken = await FCMService.getToken();
+          if (fcmToken != null && currentUserId == userId) {
+            await DependencyInjection.auth.updateFCMToken(fcmToken);
+          }
+          _tokenRefreshSubscription = FCMService.onTokenRefresh.listen((newToken) async {
+            if (currentUserId == userId && newToken.isNotEmpty) {
+              try {
+                await DependencyInjection.auth.updateFCMToken(newToken);
+              } catch (_) {}
+            }
+          });
+        } catch (e) {
+          debugPrint('FCM token registration warning: $e');
         }
       } else {
         _clearState();
@@ -295,6 +310,7 @@ class AuthNotifier extends ChangeNotifier {
   @override
   void dispose() {
     _authSubscription?.cancel();
+    _tokenRefreshSubscription?.cancel();
     super.dispose();
   }
 }

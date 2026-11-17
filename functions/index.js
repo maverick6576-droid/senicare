@@ -2151,61 +2151,155 @@ exports.processResolutionAgreement = functions.region("europe-west1").runWith({ 
 
 // --- FCM PUSH NOTIFICATIONS TRIGGERS ---
 
-const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 
-// Función auxiliar para buscar token(s) y enviar notificación push (con soporte multifamiliar)
-async function sendPushNotification(targetId, title, body, dataPayload = {}) {
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+async function resolveTargetUserIds(db, targetId) {
+  const targetUids = new Set();
+  if (!targetId) return targetUids;
+  targetUids.add(targetId);
+
+  const clientSnap = await db.collection("clients").doc(targetId).get();
+  if (clientSnap.exists) {
+    const clientData = clientSnap.data() || {};
+    if (clientData.ownerUid) targetUids.add(clientData.ownerUid);
+    if (Array.isArray(clientData.memberUids)) {
+      clientData.memberUids.forEach((uid) => {
+        if (uid) targetUids.add(uid);
+      });
+    }
+    if (clientData.members && typeof clientData.members === "object") {
+      Object.keys(clientData.members).forEach((uid) => {
+        if (uid) targetUids.add(uid);
+      });
+    }
+  }
+  return targetUids;
+}
+
+// Función auxiliar para buscar token(s) y enviar notificación push (con soporte multifamiliar y exclusión de emisor)
+async function sendPushNotification(targetId, title, body, dataPayload = {}, options = {}) {
   try {
     if (!targetId) return;
     const db = admin.firestore();
-    const targetUids = new Set([targetId]);
+    const excludeRawIds = Array.isArray(options?.excludeUserIds)
+      ? options.excludeUserIds.filter(Boolean)
+      : [];
 
-    const clientSnap = await db.collection("clients").doc(targetId).get();
-    if (clientSnap.exists) {
-      const clientData = clientSnap.data() || {};
-      if (clientData.ownerUid) targetUids.add(clientData.ownerUid);
-      if (Array.isArray(clientData.memberUids)) {
-        clientData.memberUids.forEach((uid) => {
-          if (uid) targetUids.add(uid);
-        });
-      }
-      if (clientData.members && typeof clientData.members === "object") {
-        Object.keys(clientData.members).forEach((uid) => {
-          if (uid) targetUids.add(uid);
-        });
-      }
-    }
+    const [targetUids, excludedSets] = await Promise.all([
+      resolveTargetUserIds(db, targetId),
+      Promise.all(excludeRawIds.map((id) => resolveTargetUserIds(db, id))),
+    ]);
 
-    const userSnaps = await Promise.all(
-      [...targetUids].map((uid) => db.collection("users").doc(uid).get())
-    );
-    const tokens = [
-      ...new Set(
-        userSnaps
-          .filter((doc) => doc.exists && doc.data()?.fcmToken)
-          .map((doc) => doc.data().fcmToken)
-      ),
-    ];
+    const excludedUids = new Set();
+    excludedSets.forEach((set) => set.forEach((uid) => excludedUids.add(uid)));
+    excludedUids.forEach((uid) => targetUids.delete(uid));
 
-    if (tokens.length === 0) {
-      console.log(`Ningún destinatario de ${targetId} tiene fcmToken registrado.`);
+    if (targetUids.size === 0) {
+      console.log(`Push omitida para ${targetId}: sin destinatarios tras excluir emisor.`);
       return;
     }
 
-    await Promise.all(
-      tokens.map((token) =>
-        admin.messaging().send({
-          token,
-          notification: { title, body },
-          data: dataPayload,
-        })
-      )
+    const [userSnaps, excludedSnaps] = await Promise.all([
+      Promise.all([...targetUids].map((uid) => db.collection("users").doc(uid).get())),
+      Promise.all([...excludedUids].map((uid) => db.collection("users").doc(uid).get())),
+    ]);
+
+    const excludedTokens = new Set(
+      excludedSnaps
+        .filter((doc) => doc.exists && typeof doc.data()?.fcmToken === "string" && doc.data().fcmToken.trim())
+        .map((doc) => doc.data().fcmToken.trim())
     );
-    console.log(`Push enviada con éxito a ${tokens.length} dispositivo(s) para ${targetId}`);
+
+    const tokenEntries = [];
+    const seenTokens = new Set();
+    userSnaps.forEach((doc) => {
+      if (!doc.exists) return;
+      const rawToken = doc.data()?.fcmToken;
+      const token = typeof rawToken === "string" ? rawToken.trim() : "";
+      if (!token || excludedTokens.has(token) || seenTokens.has(token)) return;
+      seenTokens.add(token);
+      tokenEntries.push({ ref: doc.ref, token });
+    });
+
+    if (tokenEntries.length === 0) {
+      console.log(`Ningún destinatario de ${targetId} tiene fcmToken válido y distinto al emisor.`);
+      return;
+    }
+
+    const normalizedData = {};
+    Object.entries(dataPayload || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) normalizedData[k] = String(v);
+    });
+
+    await Promise.all(
+      tokenEntries.map(async ({ ref, token }) => {
+        try {
+          await admin.messaging().send({
+            token,
+            notification: { title, body },
+            data: normalizedData,
+          });
+        } catch (sendErr) {
+          const code = sendErr?.code || "";
+          if (
+            code === "messaging/registration-token-not-registered" ||
+            code === "messaging/invalid-registration-token"
+          ) {
+            await ref.update({ fcmToken: admin.firestore.FieldValue.delete() }).catch(() => {});
+          } else {
+            console.warn(`Error enviando push individual a ${ref.id}:`, sendErr?.message || sendErr);
+          }
+        }
+      })
+    );
+    console.log(`Push enviada con éxito a ${tokenEntries.length} dispositivo(s) para ${targetId}`);
   } catch (error) {
     console.error(`Error enviando push a ${targetId}:`, error);
   }
 }
+
+// 0. Limpieza automática de fcmToken duplicado si un mismo dispositivo inicia sesión con otra cuenta
+exports.dedupeUserFcmToken = onDocumentWritten({
+  document: "users/{userId}",
+  region: "europe-west1",
+}, async (event) => {
+  const after = event.data?.after?.data();
+  const token = typeof after?.fcmToken === "string" ? after.fcmToken.trim() : "";
+  if (!token) return null;
+
+  const db = admin.firestore();
+  const duplicates = await db.collection("users").where("fcmToken", "==", token).get();
+  const batch = db.batch();
+  let removed = 0;
+
+  duplicates.forEach((doc) => {
+    if (doc.id !== event.params.userId) {
+      batch.update(doc.ref, {
+        fcmToken: admin.firestore.FieldValue.delete(),
+      });
+      removed++;
+    }
+  });
+
+  if (removed > 0) {
+    await batch.commit();
+    console.log(`[dedupeUserFcmToken] Limpiado fcmToken duplicado en ${removed} cuenta(s) al registrar ${event.params.userId}.`);
+  }
+  return null;
+});
 
 // 1. Nuevo Mensaje de Chat (V2)
 exports.pushOnMessageCreated = onDocumentCreated({
@@ -2265,11 +2359,17 @@ exports.pushOnMessageCreated = onDocumentCreated({
     ? "Se ha eliminado un mensaje"
     : (message.text || "Tienes un mensaje nuevo.");
 
-  await sendPushNotification(receiverId, notificationTitle, pushBody, {
-    type: "chat",
-    chatRoomId: event.params.chatRoomId,
-    senderId: senderId
-  });
+  await sendPushNotification(
+    receiverId,
+    notificationTitle,
+    pushBody,
+    {
+      type: "chat",
+      chatRoomId: event.params.chatRoomId,
+      senderId: senderId,
+    },
+    { excludeUserIds: [senderId] }
+  );
   return null;
 });
 
@@ -2283,11 +2383,15 @@ exports.pushOnBookingCreated = onDocumentCreated({
     console.log(`Reserva ${event.params.bookingId} creada en estado pendingPayment. Esperando al pago.`);
     return null;
   }
+  if (!booking.caregiverId || booking.caregiverId === booking.clientId) {
+    return null;
+  }
   await sendPushNotification(
-    booking.caregiverId, 
-    "¡Nueva Solicitud de Reserva!", 
-    `Han solicitado tus servicios para el ${formatDateEs(booking.day)} a las ${booking.slot}.`, 
-    { type: "booking", bookingId: event.params.bookingId }
+    booking.caregiverId,
+    "¡Nueva Solicitud de Reserva!",
+    `Han solicitado tus servicios para el ${formatDateEs(booking.day)} a las ${booking.slot}.`,
+    { type: "booking", bookingId: event.params.bookingId, senderId: booking.clientId || "" },
+    { excludeUserIds: [booking.clientId] }
   );
   return null;
 });
@@ -2347,7 +2451,8 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
       after.caregiverId,
       "Disputa Abierta",
       `El cliente ha abierto una disputa proponiendo un reembolso de ${after.disputeAmount}€. Tienes 24 horas para responder.`,
-      { type: "booking", bookingId: event.params.bookingId }
+      { type: "booking", bookingId: event.params.bookingId, senderId: after.clientId || "" },
+      { excludeUserIds: [after.clientId] }
     );
   }
 
@@ -2356,7 +2461,8 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
       after.clientId,
       "Cuidador en camino",
       `${after.caregiverName || "Tu cuidador/a"} va de camino al servicio del ${formatDateEs(after.day)}.`,
-      { type: "tracking", bookingId: event.params.bookingId }
+      { type: "tracking", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+      { excludeUserIds: [after.caregiverId] }
     );
   }
 
@@ -2365,7 +2471,8 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
       after.clientId,
       "Servicio iniciado",
       `${after.caregiverName || "Tu cuidador/a"} ha registrado su llegada en el domicilio.`,
-      { type: "tracking", bookingId: event.params.bookingId }
+      { type: "tracking", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+      { excludeUserIds: [after.caregiverId] }
     );
   }
 
@@ -2376,7 +2483,8 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
         after.caregiverId,
         "¡Pago Recibido!",
         `Has recibido un pago de ${after.caregiverPayout?.toFixed(2)}€ por el servicio del ${formatDateEs(after.day)}.`,
-        { type: "payment", bookingId: event.params.bookingId }
+        { type: "payment", bookingId: event.params.bookingId, senderId: after.clientId || "" },
+        { excludeUserIds: [after.clientId] }
       );
     } 
     else if (after.escrowStatus === "released_partial" && after.checkInTime) {
@@ -2384,7 +2492,8 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
         after.caregiverId,
         "Pago Recibido (Ajustado)",
         `Has recibido un pago de ${after.caregiverPayout?.toFixed(2)}€. Se ha deducido el tiempo de retraso.`,
-        { type: "payment", bookingId: event.params.bookingId }
+        { type: "payment", bookingId: event.params.bookingId, senderId: after.clientId || "" },
+        { excludeUserIds: [after.clientId] }
       );
       const refundAmount = after.cost - (after.caregiverPayout + after.caregiverCommissionAmount);
       if (refundAmount > 0) {
@@ -2392,7 +2501,8 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
           after.clientId,
           "Reembolso por Retraso",
           `Hemos procesado un reembolso de ${refundAmount.toFixed(2)}€ a tu método de pago por el retraso del cuidador.`,
-          { type: "payment", bookingId: event.params.bookingId }
+          { type: "payment", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+          { excludeUserIds: [after.caregiverId] }
         );
       }
     }
@@ -2415,7 +2525,8 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
         after.clientId,
         "Reembolso Procesado",
         `Se ha reembolsado el importe completo a tu método de pago por el servicio del ${formatDateEs(after.day)}.`,
-        { type: "payment", bookingId: event.params.bookingId }
+        { type: "payment", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+        { excludeUserIds: [after.caregiverId] }
       );
     }
   }
@@ -2424,30 +2535,70 @@ exports.pushOnBookingUpdated = onDocumentUpdated({
     if (before.status === "pendingPayment" && after.status === "pending") {
       // Notificar al cuidador que se completó el pago y tiene una nueva solicitud
       await sendPushNotification(
-        after.caregiverId, 
-        "¡Nueva Solicitud de Reserva!", 
-        `Han solicitado tus servicios para el ${formatDateEs(after.day)} a las ${after.slot}.`, 
-        { type: "booking", bookingId: event.params.bookingId }
+        after.caregiverId,
+        "¡Nueva Solicitud de Reserva!",
+        `Han solicitado tus servicios para el ${formatDateEs(after.day)} a las ${after.slot}.`,
+        { type: "booking", bookingId: event.params.bookingId, senderId: after.clientId || "" },
+        { excludeUserIds: [after.clientId] }
       );
     } else if (after.status === "confirmed") {
-      // Notificar al cliente que se aceptó
-      await sendPushNotification(
-        after.clientId, 
-        "¡Reserva Confirmada!", 
-        `El cuidador ha aceptado tu reserva para el ${formatDateEs(after.day)}.`, 
-        { type: "booking", bookingId: event.params.bookingId }
-      );
+      if (before.status === "pendingPayment") {
+        // Confirmación iniciada al pagar el cliente (p. ej. al adjudicar una oferta): notificar al cuidador, nunca al propio cliente
+        if (!(after.offerId || after.isJobOffer)) {
+          await sendPushNotification(
+            after.caregiverId,
+            "¡Reserva Confirmada!",
+            `La familia ha confirmado y asegurado tu servicio para el ${formatDateEs(after.day)} a las ${after.slot}.`,
+            { type: "booking", bookingId: event.params.bookingId, senderId: after.clientId || "" },
+            { excludeUserIds: [after.clientId] }
+          );
+        }
+      } else {
+        // El cuidador aceptó una solicitud pendiente -> notificar al cliente
+        await sendPushNotification(
+          after.clientId,
+          "¡Reserva Confirmada!",
+          `${after.caregiverName || "El cuidador"} ha aceptado tu reserva para el ${formatDateEs(after.day)}.`,
+          { type: "booking", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+          { excludeUserIds: [after.caregiverId] }
+        );
+      }
     } else if (after.status === "cancelled" || after.status === "cancelledLate") {
-      // Notificar a ambos por si acaso
-      await sendPushNotification(after.caregiverId, "Reserva Cancelada", `La reserva del ${formatDateEs(after.day)} ha sido cancelada.`, { type: "booking", bookingId: event.params.bookingId });
-      await sendPushNotification(after.clientId, "Reserva Cancelada", `La reserva del ${formatDateEs(after.day)} ha sido cancelada.`, { type: "booking", bookingId: event.params.bookingId });
+      const reason = String(after.cancellationReason || "").toLowerCase();
+      if (reason.includes("cuidador") || reason.includes("rechazada")) {
+        await sendPushNotification(
+          after.clientId,
+          "Reserva Cancelada",
+          `El cuidador ha cancelado o rechazado la reserva del ${formatDateEs(after.day)}.`,
+          { type: "booking", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+          { excludeUserIds: [after.caregiverId] }
+        );
+      } else if (reason.includes("expirada")) {
+        await sendPushNotification(
+          after.clientId,
+          "Reserva Expirada",
+          `La solicitud del ${formatDateEs(after.day)} ha expirado sin confirmación y se ha tramitado el reembolso.`,
+          { type: "booking", bookingId: event.params.bookingId }
+        );
+      } else {
+        await sendPushNotification(
+          after.caregiverId,
+          "Reserva Cancelada",
+          `La familia ha cancelado la reserva del ${formatDateEs(after.day)}.`,
+          { type: "booking", bookingId: event.params.bookingId, senderId: after.clientId || "" },
+          { excludeUserIds: [after.clientId] }
+        );
+      }
     } else if (after.status === "completed") {
-      await sendPushNotification(
-        after.clientId,
-        "Servicio completado",
-        `El servicio del ${formatDateEs(after.day)} ha finalizado. Ya puedes valorar a ${after.caregiverName || "tu cuidador/a"}.`,
-        { type: "booking", bookingId: event.params.bookingId }
-      );
+      if (after.escrowStatus !== "released_manual") {
+        await sendPushNotification(
+          after.clientId,
+          "Servicio completado",
+          `El servicio del ${formatDateEs(after.day)} ha finalizado. Ya puedes valorar a ${after.caregiverName || "tu cuidador/a"}.`,
+          { type: "booking", bookingId: event.params.bookingId, senderId: after.caregiverId || "" },
+          { excludeUserIds: [after.caregiverId] }
+        );
+      }
     }
   }
   return null;
@@ -2728,33 +2879,99 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
     res.json({received: true});
 });
 
-// 4. Nueva Oferta de Trabajo (Se notifica a los cuidadores)
+// 4. Nueva Oferta de Trabajo (Se notifica solo a cuidadores cercanos, excluyendo al creador y su dispositivo)
 exports.pushOnJobOfferCreated = onDocumentCreated({
   document: "job_offers/{offerId}",
   region: "europe-west1"
 }, async (event) => {
-  const offer = event.data.data();
-  
-  // Vamos a enviar a todos los cuidadores por simplicidad
-  const caregiversSnapshot = await admin.firestore().collection("users").where("role", "==", "caregiver").get();
-  
+  const offer = event.data.data() || {};
+  const db = admin.firestore();
+  const now = new Date();
+
+  const offerLat = Number(offer.clientLatitude);
+  const offerLng = Number(offer.clientLongitude);
+  const hasOfferCoords =
+    Number.isFinite(offerLat) &&
+    Number.isFinite(offerLng) &&
+    (offerLat !== 0 || offerLng !== 0);
+
+  const clientUids = await resolveTargetUserIds(db, offer.clientId);
+  const clientUserSnaps = await Promise.all(
+    [...clientUids].map((uid) => db.collection("users").doc(uid).get())
+  );
+  const excludedTokens = new Set(
+    clientUserSnaps
+      .filter((doc) => doc.exists && typeof doc.data()?.fcmToken === "string" && doc.data().fcmToken.trim())
+      .map((doc) => doc.data().fcmToken.trim())
+  );
+
+  const caregiversSnap = await db.collection("caregivers").get();
+  const nearbyCaregiverIds = [];
+
+  caregiversSnap.forEach((doc) => {
+    const cg = doc.data() || {};
+    if (clientUids.has(doc.id)) return;
+    const isApproved = cg.verificationStatus === "approved" || cg.verified === true;
+    if (!isApproved) return;
+    if (cg.accountStatus === "suspended" || cg.status === "suspended") return;
+    if (cg.blockedUntil && typeof cg.blockedUntil.toDate === "function" && cg.blockedUntil.toDate() > now) {
+      return;
+    }
+
+    if (hasOfferCoords) {
+      const cgLat = Number(cg.latitude);
+      const cgLng = Number(cg.longitude);
+      if (!Number.isFinite(cgLat) || !Number.isFinite(cgLng) || (cgLat === 0 && cgLng === 0)) {
+        return;
+      }
+      const maxRadiusKm = Number.isFinite(Number(cg.maxDistanceRadius)) && Number(cg.maxDistanceRadius) > 0
+        ? Number(cg.maxDistanceRadius)
+        : 50;
+      const distKm = haversineDistanceKm(offerLat, offerLng, cgLat, cgLng);
+      if (distKm > maxRadiusKm) return;
+    }
+
+    nearbyCaregiverIds.push(doc.id);
+  });
+
+  if (nearbyCaregiverIds.length === 0) {
+    console.log(`Oferta ${event.params.offerId}: sin cuidadores cercanos verificados para notificar.`);
+    return null;
+  }
+
+  const userSnaps = await Promise.all(
+    nearbyCaregiverIds.map((uid) => db.collection("users").doc(uid).get())
+  );
+
   const tokens = [];
-  caregiversSnapshot.forEach(doc => {
-    const data = doc.data();
-    if (data.fcmToken) tokens.push(data.fcmToken);
+  const seenTokens = new Set();
+  userSnaps.forEach((doc) => {
+    if (!doc.exists) return;
+    const data = doc.data() || {};
+    if (data.role && data.role !== "caregiver") return;
+    const token = typeof data.fcmToken === "string" ? data.fcmToken.trim() : "";
+    if (!token || excludedTokens.has(token) || seenTokens.has(token)) return;
+    seenTokens.add(token);
+    tokens.push(token);
   });
 
   if (tokens.length > 0) {
     const title = offer.isUrgent ? "⚡ ¡Nueva Oferta Urgente!" : "Nueva Oferta de Trabajo";
-    const body = `Un cliente busca cuidador: ${offer.title}. ¡Aplica ahora!`;
-    
-    // Send multicast
-    await admin.messaging().sendEachForMulticast({
-      tokens: tokens,
-      notification: { title, body },
-      data: { type: "job_offer", offerId: event.params.offerId }
-    });
-    console.log(`Push enviada a ${tokens.length} cuidadores por la oferta ${event.params.offerId}`);
+    const body = `Un cliente cerca busca cuidador: ${offer.title || "Cuidado a domicilio"}. ¡Aplica ahora!`;
+
+    for (let i = 0; i < tokens.length; i += 500) {
+      const chunk = tokens.slice(i, i + 500);
+      await admin.messaging().sendEachForMulticast({
+        tokens: chunk,
+        notification: { title, body },
+        data: {
+          type: "job_offer",
+          offerId: event.params.offerId,
+          senderId: String(offer.clientId || ""),
+        },
+      });
+    }
+    console.log(`Push enviada a ${tokens.length} cuidadores cercanos por la oferta ${event.params.offerId}`);
   }
   return null;
 });
@@ -2764,23 +2981,33 @@ exports.pushOnApplicationCreated = onDocumentCreated({
   document: "job_offers/{offerId}/applications/{appId}",
   region: "europe-west1"
 }, async (event) => {
-  const application = event.data.data();
+  const application = event.data.data() || {};
   
   // Obtenemos la oferta para saber quién es el cliente
   const offerRef = admin.firestore().collection("job_offers").doc(event.params.offerId);
   const offerDoc = await offerRef.get();
   if (!offerDoc.exists) return null;
-  const offer = offerDoc.data();
+  const offer = offerDoc.data() || {};
 
   await offerRef.update({
     applicationsCount: admin.firestore.FieldValue.increment(1),
   }).catch(() => {});
 
+  if (!offer.clientId || offer.clientId === application.caregiverId) {
+    return null;
+  }
+
   await sendPushNotification(
-    offer.clientId, 
-    "¡Nueva Solicitud Recibida!", 
-    `${application.caregiverName} ha aplicado a tu oferta "${offer.title}".`, 
-    { type: "job_application", offerId: event.params.offerId, applicationId: event.params.appId }
+    offer.clientId,
+    "¡Nueva Solicitud Recibida!",
+    `${application.caregiverName || "Un cuidador"} ha aplicado a tu oferta "${offer.title || ""}".`,
+    {
+      type: "job_application",
+      offerId: event.params.offerId,
+      applicationId: event.params.appId,
+      senderId: String(application.caregiverId || ""),
+    },
+    { excludeUserIds: [application.caregiverId] }
   );
   return null;
 });
@@ -2790,19 +3017,28 @@ exports.pushOnApplicationUpdated = onDocumentUpdated({
   document: "job_offers/{offerId}/applications/{appId}",
   region: "europe-west1"
 }, async (event) => {
-  const before = event.data.before.data();
-  const after = event.data.after.data();
+  const before = event.data.before.data() || {};
+  const after = event.data.after.data() || {};
 
   if (before.status !== "accepted" && after.status === "accepted") {
     const offerDoc = await admin.firestore().collection("job_offers").doc(event.params.offerId).get();
     if (!offerDoc.exists) return null;
-    const offer = offerDoc.data();
+    const offer = offerDoc.data() || {};
+
+    if (!after.caregiverId || after.caregiverId === offer.clientId) {
+      return null;
+    }
 
     await sendPushNotification(
-      after.caregiverId, 
-      "¡Enhorabuena! Solicitud Aceptada", 
-      `El cliente ha aceptado tu perfil para la oferta "${offer.title}".`, 
-      { type: "job_application_accepted", offerId: event.params.offerId }
+      after.caregiverId,
+      "¡Enhorabuena! Solicitud Aceptada",
+      `El cliente ha aceptado tu perfil para la oferta "${offer.title || ""}".`,
+      {
+        type: "job_application_accepted",
+        offerId: event.params.offerId,
+        senderId: String(offer.clientId || ""),
+      },
+      { excludeUserIds: [offer.clientId] }
     );
   }
   return null;

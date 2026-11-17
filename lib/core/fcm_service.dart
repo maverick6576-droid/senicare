@@ -67,6 +67,13 @@ class FCMService {
     }
   }
 
+  static Stream<String> get onTokenRefresh {
+    if (!useFirebaseBackend || Firebase.apps.isEmpty) {
+      return const Stream<String>.empty();
+    }
+    return _firebaseMessaging.onTokenRefresh;
+  }
+
   static Future<String?> getToken() async {
     try {
       if (!useFirebaseBackend || Firebase.apps.isEmpty) {
