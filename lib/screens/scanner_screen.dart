@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -129,8 +130,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
         await _completeCheckIn();
       } catch (e) {
-        final msg = e.toString().replaceFirst('Exception: ', '').trim();
-        _showError(msg.isNotEmpty ? msg : 'No se pudo verificar el GPS. Puedes usar el PIN para fichar.');
+        _showError(
+          UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo verificar el GPS. Puedes usar la pestaña Código PIN para fichar.',
+          ),
+        );
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _isProcessing = false);
         });
@@ -163,7 +168,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         await _completeCheckIn(verifiedByServer: true);
       } catch (e) {
         if (mounted) setState(() => _isProcessing = false);
-        _showError(e.toString().replaceFirst('Exception: ', ''));
+        _showError(UserFacingErrorMapper.toSpanishMessage(e));
       }
       return;
     }
@@ -184,6 +189,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
             widget.booking.id,
             verifiedByServer: verifiedByServer,
           );
+      unawaited(ObservabilityService.logEvent(
+        'shift_checked_in',
+        parameters: {
+          'booking_id': widget.booking.id,
+          'verified_by_server': verifiedByServer ? 1 : 0,
+        },
+      ));
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       await showDialog(
@@ -253,7 +265,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isProcessing = false);
-        _showError('Error interno o regla de seguridad denegada: $e');
+        _showError(UserFacingErrorMapper.toSpanishMessage(e));
       }
     }
   }
@@ -307,11 +319,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
               ],
             ),
             // Tab 2: PIN Input
-            Padding(
+            SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  const SizedBox(height: 16),
                   const Icon(Icons.lock_outline, size: 64, color: AppTheme.primary),
                   const SizedBox(height: 16),
                   const Text('Introduce el PIN de 4 dígitos proporcionado por la familia.', textAlign: TextAlign.center),
@@ -323,6 +336,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 32, letterSpacing: 16, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
+                      labelText: 'Código PIN de 4 dígitos',
                       hintText: '----',
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -333,7 +347,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     child: ElevatedButton(
                       onPressed: _isProcessing ? null : _handlePINSubmit,
                       child: _isProcessing 
-                        ? const CircularProgressIndicator(color: Colors.white) 
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2),
+                          )
                         : const Text('Validar PIN'),
                     ),
                   )

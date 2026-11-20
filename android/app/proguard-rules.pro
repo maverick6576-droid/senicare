@@ -10,9 +10,11 @@
 -keep class com.google.android.gms.wallet.** { *; }
 -dontwarn com.google.android.gms.wallet.**
 
-# Firebase / Play Core / Flutter JNI
+# Firebase / Play Core / Flutter JNI & Crashlytics Stacktraces
 -keepattributes Signature
 -keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends java.lang.Exception
 -keep class com.google.firebase.** { *; }
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**

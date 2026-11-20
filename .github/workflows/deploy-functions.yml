@@ -6,7 +6,8 @@ on:
       - main
       - master
     paths:
-      - 'functions/**' # Solo se ejecuta si hay cambios en la carpeta de backend
+      - 'functions/**'
+  workflow_dispatch:
 
 jobs:
   build_and_deploy:
@@ -19,14 +20,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: functions/package-lock.json
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Install Dependencies Cleanly
+        run: npm ci
         working-directory: functions
 
-      - name: Deploy to Firebase
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only functions
+      - name: Syntax & Module Verification Gate
+        run: node --check index.js
+        working-directory: functions
+
+      - name: Deploy to Firebase Functions
         env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          npx --yes firebase-tools@13.31.1 deploy --only functions --non-interactive
+          rm -f "$RUNNER_TEMP/firebase-sa.json"

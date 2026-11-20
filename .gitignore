@@ -45,6 +45,10 @@ app.*.map.json
 /android/app/release
 
 # Security and local test files
+*.keystore
+*.jks
+android/app/release.keystore
+db_sample.json
 firebase-admin.json
 firebase-key.json
 .env

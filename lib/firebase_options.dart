@@ -9,7 +9,7 @@ class DefaultFirebaseOptions {
   static const String _iosAppId = String.fromEnvironment('FIREBASE_IOS_APP_ID');
   static const String _iosBundleId = String.fromEnvironment(
     'FIREBASE_IOS_BUNDLE_ID',
-    defaultValue: 'com.example.senicare',
+    defaultValue: 'com.senicare.app',
   );
   static const String _iosClientId = String.fromEnvironment('FIREBASE_IOS_CLIENT_ID');
 

@@ -34,6 +34,33 @@ class _MainLayoutState extends State<MainLayout> {
   bool _showClientTutorial = false;
   String? _checkedAutoTutorialKey;
   Timer? _autoTutorialTimer;
+  Stream<List<ChatConversation>>? _cachedChatsStream;
+  String? _cachedChatsStreamKey;
+
+  Stream<List<ChatConversation>> _getChatsStream(String userId, String role) {
+    final key = '${userId}_$role';
+    if (_cachedChatsStream == null || _cachedChatsStreamKey != key) {
+      _cachedChatsStreamKey = key;
+      _cachedChatsStream = DependencyInjection.chats
+          .streamActiveChats(userId, role)
+          .asBroadcastStream();
+    }
+    return _cachedChatsStream!;
+  }
+
+  Future<void> _confirmAndLogout() async {
+    final confirmed = await CustomDialog.showConfirmation(
+      context,
+      title: '¿Cerrar sesión?',
+      message: 'Podrás volver a entrar en cualquier momento con tu correo y contraseña.',
+      confirmText: 'Cerrar sesión',
+      cancelText: 'Cancelar',
+      isDestructive: true,
+    );
+    if (confirmed == true && mounted) {
+      await DependencyInjection.auth.signOut();
+    }
+  }
 
   @override
   void initState() {
@@ -187,12 +214,15 @@ class _MainLayoutState extends State<MainLayout> {
     });
   }
 
-  Widget _buildIcon(IconData iconData, bool showBadge) {
+  Widget _buildIcon(IconData iconData, bool showBadge, {String? badgeSemanticLabel}) {
     if (!showBadge) return Icon(iconData);
-    return Badge(
-      smallSize: 10,
-      backgroundColor: Colors.red,
-      child: Icon(iconData),
+    return Semantics(
+      label: badgeSemanticLabel,
+      child: Badge(
+        smallSize: 10,
+        backgroundColor: AppTheme.danger,
+        child: Icon(iconData),
+      ),
     );
   }
 
@@ -263,7 +293,7 @@ class _MainLayoutState extends State<MainLayout> {
         return Icon(active ? Icons.chat_bubble : Icons.chat_bubble_outline);
       }
       return StreamBuilder<List<ChatConversation>>(
-        stream: DependencyInjection.chats.streamActiveChats(userId, auth.currentRole),
+        stream: _getChatsStream(userId, auth.currentRole),
         builder: (context, snapshot) {
           final conversations = snapshot.data ?? [];
           bool showMessagesBadge = false;
@@ -273,9 +303,12 @@ class _MainLayoutState extends State<MainLayout> {
             showMessagesBadge = conversations.any((c) => c.unreadCaregiverCount > 0);
           }
           
-          IconData iconData = active ? Icons.chat_bubble : Icons.chat_bubble_outline;
+          final IconData iconData = active ? Icons.chat_bubble : Icons.chat_bubble_outline;
           if (!showMessagesBadge) return Icon(iconData);
-          return Badge(smallSize: 10, backgroundColor: Colors.red, child: Icon(iconData));
+          return Semantics(
+            label: 'Tienes mensajes sin leer',
+            child: Badge(smallSize: 10, backgroundColor: AppTheme.danger, child: Icon(iconData)),
+          );
         },
       );
     }
@@ -357,7 +390,7 @@ class _MainLayoutState extends State<MainLayout> {
                           if (action == 'tutorial') {
                             _startTutorial(forClient: isClient);
                           } else if (action == 'logout') {
-                            DependencyInjection.auth.signOut();
+                            _confirmAndLogout();
                           } else if (action == 'settings') {
                             Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
                           }
@@ -387,9 +420,9 @@ class _MainLayoutState extends State<MainLayout> {
                             value: 'logout',
                             child: Row(
                               children: [
-                                Icon(Icons.logout_rounded, size: 18, color: Colors.red),
+                                Icon(Icons.logout_rounded, size: 18, color: AppTheme.danger),
                                 SizedBox(width: 8),
-                                Expanded(child: Text('Cerrar Sesión', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600))),
+                                Expanded(child: Text('Cerrar Sesión', style: TextStyle(color: AppTheme.danger, fontWeight: FontWeight.w600))),
                               ],
                             ),
                           ),

@@ -1214,6 +1214,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               children: [
                                 FloatingActionButton.small(
                                   heroTag: 'chat_scroll_bottom',
+                                  tooltip: 'Ir al último mensaje',
                                   backgroundColor: Colors.white,
                                   foregroundColor: AppTheme.darkSlate,
                                   onPressed: _scrollToBottom,
@@ -1284,9 +1285,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? 'Reserva confirmada'
                 : 'Entrevista previa segura'));
     final statusColor = isPeerTyping
-        ? const Color(0xFF16A34A)
+        ? AppTheme.success
         : (hasLateBooking
-            ? Colors.deepOrange.shade700
+            ? AppTheme.warning
             : (hasConfirmedBooking ? AppTheme.primary : AppTheme.slateMuted));
 
     return AppBar(
@@ -1456,11 +1457,13 @@ class _ChatScreenState extends State<ChatScreen> {
         autofocus: true,
         onChanged: (v) => setState(() => _searchQuery = v),
         decoration: InputDecoration(
-          hintText: 'Buscar en esta conversación...',
+          labelText: 'Buscar en la conversación',
+          hintText: 'Escribe una palabra...',
           isDense: true,
           prefixIcon: const Icon(Icons.search_rounded, size: 20),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
+                  tooltip: 'Limpiar búsqueda',
                   icon: const Icon(Icons.close_rounded, size: 18),
                   onPressed: () {
                     _searchController.clear();
@@ -1611,14 +1614,19 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               if (isMe) ...[
                 const SizedBox(width: 4),
-                Icon(
-                  m.isPending
-                      ? Icons.access_time_rounded
-                      : (m.isRead ? Icons.done_all_rounded : Icons.done_rounded),
-                  size: 15,
-                  color: m.isRead
-                      ? const Color(0xFF0284C7)
-                      : AppTheme.slateMuted,
+                Semantics(
+                  label: m.isPending
+                      ? 'Enviando mensaje'
+                      : (m.isRead ? 'Mensaje leído' : 'Mensaje entregado'),
+                  child: Icon(
+                    m.isPending
+                        ? Icons.access_time_rounded
+                        : (m.isRead ? Icons.done_all_rounded : Icons.done_rounded),
+                    size: 15,
+                    color: m.isRead
+                        ? const Color(0xFF0284C7)
+                        : AppTheme.slateMuted,
+                  ),
                 ),
               ],
             ],
@@ -1820,8 +1828,8 @@ class _ChatScreenState extends State<ChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+              tooltip: isPlayingThis ? 'Pausar nota de voz' : 'Reproducir nota de voz',
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
               onPressed: () => _toggleAudioPlayback(m, msgKey),
               icon: Icon(
                 isPlayingThis
@@ -1861,21 +1869,30 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
             const SizedBox(width: 8),
-            InkWell(
-              onTap: _cyclePlaybackSpeed,
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.07),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  _playbackRate == 1.5 ? '1.5x' : '1x',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.darkSlate,
+            Semantics(
+              button: true,
+              label: 'Velocidad de reproducción ${_playbackRate == 1.5 ? "1.5 por" : "1 por"}',
+              child: InkWell(
+                onTap: _cyclePlaybackSpeed,
+                borderRadius: BorderRadius.circular(10),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.07),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _playbackRate == 1.5 ? '1.5x' : '1x',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.darkSlate,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2014,6 +2031,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             IconButton(
+              tooltip: 'Cancelar respuesta',
               icon: const Icon(Icons.close_rounded, size: 18),
               onPressed: () => setState(() => _replyingTo = null),
             ),
@@ -2131,6 +2149,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   }
                 },
                 decoration: InputDecoration(
+                  labelText: 'Escribir mensaje',
                   hintText: 'Mensaje',
                   filled: true,
                   fillColor: const Color(0xFFF1F5F9),

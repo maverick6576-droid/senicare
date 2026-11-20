@@ -3871,7 +3871,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Pago protegido semanal: No pagas todo por adelantado. Sólo se retiene el saldo 24h antes de cada visita.',
+                            'Pago protegido en garantía (Stripe Escrow): tu dinero solo se libera tras realizarse la visita en casa.',
                             style: TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
                           ),
                         ),
@@ -3981,7 +3981,7 @@ class _BookingsScreenState extends State<BookingsScreen>
       if (context.mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al preparar la repetición de reserva: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(e),
           type: SnackBarType.error,
         );
       }
@@ -4284,7 +4284,10 @@ class _BookingsScreenState extends State<BookingsScreen>
                         if (context.mounted) {
                           CustomSnackBar.show(
                             context,
-                            message: 'No se pudo generar el PDF: $e',
+                            message: UserFacingErrorMapper.toSpanishMessage(
+                              e,
+                              fallback: 'No se pudo generar el PDF del justificante.',
+                            ),
                             type: SnackBarType.error,
                           );
                         }
@@ -4571,9 +4574,9 @@ class _BookingsScreenState extends State<BookingsScreen>
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
+                          tooltip: 'Cerrar foto',
+                          icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                           onPressed: () => Navigator.pop(ctx),
                         ),
                       ],

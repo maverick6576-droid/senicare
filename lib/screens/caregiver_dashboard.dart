@@ -634,9 +634,10 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               width: double.infinity,
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: isRejected ? Colors.red.shade700 : Colors.orange.shade700,
+                  backgroundColor: isRejected ? AppTheme.danger : AppTheme.warning,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  minimumSize: const Size(double.infinity, 48),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () {
@@ -732,7 +733,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                         }
                       } catch (e) {
                         if (context.mounted) {
-                          CustomSnackBar.show(context, message: 'Error al procesar acuerdo: $e', type: SnackBarType.error);
+                          CustomSnackBar.show(
+                            context,
+                            message: UserFacingErrorMapper.toSpanishMessage(e),
+                            type: SnackBarType.error,
+                          );
                         }
                       }
                     }
@@ -770,7 +775,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 const SizedBox(width: 8),
                 Text(
                   '+${_calculateCaregiverNet(nextService).toStringAsFixed(0)} € netos',
-                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ],
             ),
@@ -833,21 +838,30 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  InkWell(
-                                    onTap: () => _openMaps(profile.homeAddress),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.24),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.navigation_rounded, color: Colors.white, size: 12),
-                                          SizedBox(width: 4),
-                                          Text('Cómo llegar', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                                        ],
+                                  Semantics(
+                                    button: true,
+                                    label: 'Cómo llegar en Maps a ${profile.homeAddress}',
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(10),
+                                      onTap: () => _openMaps(profile.homeAddress),
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(minHeight: 44),
+                                        child: Container(
+                                          alignment: Alignment.center,
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(alpha: 0.24),
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.navigation_rounded, color: Colors.white, size: 14),
+                                              SizedBox(width: 4),
+                                              Text('Cómo llegar', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -953,13 +967,16 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: isOvertime ? Colors.orange.shade700 : Colors.greenAccent.shade700,
+                    color: isOvertime ? AppTheme.warning : AppTheme.success,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -976,7 +993,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 ),
                 Text(
                   '${_formatFriendlyDay(activeService.day)} · ${activeService.slot}',
-                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 12.5),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5),
                 ),
               ],
             ),
@@ -1244,104 +1261,121 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
 
                   final noteController = TextEditingController(text: activeService.careNotes);
                   String? validationError;
-
-                  final note = await showDialog<String>(
-                    context: context,
-                    builder: (ctx) => StatefulBuilder(
-                      builder: (ctx, setDialogState) => AlertDialog(
-                        title: const Row(
-                          children: [
-                            Icon(Icons.assignment_outlined, color: AppTheme.primary),
-                            SizedBox(width: 8),
-                            Text('Resumen de Salida', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        content: SingleChildScrollView(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                  String? note;
+                  try {
+                    note = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => StatefulBuilder(
+                        builder: (ctx, setDialogState) => AlertDialog(
+                          title: const Row(
                             children: [
-                              if (isEarly) ...[
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.shade50,
-                                    border: Border.all(color: Colors.amber.shade600),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900, size: 20),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'Faltan $minsBefore min para terminar el horario acordado. Al salir con más de 15 min de antelación se calculará el pago únicamente por el tiempo real trabajado.',
-                                          style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              const Text(
-                                'El resumen en el diario es obligatorio para registrar la salida:',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: noteController,
-                                maxLines: 4,
-                                autofocus: true,
-                                decoration: InputDecoration(
-                                  hintText: 'Describe cómo ha ido la jornada, comidas, medicación, estado del paciente...',
-                                  errorText: validationError,
-                                  border: const OutlineInputBorder(),
-                                ),
-                                onChanged: (_) {
-                                  if (validationError != null) {
-                                    setDialogState(() => validationError = null);
-                                  }
-                                },
+                              Icon(Icons.assignment_outlined, color: AppTheme.primary),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text('Resumen de Salida', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                               ),
                             ],
                           ),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (isEarly) ...[
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.warningSurface,
+                                      border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 20),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Faltan $minsBefore min para terminar el horario acordado. Al salir con más de 15 min de antelación se calculará el pago únicamente por el tiempo real trabajado.',
+                                            style: const TextStyle(fontSize: 12, color: AppTheme.warning, fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                const Text(
+                                  'El resumen en el diario es obligatorio para registrar la salida:',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: noteController,
+                                  maxLines: 4,
+                                  autofocus: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Resumen de la jornada',
+                                    hintText: 'Describe cómo ha ido la jornada, comidas, medicación, estado del paciente...',
+                                    errorText: validationError,
+                                    border: const OutlineInputBorder(),
+                                  ),
+                                  onChanged: (_) {
+                                    if (validationError != null) {
+                                      setDialogState(() => validationError = null);
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('Cancelar'),
+                            ),
+                            FilledButton.icon(
+                              onPressed: () {
+                                final text = noteController.text.trim();
+                                if (text.isEmpty) {
+                                  setDialogState(() {
+                                    validationError = 'El resumen es obligatorio para fichar la salida.';
+                                  });
+                                  return;
+                                }
+                                Navigator.pop(ctx, text);
+                              },
+                              icon: const Icon(Icons.check_circle_rounded, size: 18),
+                              label: const Text('Confirmar Salida'),
+                            ),
+                          ],
                         ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Cancelar'),
-                          ),
-                          FilledButton.icon(
-                            onPressed: () {
-                              final text = noteController.text.trim();
-                              if (text.isEmpty) {
-                                setDialogState(() {
-                                  validationError = 'El resumen es obligatorio para fichar la salida.';
-                                });
-                                return;
-                              }
-                              Navigator.pop(ctx, text);
-                            },
-                            icon: const Icon(Icons.check_circle_rounded, size: 18),
-                            label: const Text('Confirmar Salida'),
-                          ),
-                        ],
                       ),
-                    ),
-                  );
+                    );
+                  } finally {
+                    noteController.dispose();
+                  }
 
                   if (note != null && note.trim().isNotEmpty && context.mounted) {
                     HapticFeedback.heavyImpact();
-                    await bookingState.completeService(activeService.id, careNotes: note.trim());
-                    if (context.mounted) {
-                      CustomSnackBar.show(
-                        context,
-                        message: isEarly
-                            ? '🏁 Salida registrada con antelación ($minsBefore min antes). Ajuste aplicado.'
-                            : '🎉 ¡Servicio finalizado con éxito! Buen descanso.',
-                        type: SnackBarType.success,
-                      );
+                    try {
+                      await bookingState.completeService(activeService.id, careNotes: note.trim());
+                      if (context.mounted) {
+                        CustomSnackBar.show(
+                          context,
+                          message: isEarly
+                              ? '🏁 Salida registrada con antelación ($minsBefore min antes). Ajuste aplicado.'
+                              : '🎉 ¡Servicio finalizado con éxito! Buen descanso.',
+                          type: SnackBarType.success,
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        CustomSnackBar.show(
+                          context,
+                          message: UserFacingErrorMapper.toSpanishMessage(e),
+                          type: SnackBarType.error,
+                        );
+                      }
                     }
                   }
                 },
@@ -1656,12 +1690,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                       }
                                     },
                                     style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.red.shade700,
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                      minimumSize: const Size(0, 36),
-                                      side: BorderSide(color: Colors.red.shade200),
+                                      foregroundColor: AppTheme.danger,
+                                      padding: const EdgeInsets.symmetric(vertical: 10),
+                                      minimumSize: const Size(48, 48),
+                                      side: BorderSide(color: AppTheme.danger.withValues(alpha: 0.35)),
                                     ),
-                                    child: const Text('Rechazar', style: TextStyle(fontSize: 12.5)),
+                                    child: const Text('Rechazar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -1681,11 +1715,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                     },
                                     style: FilledButton.styleFrom(
                                       backgroundColor: AppTheme.primary,
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                      minimumSize: const Size(0, 36),
+                                      padding: const EdgeInsets.symmetric(vertical: 10),
+                                      minimumSize: const Size(48, 48),
                                     ),
-                                    icon: const Icon(Icons.check_rounded, size: 16),
-                                    label: const Text('Aceptar Servicio', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                                    icon: const Icon(Icons.check_rounded, size: 18),
+                                    label: const Text('Aceptar Servicio', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                                   ),
                                 ),
                               ],

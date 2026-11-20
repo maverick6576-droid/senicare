@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:senicare/core/theme.dart';
 import 'package:senicare/models/models.dart';
 
 class StatusBadge extends StatelessWidget {
@@ -13,23 +14,55 @@ class StatusBadge extends StatelessWidget {
 
     switch (status) {
       case BookingStatus.pendingPayment:
-        bg = Colors.grey.shade200; fg = Colors.grey.shade800; text = 'Pago en proc...'; break;
+        bg = const Color(0xFFF1F5F9);
+        fg = AppTheme.darkSlate;
+        text = 'Pago en proceso';
+        break;
       case BookingStatus.pending:
-        bg = Colors.orange.shade50; fg = Colors.orange.shade800; text = 'Pendiente'; break;
+        bg = AppTheme.warningSurface;
+        fg = AppTheme.warning;
+        text = 'Pendiente';
+        break;
       case BookingStatus.confirmed:
-        bg = Colors.blue.shade50; fg = Colors.blue.shade800; text = 'Confirmado'; break;
+        bg = AppTheme.infoSurface;
+        fg = AppTheme.info;
+        text = 'Confirmado';
+        break;
       case BookingStatus.completed:
-        bg = Colors.green.shade50; fg = Colors.green.shade800; text = 'Completado'; break;
+        bg = AppTheme.successSurface;
+        fg = AppTheme.success;
+        text = 'Completado';
+        break;
       case BookingStatus.cancelled:
-        bg = Colors.red.shade50; fg = Colors.red.shade800; text = 'Cancelado'; break;
+        bg = AppTheme.dangerSurface;
+        fg = AppTheme.danger;
+        text = 'Cancelado';
+        break;
       case BookingStatus.cancelledLate:
-        bg = Colors.purple.shade50; fg = Colors.purple.shade800; text = 'Canc. Tardía'; break;
+        bg = const Color(0xFFFAF5FF);
+        fg = const Color(0xFF6B21A8);
+        text = 'Cancelación tardía';
+        break;
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
-      child: Text(text, style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.bold)),
+    return Semantics(
+      label: 'Estado: $text',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: fg.withValues(alpha: 0.25)),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: fg,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
     );
   }
 }

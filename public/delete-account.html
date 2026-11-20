@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeniCare — Solicitud de Eliminación de Cuenta y Datos (RGPD)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --danger-color: #dc2626;
+            --danger-hover: #b91c1c;
+            --bg-color: #f8fafc;
+            --surface-color: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --border-color: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1e3a8a, #2563eb);
+            color: #ffffff;
+            padding: 3rem 1.5rem;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        header p {
+            margin: 0.75rem auto 0;
+            max-width: 640px;
+            font-size: 1.05rem;
+            opacity: 0.92;
+        }
+
+        .container {
+            max-width: 820px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--surface-color);
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        }
+
+        h2 {
+            font-size: 1.35rem;
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--bg-color);
+            color: var(--text-main);
+        }
+
+        h2:first-of-type {
+            margin-top: 0;
+        }
+
+        p, li {
+            color: var(--text-muted);
+            font-size: 0.98rem;
+        }
+
+        ul, ol {
+            padding-left: 1.4rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.25rem;
+            margin: 1.5rem 0;
+        }
+
+        .card {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.25rem;
+            background: #fcfdff;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+            color: var(--text-main);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .badge-fast {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .badge-web {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .form-box {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-top: 1.25rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.35rem;
+            color: var(--text-main);
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.95rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 48px;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s;
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: #ffffff;
+        }
+
+        .btn-danger:hover {
+            background-color: var(--danger-hover);
+        }
+
+        .btn-secondary {
+            background-color: #e2e8f0;
+            color: var(--text-main);
+        }
+
+        .info-box {
+            background-color: #eff6ff;
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem 1.25rem;
+            border-radius: 6px;
+            margin: 1.25rem 0;
+            color: #1e3a8a;
+        }
+
+        .warning-box {
+            background-color: #fff1f2;
+            border-left: 4px solid var(--danger-color);
+            padding: 1rem 1.25rem;
+            border-radius: 6px;
+            margin: 1.25rem 0;
+            color: #881337;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                margin: 1rem;
+                padding: 1.25rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>SeniCare — Eliminación de Cuenta y Datos</h1>
+        <p>Centro de privacidad y ejercicio del derecho de supresión (Art. 17 del RGPD) para usuarios y cuidadores de SeniCare.</p>
+    </header>
+
+    <main class="container">
+        <h2>¿Cómo eliminar tu cuenta de SeniCare?</h2>
+        <p>En <strong>SeniCare</strong> (<code>com.senicare.app</code>) puedes eliminar tu cuenta y todos tus datos personales asociados en cualquier momento, tanto directamente desde la aplicación móvil como a través de esta página web sin necesidad de tener la app instalada.</p>
+
+        <div class="card-grid">
+            <div class="card">
+                <span class="badge badge-fast">Opción 1 · Inmediata desde la App</span>
+                <h3>Eliminación directa en la aplicación</h3>
+                <ol>
+                    <li>Inicia sesión en la app <strong>SeniCare</strong> (Android, iOS o Web).</li>
+                    <li>Ve a la pestaña <strong>Perfil / Ajustes</strong>.</li>
+                    <li>Pulsa en <strong>Eliminar cuenta</strong> al final de la pantalla.</li>
+                    <li>Confirma la operación. Tu perfil, documentos y credenciales se purgarán de inmediato.</li>
+                </ol>
+            </div>
+
+            <div class="card">
+                <span class="badge badge-web">Opción 2 · Solicitud Web (Sin App)</span>
+                <h3>Solicitud por correo verificado</h3>
+                <p>Si ya has desinstalado la aplicación o no puedes acceder a tu dispositivo, envía una solicitud formal mediante el formulario inferior o escribiendo directamente a <a href="mailto:soporte@senicare.app?subject=Solicitud%20de%20eliminaci%C3%B3n%20de%20cuenta%20SeniCare%20(RGPD)">soporte@senicare.app</a> desde el correo asociado a tu cuenta.</p>
+                <p><strong>Plazo de ejecución:</strong> Máximo 72 horas hábiles tras verificar la titularidad del correo.</p>
+            </div>
+        </div>
+
+        <h2>Formulario Web de Solicitud de Supresión (RGPD)</h2>
+        <div class="form-box">
+            <form id="deleteRequestForm" onsubmit="submitDeletionRequest(event)">
+                <div class="form-group">
+                    <label for="userEmail">Correo electrónico registrado en SeniCare *</label>
+                    <input type="email" id="userEmail" name="userEmail" required placeholder="ejemplo@correo.com">
+                </div>
+                <div class="form-group">
+                    <label for="userRole">Tipo de perfil</label>
+                    <select id="userRole" name="userRole">
+                        <option value="Familia / Cliente">Familia / Cliente</option>
+                        <option value="Cuidador / Profesional">Cuidador / Profesional</option>
+                        <option value="Ambos / No estoy seguro">Ambos / No estoy seguro</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="deleteScope">Alcance de la solicitud</label>
+                    <select id="deleteScope" name="deleteScope">
+                        <option value="Eliminación total de cuenta y todos los datos personales">Eliminación total de cuenta y todos los datos personales</option>
+                        <option value="Eliminación parcial de documentos KYC / fotos / notas de voz sin cerrar cuenta">Eliminación parcial de documentos KYC / fotos / notas de voz sin cerrar cuenta</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="notes">Comentarios adicionales (opcional)</label>
+                    <textarea id="notes" name="notes" rows="3" placeholder="Indica si deseas recibir primero una copia JSON de portabilidad RGPD antes del borrado definitivo."></textarea>
+                </div>
+                <button type="submit" class="btn btn-danger">Enviar solicitud de eliminación a soporte@senicare.app</button>
+            </form>
+        </div>
+
+        <h2>Desglose de Datos Eliminados vs. Conservados por Obligación Legal</h2>
+
+        <div class="info-box">
+            <strong>Datos que se eliminan de forma permanente e irreversible:</strong>
+            <ul>
+                <li><strong>Credenciales y cuenta de acceso:</strong> Registro en Firebase Authentication (email, hash de contraseña, vinculación Google/Apple Sign-In y configuración 2FA).</li>
+                <li><strong>Perfil público y privado:</strong> Nombre, apellidos, foto de perfil, biografía, tarifas, disponibilidad, dirección postal, coordenadas GPS y tokens de notificaciones push (FCM).</li>
+                <li><strong>Documentación sensible KYC (Cuidadores):</strong> Imágenes de DNI/NIE, selfie de verificación y Certificado de Antecedentes Penales alojados en Firebase Storage (<code>verification_docs/</code>) y subcolección privada <code>caregivers/{uid}/private/verification</code>.</li>
+                <li><strong>Comunicaciones y multimedia:</strong> Fotografías compartidas en el diario de cuidados, notas de voz y archivos adjuntos del chat.</li>
+            </ul>
+        </div>
+
+        <div class="warning-box">
+            <strong>Datos sujetos a retención legal obligatoria (bloqueados y anonimizados):</strong>
+            <ul>
+                <li><strong>Registros contables, facturas y liquidaciones de pago (Stripe):</strong> En cumplimiento de la normativa tributaria española (Ley General Tributaria) y de prevención de blanqueo de capitales (Ley 10/2010), los justificantes de transacciones económicas, comisiones y reembolsos deben conservarse bloqueados durante un periodo legal de <strong>5 años</strong> (o hasta 6 años según el Código de Comercio).</li>
+                <li>Una vez transcurrido el plazo legal obligatorio, dichos registros contables residuales se destruyen automáticamente. En ningún caso se utilizan con fines comerciales ni son visibles en la plataforma.</li>
+            </ul>
+        </div>
+
+        <p style="margin-top: 2rem;">
+            <a href="/" class="btn btn-secondary">&larr; Volver al Portal Legal y Política de Privacidad de SeniCare</a>
+        </p>
+    </main>
+
+    <footer>
+        &copy; 2026 SeniCare Asistencia Domiciliaria S.L. · <a href="/">Términos y Privacidad</a> · Contacto RGPD: <a href="mailto:soporte@senicare.app">soporte@senicare.app</a>
+    </footer>
+
+    <script>
+        function submitDeletionRequest(event) {
+            event.preventDefault();
+            var email = document.getElementById('userEmail').value.trim();
+            var role = document.getElementById('userRole').value;
+            var scope = document.getElementById('deleteScope').value;
+            var notes = document.getElementById('notes').value.trim();
+
+            var subject = encodeURIComponent('Solicitud RGPD: ' + scope + ' (' + email + ')');
+            var bodyLines = [
+                'Hola equipo de Privacidad y Soporte de SeniCare,',
+                '',
+                'Por medio de este mensaje solicito formalmente el ejercicio de mi derecho de supresión (Art. 17 RGPD):',
+                '',
+                '- Correo de la cuenta: ' + email,
+                '- Tipo de perfil: ' + role,
+                '- Alcance solicitado: ' + scope,
+                '- Notas adicionales: ' + (notes || 'Ninguna'),
+                '',
+                'Confirmo que entiendo que esta acción es irreversible y eliminará mi perfil, credenciales y documentos de verificación, conservándose únicamente bloqueados los registros fiscales obligatorios durante el plazo legal.',
+                '',
+                'Atentamente,'
+            ];
+            var mailtoUrl = 'mailto:soporte@senicare.app?subject=' + subject + '&body=' + encodeURIComponent(bodyLines.join('\n'));
+            window.location.href = mailtoUrl;
+        }
+    </script>
+</body>
+</html>

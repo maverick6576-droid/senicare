@@ -344,6 +344,7 @@ class _InboxScreenState extends State<InboxScreen> {
                       controller: _searchController,
                       onChanged: (val) => setState(() => _searchQuery = val),
                       decoration: InputDecoration(
+                        labelText: 'Buscar conversación',
                         hintText: 'Buscar chat o mensaje...',
                         prefixIcon: const Icon(
                           Icons.search_rounded,
@@ -351,6 +352,7 @@ class _InboxScreenState extends State<InboxScreen> {
                         ),
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
+                                tooltip: 'Limpiar búsqueda',
                                 icon: const Icon(Icons.close_rounded, size: 20),
                                 onPressed: () {
                                   _searchController.clear();
@@ -370,32 +372,36 @@ class _InboxScreenState extends State<InboxScreen> {
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Row(
-                      children: [
-                        ChoiceChip(
-                          label: Text('Todos (${allChats.length})'),
-                          selected: !_onlyUnread,
-                          selectedColor: AppTheme.primarySurface,
-                          labelStyle: TextStyle(
-                            color:
-                                !_onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
-                            fontWeight: FontWeight.w600,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          ChoiceChip(
+                            label: Text('Todos (${allChats.length})'),
+                            selected: !_onlyUnread,
+                            selectedColor: AppTheme.primarySurface,
+                            labelStyle: TextStyle(
+                              color:
+                                  !_onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            onSelected: (_) => setState(() => _onlyUnread = false),
                           ),
-                          onSelected: (_) => setState(() => _onlyUnread = false),
-                        ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          label: Text('No leídos ($totalUnreadChats)'),
-                          selected: _onlyUnread,
-                          selectedColor: AppTheme.primarySurface,
-                          labelStyle: TextStyle(
-                            color:
-                                _onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
-                            fontWeight: FontWeight.w600,
+                          ChoiceChip(
+                            label: Text('No leídos ($totalUnreadChats)'),
+                            selected: _onlyUnread,
+                            selectedColor: AppTheme.primarySurface,
+                            labelStyle: TextStyle(
+                              color:
+                                  _onlyUnread ? AppTheme.primary : AppTheme.slateMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            onSelected: (_) => setState(() => _onlyUnread = true),
                           ),
-                          onSelected: (_) => setState(() => _onlyUnread = true),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -413,8 +419,10 @@ class _InboxScreenState extends State<InboxScreen> {
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           children: [
-                            SizedBox(
-                              height: MediaQuery.of(context).size.height * 0.5,
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: MediaQuery.of(context).size.height * 0.5,
+                              ),
                               child: Center(
                                 child: Padding(
                                   padding: const EdgeInsets.all(24),

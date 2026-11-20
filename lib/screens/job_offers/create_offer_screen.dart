@@ -201,18 +201,24 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
     }
 
     final loc = context.read<LocationNotifier>();
+    final double resolvedLat = auth.currentClient?.latitude ?? loc.latitude ?? 41.3851;
+    final double resolvedLng = auth.currentClient?.longitude ?? loc.longitude ?? 2.1734;
+    final recurringSessionsCount = _isRecurring
+        ? (_recurringDays.isEmpty ? 1 : _recurringDays.length) * _recurringWeeks
+        : 1;
+    final effectiveTotalHours = _isRecurring ? (totalHours * recurringSessionsCount) : totalHours;
     final recurringStart =
         '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}';
     final offer = JobOffer(
       id: '',
       clientId: uid,
       clientName: auth.currentClient?.name ?? 'Cliente',
-      clientLatitude: auth.currentClient?.latitude ?? loc.latitude ?? 41.3851,
-      clientLongitude: auth.currentClient?.longitude ?? loc.longitude ?? 2.1734,
+      clientLatitude: resolvedLat,
+      clientLongitude: resolvedLng,
       title: _titleCtrl.text.trim(),
       description: _descCtrl.text.trim(),
       pricePerHour: price,
-      totalHours: totalHours,
+      totalHours: effectiveTotalHours,
       isRecurring: _isRecurring,
       recurringDaysOfWeek: _isRecurring ? (List<int>.from(_recurringDays)..sort()) : const [],
       recurringHoursPerDay: _isRecurring ? totalHours : 0,
@@ -249,9 +255,15 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
     final isCreating = context.watch<JobOfferNotifier>().isCreating;
     final parsedPrice = _parsePrice();
     final parsedHours = _parseHours();
+    final int recurringSessions = _isRecurring
+        ? (_recurringDays.isEmpty ? 1 : _recurringDays.length) * _recurringWeeks
+        : 1;
+    final int totalComputedHours = (parsedHours != null && parsedHours > 0)
+        ? parsedHours * recurringSessions
+        : 0;
     final estimatedTotal =
-        (parsedPrice != null && parsedPrice > 0 && parsedHours != null && parsedHours > 0)
-            ? parsedPrice * parsedHours
+        (parsedPrice != null && parsedPrice > 0 && totalComputedHours > 0)
+            ? parsedPrice * totalComputedHours
             : null;
 
     return Scaffold(
@@ -389,8 +401,8 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
                         child: TextFormField(
                           controller: _hoursCtrl,
                           style: TextStyle(fontSize: seniorMode ? 17 : 15),
-                          decoration: const InputDecoration(
-                            labelText: 'Horas totales',
+                          decoration: InputDecoration(
+                            labelText: _isRecurring ? 'Horas por día' : 'Horas totales',
                             hintText: '4',
                           ),
                           keyboardType: TextInputType.number,
@@ -434,7 +446,9 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Total aproximado de la oferta: ${_formatNumber(estimatedTotal)} € (${parsedHours}h × ${_formatNumber(parsedPrice!)} €/h)',
+                              _isRecurring
+                                  ? 'Total aproximado del plan ($_recurringWeeks sem.): ${_formatNumber(estimatedTotal)} € ($totalComputedHours h totales × ${_formatNumber(parsedPrice!)} €/h)'
+                                  : 'Total aproximado de la oferta: ${_formatNumber(estimatedTotal)} € (${parsedHours}h × ${_formatNumber(parsedPrice!)} €/h)',
                               style: TextStyle(
                                 color: AppTheme.darkSlate,
                                 fontWeight: FontWeight.w700,

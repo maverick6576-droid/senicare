@@ -7,11 +7,9 @@ service cloud.firestore {
       return request.auth != null;
     }
     function isAdmin() {
-      return isAuthenticated() &&
-        request.auth.token.email_verified == true && (
-          request.auth.token.email == "maverick6576@gmail.com" ||
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
-        );
+      return request.auth != null &&
+        request.auth.token.admin == true &&
+        request.auth.token.admin2fa == true;
     }
     function isFamilyMember(familyId) {
       return isAuthenticated() && (
@@ -51,7 +49,8 @@ service cloud.firestore {
         isAuthenticated() &&
         request.auth.uid == userId &&
         !request.resource.data.keys().hasAny([
-          "isAdmin", "stripeCustomerId", "blockedUntil", "status", "accountStatus"
+          "isAdmin", "stripeCustomerId", "blockedUntil", "status",
+          "accountStatus", "incidentDates", "minorIncidentsCount"
         ]) &&
         (!('role' in request.resource.data) || request.resource.data.role in ["client", "caregiver"]) &&
         (!('activeFamilyId' in request.resource.data) || request.resource.data.activeFamilyId == userId)
@@ -60,19 +59,26 @@ service cloud.firestore {
         isAuthenticated() &&
         request.auth.uid == userId &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          "isAdmin", "stripeCustomerId", "blockedUntil", "status", "accountStatus"
+          "isAdmin", "stripeCustomerId", "blockedUntil", "status",
+          "accountStatus", "incidentDates", "minorIncidentsCount"
         ]) &&
         (!('role' in request.resource.data) || request.resource.data.role in ["client", "caregiver"]) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) ||
+          !('role' in resource.data) ||
+          resource.data.role == null ||
+          resource.data.role == '') &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["activeFamilyId"]) ||
           request.resource.data.activeFamilyId == userId)
       );
-      allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow delete: if isAdmin();
     }
     match /admins/{adminId} {
-      allow read: if isAuthenticated() && request.auth.token.email_verified == true && (
-        request.auth.token.email == adminId || isAdmin()
+      allow read: if isAdmin() || (
+        request.auth != null &&
+        request.auth.token.email != null &&
+        request.auth.token.email == adminId
       );
-      allow write: if isAdmin();
+      allow write: if false; // Solo Cloud Functions gestionan documentos de administradores
 
       match /private/{docId} {
         allow read, write: if false; // Solo Cloud Functions (secretos TOTP 2FA)
@@ -89,26 +95,32 @@ service cloud.firestore {
       allow create: if isAdmin() || (
         isAuthenticated() &&
         request.auth.uid == caregiverId &&
+        !request.resource.data.keys().hasAny([
+          "stripeAccountId", "isKycVerified", "chargesEnabled", "payoutsEnabled",
+          "transfersCapabilityStatus", "officialCertificationVerified", "noShowsCount",
+          "incidentDates", "minorIncidentsCount", "lastMinorIncidentAt",
+          "lastMinorIncidentReason", "blockedUntil", "accountStatus", "rating", "reviewsCount"
+        ]) &&
         request.resource.data.get('verified', false) == false &&
         request.resource.data.get('isVerified', false) == false &&
-        request.resource.data.get('isKycVerified', false) == false &&
+        (!('status' in request.resource.data) || request.resource.data.status == 'pending') &&
         (!('verificationStatus' in request.resource.data) ||
-          request.resource.data.verificationStatus in ["pending", "unverified", "manual_review"]) &&
-        request.resource.data.get('rating', 0) == 0 &&
-        request.resource.data.get('reviewsCount', 0) == 0
+          request.resource.data.verificationStatus in ["pending", "unverified", "manual_review"])
       );
       allow update: if isAdmin() || (
         isAuthenticated() &&
         request.auth.uid == caregiverId &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           "verified", "isVerified", "rating", "reviewsCount",
-          "stripeAccountId", "isKycVerified", "noShowsCount",
-          "incidentDates", "blockedUntil", "accountStatus", "status"
+          "stripeAccountId", "isKycVerified", "chargesEnabled", "payoutsEnabled",
+          "transfersCapabilityStatus", "officialCertificationVerified", "noShowsCount",
+          "incidentDates", "minorIncidentsCount", "lastMinorIncidentAt",
+          "lastMinorIncidentReason", "blockedUntil", "accountStatus", "status"
         ]) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["verificationStatus"]) ||
           request.resource.data.verificationStatus in ["pending", "manual_review"])
       );
-      allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == caregiverId);
+      allow delete: if isAdmin();
 
       // Documentos de verificación sensibles (DNI, Penales, texto OCR) — solo dueño o admin
       match /private/{docId} {
@@ -141,8 +153,18 @@ service cloud.firestore {
         isAdmin() ||
         exists(/databases/$(database)/documents/clients/$(clientId)/caregiver_access/$(request.auth.uid))
       );
-      allow create: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
-      allow update: if isFamilyAdmin(clientId) || isAdmin();
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.auth.uid == clientId &&
+        !request.resource.data.keys().hasAny(["members", "memberUids"]) &&
+        (!('ownerUid' in request.resource.data) || request.resource.data.ownerUid == request.auth.uid)
+      );
+      allow update: if isAdmin() || (
+        isFamilyAdmin(clientId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'ownerUid', 'members', 'memberUids'
+        ])
+      );
       allow delete: if isAuthenticated() && (request.auth.uid == clientId || isAdmin());
 
       match /caregiver_access/{caregiverId} {
@@ -155,7 +177,10 @@ service cloud.firestore {
       }
     }
     match /family_invites/{inviteCode} {
-      allow read: if isAuthenticated() && (resource == null || isFamilyAdmin(resource.data.familyId) || isAdmin());
+      allow read: if isAuthenticated() && (
+        (resource != null && isFamilyAdmin(resource.data.familyId)) ||
+        isAdmin()
+      );
       allow write: if false; // Solo Cloud Functions (createFamilyInvite / revokeFamilyInvite / joinFamilyByCode)
     }
 
@@ -163,7 +188,14 @@ service cloud.firestore {
     match /job_offers/{offerId} {
       allow read: if isAuthenticated();
       allow create: if isFamilyAdmin(request.resource.data.clientId) || isAdmin();
-      allow update, delete: if isFamilyAdmin(resource.data.clientId) || isAdmin();
+      allow update: if isAdmin() || (
+        isFamilyAdmin(resource.data.clientId) &&
+        request.resource.data.clientId == resource.data.clientId &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'urgencyBonusRate', 'isUrgent', 'clientFeeRate', 'applicationsCount'
+        ])
+      );
+      allow delete: if isFamilyAdmin(resource.data.clientId) || isAdmin();
 
       match /applications/{applicationId} {
         allow read: if isAuthenticated() && (
@@ -172,16 +204,28 @@ service cloud.firestore {
           isFamilyMember(get(/databases/$(database)/documents/job_offers/$(offerId)).data.clientId) ||
           isAdmin()
         );
-        allow create: if isAuthenticated() &&
-          request.resource.data.caregiverId == request.auth.uid &&
-          request.resource.data.status == "pending";
+        allow create: if request.auth != null &&
+          request.auth.uid == request.resource.data.caregiverId &&
+          request.resource.data.status == "pending" &&
+          exists(/databases/$(database)/documents/caregivers/$(request.auth.uid)) &&
+          (
+            get(/databases/$(database)/documents/caregivers/$(request.auth.uid)).data.get('status', '') == 'approved' ||
+            get(/databases/$(database)/documents/caregivers/$(request.auth.uid)).data.get('verificationStatus', '') == 'approved'
+          ) &&
+          !(get(/databases/$(database)/documents/caregivers/$(request.auth.uid)).data.get('status', '') in ['pending', 'suspended', 'rejected']) &&
+          !(get(/databases/$(database)/documents/caregivers/$(request.auth.uid)).data.get('accountStatus', '') in ['suspended', 'rejected']);
         allow update: if isAuthenticated() && (
           isAdmin() ||
-          isFamilyAdmin(get(/databases/$(database)/documents/job_offers/$(offerId)).data.clientId) ||
+          (
+            isFamilyAdmin(get(/databases/$(database)/documents/job_offers/$(offerId)).data.clientId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+            request.resource.data.status in ['accepted', 'rejected']
+          ) ||
           (
             resource.data.caregiverId == request.auth.uid &&
             request.resource.data.caregiverId == request.auth.uid &&
-            request.resource.data.status == resource.data.status
+            resource.data.status == "pending" &&
+            request.resource.data.status == "pending"
           )
         );
         allow delete: if isAuthenticated() && (
@@ -200,14 +244,14 @@ service cloud.firestore {
           "paymentIntentId", "paymentStatus", "paymentMethodType", "transferGroup",
           "tipAmount", "processedTipPaymentIntents", "bookingPin", "bookingPinHash",
           "clientId", "caregiverId", "offerId", "applicationId", "isJobOffer",
-          "discountApplied", "escrowLock", "checkInTime", "checkInMethod", "isPunctual"
+          "discountApplied", "escrowLock", "checkInTime", "checkOutTime", "checkInMethod", "isPunctual"
         ]);
       }
 
       allow read: if isAuthenticated() && (
         request.auth.uid == resource.data.clientId ||
         request.auth.uid == resource.data.caregiverId ||
-        ('activeFamilyId' in request.auth.token && request.auth.token.activeFamilyId == resource.data.clientId) ||
+        ('familyId' in request.auth.token && request.auth.token.familyId == resource.data.clientId) ||
         isFamilyMember(resource.data.clientId) ||
         isAdmin()
       );
@@ -227,13 +271,15 @@ service cloud.firestore {
             ) ||
             (
               resource.data.status in ["confirmed", "completed"] &&
-              !(resource.data.escrowStatus in ["released", "released_manual", "released_auto", "resolved_partial", "refunded", "cancelled", "none"]) &&
+              resource.data.escrowStatus == 'held' &&
               request.resource.data.status == resource.data.status &&
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 "escrowStatus", "disputeRequested", "disputeAmount",
-                "disputeReason", "disputeDescription", "disputeOpenedAt"
+                "disputeReason", "disputeDescription", "disputeOpenedAt", "disputeEscalated"
               ]) &&
-              request.resource.data.escrowStatus in [resource.data.escrowStatus, "disputed"] &&
+              request.resource.data.escrowStatus == 'disputed' &&
+              request.resource.data.disputeOpenedAt == request.time &&
+              (!('disputeEscalated' in request.resource.data) || request.resource.data.disputeEscalated == false) &&
               request.resource.data.disputeAmount is number &&
               request.resource.data.disputeAmount > 0 &&
               request.resource.data.disputeAmount <= resource.data.cost
@@ -250,7 +296,7 @@ service cloud.firestore {
               "careChecklist", "careNotes", "carePhotoUrls", "reviewPromptDismissed", "isReviewed"
             ])
           ) ||
-          // C. Cuidador asignado: aceptar pending->confirmed, seguimiento en curso (check-in vía Cloud Function), check-out tras check-in, escalado
+          // C. Cuidador asignado: aceptar pending->confirmed, seguimiento en curso (check-in y check-out vía Cloud Functions), escalado
           (request.auth.uid == resource.data.caregiverId && (
             (
               resource.data.status == "pending" &&
@@ -263,14 +309,6 @@ service cloud.firestore {
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 "liveStatus", "onTheWayAt", "careChecklist", "careNotes", "carePhotoUrls"
               ])
-            ) ||
-            (
-              resource.data.status == "confirmed" &&
-              resource.data.checkInTime != null &&
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                "liveStatus", "status", "checkOutTime"
-              ]) &&
-              request.resource.data.status == "completed"
             ) ||
             (
               resource.data.escrowStatus == "disputed" &&
@@ -295,25 +333,48 @@ service cloud.firestore {
 
     // 7. Coleccion CHATS
     match /chats/{chatId} {
-      allow read, write: if isAuthenticated() && (
-        isFamilyMember(chatId.split("_")[0]) ||
-        chatId.split("_")[1] == request.auth.uid ||
+      allow read: if isAuthenticated() && (
+        (
+          chatId.split('_').size() == 2 && (
+            isFamilyMember(chatId.split('_')[0]) ||
+            chatId.split('_')[1] == request.auth.uid
+          )
+        ) ||
         (resource != null && (isFamilyMember(resource.data.clientId) || request.auth.uid == resource.data.caregiverId)) ||
         isAdmin()
       );
+      allow create, update: if isAuthenticated() && (
+        isAdmin() || (
+          chatId.split('_').size() == 2 && (
+            isFamilyMember(chatId.split('_')[0]) ||
+            chatId.split('_')[1] == request.auth.uid
+          ) &&
+          (!('clientId' in request.resource.data) || request.resource.data.clientId == chatId.split('_')[0]) &&
+          (!('caregiverId' in request.resource.data) || request.resource.data.caregiverId == chatId.split('_')[1])
+        )
+      );
+      allow delete: if isAdmin();
 
       match /messages/{messageId} {
         function isParticipant() {
           return isAuthenticated() && (
-            isFamilyMember(chatId.split("_")[0]) ||
-            request.auth.uid == chatId.split("_")[1] ||
+            (
+              chatId.split('_').size() == 2 && (
+                isFamilyMember(chatId.split('_')[0]) ||
+                request.auth.uid == chatId.split('_')[1]
+              )
+            ) ||
             isAdmin()
           );
         }
         function isMessageAuthor(msgData) {
           return isAuthenticated() && (
             msgData.get('senderId', '') == request.auth.uid ||
-            (msgData.get('sender', '') == 'Client' && isFamilyMember(chatId.split("_")[0]))
+            (
+              chatId.split('_').size() == 2 &&
+              msgData.get('sender', '') == 'Client' &&
+              isFamilyMember(chatId.split('_')[0])
+            )
           );
         }
 
@@ -390,6 +451,11 @@ service cloud.firestore {
     }
     match /webhook_events/{eventId} {
       allow read, write: if false; // Solo Cloud Functions
+    }
+
+    // 9. Regla de Denegación por Defecto (Fallback Explícito)
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

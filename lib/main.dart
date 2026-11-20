@@ -16,10 +16,12 @@ Future<void> main() async {
   FlutterError.onError = ObservabilityService.recordFlutterError;
   PlatformDispatcher.instance.onError = ObservabilityService.recordPlatformError;
 
-  try {
-    await dotenv.load(fileName: ".env");
-  } catch (e) {
-    debugPrint("⚠️ Failed to load .env file: $e");
+  if (!kReleaseMode) {
+    try {
+      await dotenv.load(fileName: ".env");
+    } catch (e) {
+      debugPrint("⚠️ Failed to load .env file: $e");
+    }
   }
 
   bool firebaseReady = false;
@@ -35,9 +37,13 @@ Future<void> main() async {
     );
 
     try {
-      final serverClientId = dotenv.isInitialized
+      const defineServerClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+      final envServerClientId = (!kReleaseMode && dotenv.isInitialized)
           ? dotenv.env['GOOGLE_SERVER_CLIENT_ID']
           : null;
+      final serverClientId = defineServerClientId.isNotEmpty
+          ? defineServerClientId
+          : envServerClientId;
       await GoogleSignIn.instance.initialize(
         serverClientId: (serverClientId != null && serverClientId.isNotEmpty)
             ? serverClientId
@@ -70,10 +76,11 @@ Future<void> main() async {
   // Initialize Data Layer before the UI
   DependencyInjection.initialize();
 
-  // Initialize Stripe with the provided key
+  // Initialize Stripe with compile-time define (release) or .env (dev)
   try {
-    String? stripeKey;
-    if (dotenv.isInitialized) {
+    const defineStripeKey = String.fromEnvironment('STRIPE_PUBLISHABLE_KEY');
+    String? stripeKey = defineStripeKey.isNotEmpty ? defineStripeKey : null;
+    if (stripeKey == null && !kReleaseMode && dotenv.isInitialized) {
       stripeKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'];
     }
     await StripeService.init(stripeKey);

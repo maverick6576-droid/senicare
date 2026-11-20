@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -296,7 +297,11 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     } catch (e) {
       debugPrint('Upload error: $e');
       if (mounted) {
-        CustomSnackBar.show(context, message: 'Error al subir archivo: $e', type: SnackBarType.error);
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(e, fallback: 'No se pudo subir el archivo. Inténtalo de nuevo.'),
+          type: SnackBarType.error,
+        );
       }
       return null;
     }
@@ -322,7 +327,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         bytes: bytes,
         originalName: image.name,
       );
-      if (url != null) {
+      if (url != null && mounted) {
         setState(() {
           _profileImageUrl = url;
           if (kIsWeb) _profileImagePath = url;
@@ -330,7 +335,13 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         await _saveDraft(showFeedback: true);
       }
     } catch (e) {
-      if (mounted) CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.info);
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(e),
+          type: SnackBarType.error,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -346,9 +357,11 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       MaterialPageRoute(builder: (_) => const LiveDniScannerScreen()),
     );
     if (result != null && result is Map) {
+      if (!mounted) return;
       setState(() => _isLoading = true);
       try {
         final savedPath = await _persistFile(result['path'].toString());
+        if (!mounted) return;
         setState(() {
           _dniFrontPath = savedPath;
           _dniScannedText = (result['text'] ?? '').toString();
@@ -356,7 +369,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
 
         // Upload immediately
         final url = await _uploadFileToStorage(savedPath, 'caregiver_docs');
-        if (url != null) {
+        if (url != null && mounted) {
           setState(() => _dniUrl = url);
           await _saveDraft(showFeedback: true);
         }
@@ -443,6 +456,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                     if (image == null) return;
                     final bytes = await image.readAsBytes();
                     final savedPath = await _persistFile(image.path);
+                    if (!mounted) return;
                     setState(() {
                       _criminalPath = savedPath;
                       _criminalIsPdf = false;
@@ -454,7 +468,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                       bytes: bytes,
                       originalName: image.name,
                     );
-                    if (url != null) {
+                    if (url != null && mounted) {
                       setState(() => _criminalUrl = url);
                       await _saveDraft(showFeedback: true);
                     }
@@ -481,6 +495,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                     final picked = result.files.single;
                     final rawPath = kIsWeb ? '' : (picked.path ?? '');
                     final savedPath = rawPath.isNotEmpty ? await _persistFile(rawPath) : picked.name;
+                    if (!mounted) return;
                     setState(() {
                       _criminalPath = savedPath;
                       _criminalIsPdf = true;
@@ -499,7 +514,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                       bytes: bytes,
                       originalName: picked.name,
                     );
-                    if (url != null) {
+                    if (url != null && mounted) {
                       setState(() {
                         _criminalUrl = url;
                         if (kIsWeb) _criminalPath = url;
@@ -525,6 +540,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                   if (image == null) return;
                   final bytes = await image.readAsBytes();
                   final savedPath = await _persistFile(image.path);
+                  if (!mounted) return;
                   setState(() {
                     _criminalPath = savedPath;
                     _criminalIsPdf = false;
@@ -536,7 +552,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                     bytes: bytes,
                     originalName: image.name,
                   );
-                  if (url != null) {
+                  if (url != null && mounted) {
                     setState(() {
                       _criminalUrl = url;
                       if (kIsWeb) _criminalPath = url;
@@ -635,7 +651,48 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     return 'pending';
   }
 
+  bool _validateStep(int step) {
+    if (step == 0) {
+      if (_nameCtrl.text.trim().length < 2) {
+        CustomSnackBar.show(
+          context,
+          message: 'Introduce tu nombre completo para continuar.',
+          type: SnackBarType.warning,
+        );
+        return false;
+      }
+      if (_bioCtrl.text.trim().length < 10) {
+        CustomSnackBar.show(
+          context,
+          message: 'Escribe una breve presentación sobre tu experiencia en cuidados (mínimo 10 caracteres).',
+          type: SnackBarType.warning,
+        );
+        return false;
+      }
+    } else if (step == 1) {
+      final parsedPrice = double.tryParse(_priceCtrl.text.trim().replaceAll(',', '.'));
+      if (parsedPrice == null || parsedPrice < 6.0 || parsedPrice > 150.0) {
+        CustomSnackBar.show(
+          context,
+          message: 'Introduce una tarifa por hora válida (mínimo 6 €/h).',
+          type: SnackBarType.warning,
+        );
+        return false;
+      }
+      if (_addressCtrl.text.trim().length < 4) {
+        CustomSnackBar.show(
+          context,
+          message: 'Introduce tu dirección o zona habitual para calcular la distancia a las familias.',
+          type: SnackBarType.warning,
+        );
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _submit() async {
+    if (!_validateStep(0) || !_validateStep(1)) return;
     setState(() => _isLoading = true);
     try {
       final auth = context.read<AuthNotifier>();
@@ -687,11 +744,21 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
           CustomSnackBar.show(context, message: 'Registro completado. Identidad pendiente de validación manual.', type: SnackBarType.info);
         }
         auth.onboardingComplete = true;
+        unawaited(ObservabilityService.logEvent(
+          'onboarding_completed',
+          parameters: {'role': 'caregiver'},
+        ));
         // Reload auth state to re-route the user to caregiver dashboard
         await auth.reloadRole();
       }
     } catch (e) {
-      if (mounted) CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.info);
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(e),
+          type: SnackBarType.error,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -702,6 +769,7 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     try {
       final accountId = await StripeService.createConnectAccount();
       if (accountId != null) {
+        if (!mounted) return;
         setState(() => _stripeAccountId = accountId);
         // Save Stripe account ID immediately
         await _saveDraft(showFeedback: true);
@@ -716,7 +784,11 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       }
     } catch (e) {
       if (mounted) {
-        CustomSnackBar.show(context, message: 'Error Stripe: $e', type: SnackBarType.error);
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(e),
+          type: SnackBarType.error,
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -725,15 +797,18 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
 
   Widget _buildSaveIndicator() {
     return _isSaving
-        ? const Padding(
-            padding: EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5)),
-                SizedBox(width: 6),
-                Text('Guardando...', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              ],
+        ? Semantics(
+            liveRegion: true,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5)),
+                  SizedBox(width: 6),
+                  Text('Guardando...', style: TextStyle(fontSize: 12, color: AppTheme.slateMuted)),
+                ],
+              ),
             ),
           )
         : const SizedBox.shrink();
@@ -750,18 +825,26 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
             icon: const Icon(Icons.save_outlined, size: 18),
             label: const Text('Guardar'),
           ),
-          TextButton(
-            onPressed: () async {
-              await _saveDraft();
-              if (!context.mounted) return;
-              CustomSnackBar.show(
-                context,
-                message: 'Borrador guardado. Podrás continuar tu registro la próxima vez que entres.',
-                type: SnackBarType.info,
-              );
-              await DependencyInjection.auth.signOut();
+          PopupMenuButton<String>(
+            tooltip: 'Más opciones',
+            onSelected: (value) async {
+              if (value == 'save_exit') {
+                await _saveDraft();
+                if (!context.mounted) return;
+                CustomSnackBar.show(
+                  context,
+                  message: 'Borrador guardado. Podrás continuar tu registro la próxima vez que entres.',
+                  type: SnackBarType.info,
+                );
+                await DependencyInjection.auth.signOut();
+              }
             },
-            child: const Text('Guardar y salir'),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'save_exit',
+                child: Text('Guardar borrador y salir'),
+              ),
+            ],
           ),
         ],
       ),
@@ -770,13 +853,38 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
           : Stepper(
               type: StepperType.vertical,
               currentStep: _currentStep,
+              controlsBuilder: (context, details) {
+                final isLastStep = _currentStep >= 3;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 16.0),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      ElevatedButton(
+                        onPressed: details.onStepContinue,
+                        child: Text(
+                          isLastStep
+                              ? 'Finalizar y enviar a verificación'
+                              : 'Guardar y continuar (Paso ${_currentStep + 1} de 4)',
+                        ),
+                      ),
+                      if (_currentStep > 0)
+                        OutlinedButton(
+                          onPressed: details.onStepCancel,
+                          child: const Text('Paso anterior'),
+                        ),
+                    ],
+                  ),
+                );
+              },
               onStepContinue: () async {
+                if (!_validateStep(_currentStep)) return;
                 if (_currentStep < 3) {
-                  // Save progress before advancing
                   await _saveDraft(showFeedback: true);
-                  setState(() => _currentStep += 1);
+                  if (mounted) setState(() => _currentStep += 1);
                 } else {
-                  _submit();
+                  await _submit();
                 }
               },
               onStepCancel: () {
@@ -895,7 +1003,8 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Radio máximo de desplazamiento:'),
+                          const Expanded(child: Text('Radio máximo de desplazamiento:')),
+                          const SizedBox(width: 8),
                           Text('${_radius.round()} km', style: const TextStyle(fontWeight: FontWeight.bold)),
                         ],
                       ),
@@ -997,7 +1106,11 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                                                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                                                 ),
                                               ),
-                                              IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                                              IconButton(
+                                                tooltip: 'Cerrar',
+                                                onPressed: () => Navigator.pop(ctx),
+                                                icon: const Icon(Icons.close),
+                                              ),
                                             ],
                                           ),
                                           const SizedBox(height: 12),

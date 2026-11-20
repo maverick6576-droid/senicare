@@ -3,7 +3,7 @@
     "details": [
       {
         "appIDs": [
-          "TEAM_ID_APPLE.com.example.senicare"
+          "TEAM_ID_APPLE.com.senicare.app"
         ],
         "components": [
           { "/": "/tracking/*" },

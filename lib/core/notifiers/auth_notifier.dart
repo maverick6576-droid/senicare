@@ -285,8 +285,31 @@ class AuthNotifier extends ChangeNotifier {
     } else if (currentRole == 'admin') {
       isAdminVerified2FA = false;
       await _syncClaimsAndRefreshToken();
+      if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+        try {
+          final idTokenResult = await FirebaseAuth.instance.currentUser?.getIdTokenResult();
+          final claims = idTokenResult?.claims ?? const <String, dynamic>{};
+          isAdminVerified2FA = claims['admin'] == true && claims['admin2fa'] == true;
+        } catch (e) {
+          debugPrint('Admin 2FA claims check warning: $e');
+        }
+      }
     }
 
+    notifyListeners();
+  }
+
+  /// Marca el 2FA de administrador como verificado y fuerza el refresco del ID Token
+  /// para que Firestore, Storage y Cloud Functions reciban los claims `{ admin: true, admin2fa: true }`.
+  Future<void> markAdmin2FAVerified() async {
+    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      } catch (e) {
+        debugPrint('Admin 2FA token refresh warning: $e');
+      }
+    }
+    isAdminVerified2FA = true;
     notifyListeners();
   }
 

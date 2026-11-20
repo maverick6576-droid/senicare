@@ -20,7 +20,7 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.example.senicare"
+    namespace = "com.senicare.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -36,10 +36,10 @@ android {
 
     defaultConfig {
         // NOTE: Mantener sincronizado con google-services.json / Firebase Console al publicar en tienda.
-        applicationId = "com.example.senicare"
+        applicationId = "com.senicare.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -57,32 +57,32 @@ android {
                     ?: System.getenv("SENICARE_KEY_ALIAS")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
                     ?: System.getenv("SENICARE_KEY_PASSWORD")
-            } else if (file("release.keystore").exists()) {
-                storeFile = file("release.keystore")
-                storePassword = "senicare123"
-                keyAlias = "senicare"
-                keyPassword = "senicare123"
             }
         }
     }
 
     buildTypes {
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
             val releaseConfig = signingConfigs.getByName("release")
-            signingConfig = if (releaseConfig.storeFile != null) {
-                releaseConfig
-            } else {
-                signingConfigs.getByName("debug")
+            val isReleaseTask = gradle.startParameter.taskNames.any {
+                it.contains("Release", ignoreCase = true)
             }
-            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+            if (releaseConfig.storeFile != null) {
+                signingConfig = releaseConfig
+            } else if (isReleaseTask) {
+                throw GradleException(
+                    "Missing Android release signing config (android/key.properties or SENICARE_KEYSTORE_* env vars)."
+                )
+            }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
         debug {
-            val releaseConfig = signingConfigs.getByName("release")
-            signingConfig = if (releaseConfig.storeFile != null) {
-                releaseConfig
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }

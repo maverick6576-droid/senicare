@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -32,6 +33,13 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
     final auth = context.read<AuthNotifier>();
     final client = auth.currentClient;
     _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
+    unawaited(ObservabilityService.logEvent(
+      'checkout_opened',
+      parameters: {
+        'offer_id': widget.offer.id,
+        'caregiver_id': widget.application.caregiverId,
+      },
+    ));
     _loadAccumulatedHours(auth.effectiveClientId);
     _detectPlatformPay();
   }
@@ -69,6 +77,7 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
   }
 
   void _processPayment() async {
+    if (_isProcessing) return;
     final auth = context.read<AuthNotifier>();
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final clientId = auth.effectiveClientId;
@@ -289,7 +298,11 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
           }
         } catch (e) {
           _safeSetState(() => _isProcessing = false);
-          _showSnackBar(scaffoldMessenger, e.toString().replaceFirst('Exception: ', ''), Colors.red);
+          _showSnackBar(
+            scaffoldMessenger,
+            UserFacingErrorMapper.toSpanishMessage(e),
+            AppTheme.danger,
+          );
           return;
         }
       } else {
@@ -301,7 +314,11 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         } catch (e) {
           await rollbackDrafts();
           _safeSetState(() => _isProcessing = false);
-          _showSnackBar(scaffoldMessenger, 'No se pudo preparar la reserva: $e', Colors.red);
+          _showSnackBar(
+            scaffoldMessenger,
+            UserFacingErrorMapper.toSpanishMessage(e, fallback: 'No se pudo preparar la reserva.'),
+            AppTheme.danger,
+          );
           return;
         }
       }
@@ -346,15 +363,18 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         return;
       }
 
-      // 5. Payment Success (or SEPA processing) -> Confirmar en backend y aceptar candidatura
+      // 5. Payment Success (or SEPA processing) -> Confirmar en backend (servidor sincroniza la oferta)
       chargedPaymentIntentId =
           flowResult.paymentIntentId ?? paymentIntentData['paymentIntentId'] as String?;
+      unawaited(ObservabilityService.logEvent(
+        'payment_succeeded',
+        parameters: {
+          'offer_id': widget.offer.id,
+          'method': _selectedPaymentMethod.backendId,
+          'total_eur': total,
+        },
+      ));
       if (!mounted) return;
-      await context.read<JobOfferNotifier>().acceptApplication(
-            widget.offer.id,
-            widget.application.id,
-            widget.application.caregiverId,
-          );
 
       if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
         try {
@@ -368,7 +388,22 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
         } catch (e) {
           debugPrint('confirmClientBookingPayment warning (offer webhook reconciles): $e');
         }
+        try {
+          if (!mounted) return;
+          await context.read<JobOfferNotifier>().acceptApplication(
+                widget.offer.id,
+                widget.application.id,
+                widget.application.caregiverId,
+              );
+        } catch (e) {
+          debugPrint('Client offer sync note (already handled server-side): $e');
+        }
       } else {
+        await context.read<JobOfferNotifier>().acceptApplication(
+              widget.offer.id,
+              widget.application.id,
+              widget.application.caregiverId,
+            );
         for (final id in createdBookingIds) {
           await DependencyInjection.bookings.updateBookingStatus(id, 'confirmed');
         }
@@ -390,9 +425,9 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
       debugPrint('Error processing payment: $e');
       if (mounted) {
         final msg = chargedPaymentIntentId != null
-            ? 'El pago fue autorizado ($chargedPaymentIntentId), pero hubo un problema al registrar la reserva. Contacta con soporte.'
-            : 'No pudimos completar el pago. Inténtalo de nuevo.';
-        _showSnackBar(scaffoldMessenger, msg, Colors.red);
+            ? 'Tu pago ha sido autorizado correctamente, pero estamos terminando de sincronizar la reserva. Revisa la pestaña Reservas en unos segundos o contacta con soporte.'
+            : UserFacingErrorMapper.toSpanishMessage(e, fallback: 'No pudimos completar el pago. Inténtalo de nuevo.');
+        _showSnackBar(scaffoldMessenger, msg, AppTheme.danger);
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -621,9 +656,19 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      InkWell(
-                        onTap: () => _showFeeInfoSheet(context),
-                        child: const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
+                      Semantics(
+                        button: true,
+                        label: 'Información sobre la comisión de gestión y seguro de responsabilidad civil',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () => _showFeeInfoSheet(context),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                            child: const Center(
+                              child: Icon(Icons.info_outline_rounded, size: 20, color: AppTheme.primary),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -706,7 +751,8 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => _addChecklistItem(),
                         decoration: InputDecoration(
-                          hintText: 'Añadir tarea (ej. paseo, comida)...',
+                          labelText: 'Nueva tarea para la visita',
+                          hintText: 'Ej. paseo, comida...',
                           isDense: true,
                           filled: true,
                           fillColor: Colors.white,
@@ -725,15 +771,40 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          if (widget.offer.isRecurring)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-              child: const Text(
-                'Al ser un servicio recurrente, este pago retiene el importe total y se libera conforme se completan las sesiones.',
-                style: TextStyle(color: Colors.blue),
-              ),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.primarySurface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
             ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.verified_user_rounded, color: AppTheme.primary, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Pago 100% Protegido y Cancelación Gratuita',
+                        style: TextStyle(fontWeight: FontWeight.w800, color: AppTheme.darkSlate, fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  widget.offer.isRecurring
+                      ? '• Servicio recurrente protegido en custodia (Stripe Escrow): el importe se libera sesión a sesión tras completarse cada visita.\n'
+                        '• Cancelación gratuita con reembolso íntegro hasta 24 horas antes de cada turno.'
+                      : '• Tu dinero queda protegido en custodia (Stripe Escrow) y solo se transfiere a ${widget.application.caregiverName} tras completar el cuidado.\n'
+                        '• Cancelación gratuita con reembolso íntegro hasta 24 horas antes del servicio.',
+                  style: const TextStyle(color: AppTheme.slateMuted, fontSize: 12.5, height: 1.4),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
           PrimaryCheckoutActionBar(
             selectedMethod: _selectedPaymentMethod,

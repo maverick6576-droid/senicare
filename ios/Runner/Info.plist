@@ -6,6 +6,11 @@
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
+		<key>CFBundleLocalizations</key>
+		<array>
+			<string>es</string>
+			<string>en</string>
+		</array>
 		<key>CFBundleDisplayName</key>
 		<string>SeniCare</string>
 		<key>CFBundleExecutable</key>
@@ -92,6 +97,9 @@
 			<string>mailto</string>
 			<string>whatsapp</string>
 		</array>
+		<!-- Google Sign-In OAuth client ID (populated in CI from GoogleService-Info.plist via PlistBuddy) -->
+		<key>GIDClientID</key>
+		<string>$(GOOGLE_IOS_CLIENT_ID)</string>
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
@@ -102,6 +110,17 @@
 				<key>CFBundleURLSchemes</key>
 				<array>
 					<string>senicare</string>
+				</array>
+			</dict>
+			<!-- Google Sign-In REVERSED_CLIENT_ID URL scheme (populated in CI from GoogleService-Info.plist via PlistBuddy) -->
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>google-signin</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
 				</array>
 			</dict>
 		</array>

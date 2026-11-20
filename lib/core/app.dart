@@ -43,13 +43,20 @@ class _SeniCareAppState extends State<SeniCareApp> {
     if (isOffline) {
       messenger.showMaterialBanner(
         MaterialBanner(
-          content: const Text('Sin conexión a Internet', style: TextStyle(color: Colors.white)),
+          content: Semantics(
+            liveRegion: true,
+            container: true,
+            child: const Text(
+              'Sin conexión a Internet. Algunas funciones pueden no estar disponibles.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ),
           leading: const Icon(Icons.wifi_off, color: Colors.white),
-          backgroundColor: Colors.red.shade600,
+          backgroundColor: AppTheme.danger,
           actions: [
             TextButton(
               onPressed: () => messenger.clearMaterialBanners(),
-              child: const Text('OK', style: TextStyle(color: Colors.white)),
+              child: const Text('Entendido', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
             ),
           ],
         ),

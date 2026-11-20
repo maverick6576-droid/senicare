@@ -20,7 +20,7 @@ class _PaymentOptionSpec {
 
 /// Tarjeta reutilizable y accesible para elegir método de pago (Apple Pay,
 /// Google Pay, Tarjeta/Link, Bizum, Klarna, Revolut Pay y Adeudo SEPA).
-class PaymentMethodSelectorCard extends StatelessWidget {
+class PaymentMethodSelectorCard extends StatefulWidget {
   final ClientPaymentMethod selectedMethod;
   final ValueChanged<ClientPaymentMethod> onChanged;
   final bool seniorMode;
@@ -46,19 +46,19 @@ class PaymentMethodSelectorCard extends StatelessWidget {
       const _PaymentOptionSpec(
         method: ClientPaymentMethod.bizum,
         icon: Icons.phonelink_ring_rounded,
-        accentColor: Color(0xFF05C3DD),
+        accentColor: Color(0xFF007EA7),
         badgeText: 'Instantáneo ES',
       ),
       const _PaymentOptionSpec(
         method: ClientPaymentMethod.cardAndLink,
         icon: Icons.credit_card_rounded,
         accentColor: AppTheme.primary,
-        badgeText: 'Guardar tarjeta',
+        badgeText: 'Tarjeta',
       ),
       const _PaymentOptionSpec(
         method: ClientPaymentMethod.klarna,
         icon: Icons.calendar_view_week_rounded,
-        accentColor: Color(0xFFFFB3C7),
+        accentColor: Color(0xFF9D174D),
         badgeText: '3 cuotas 0%',
       ),
       const _PaymentOptionSpec(
@@ -69,7 +69,7 @@ class PaymentMethodSelectorCard extends StatelessWidget {
       const _PaymentOptionSpec(
         method: ClientPaymentMethod.sepaDebit,
         icon: Icons.account_balance_rounded,
-        accentColor: Color(0xFF1D4ED8),
+        accentColor: AppTheme.info,
         badgeText: 'IBAN directo',
       ),
       const _PaymentOptionSpec(
@@ -81,9 +81,30 @@ class PaymentMethodSelectorCard extends StatelessWidget {
   }
 
   @override
+  State<PaymentMethodSelectorCard> createState() => _PaymentMethodSelectorCardState();
+}
+
+class _PaymentMethodSelectorCardState extends State<PaymentMethodSelectorCard> {
+  bool _showSecondaryMethods = true;
+
+  bool _isPrimaryMethod(ClientPaymentMethod method) {
+    return method == ClientPaymentMethod.platformPay ||
+        method == ClientPaymentMethod.bizum ||
+        method == ClientPaymentMethod.cardAndLink;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
-    final options = _buildOptions(platform);
+    final seniorMode = widget.seniorMode;
+    final selectedMethod = widget.selectedMethod;
+    final platformPaySupported = widget.platformPaySupported;
+    final onChanged = widget.onChanged;
+    final allOptions = PaymentMethodSelectorCard._buildOptions(platform);
+    final bool expandSecondary = _showSecondaryMethods || !_isPrimaryMethod(selectedMethod);
+    final options = expandSecondary
+        ? allOptions
+        : allOptions.where((o) => _isPrimaryMethod(o.method)).toList();
 
     return Container(
       padding: EdgeInsets.all(seniorMode ? 16 : 14),
@@ -122,7 +143,7 @@ class PaymentMethodSelectorCard extends StatelessWidget {
           Text(
             'Elige cómo pagar de forma segura. El dinero se protege en custodia hasta completar el servicio.',
             style: TextStyle(
-              fontSize: seniorMode ? 13.5 : 12,
+              fontSize: seniorMode ? 13.5 : 12.5,
               color: AppTheme.slateMuted,
             ),
           ),
@@ -134,134 +155,155 @@ class PaymentMethodSelectorCard extends StatelessWidget {
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: InkWell(
-                key: ValueKey('payment_method_${opt.method.name}'),
-                borderRadius: BorderRadius.circular(14),
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  onChanged(opt.method);
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: seniorMode ? 14 : 12,
-                    vertical: seniorMode ? 12 : 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppTheme.primarySurface.withValues(alpha: 0.75)
-                        : AppTheme.backgroundNeutral,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isSelected ? AppTheme.primary : AppTheme.borderSubtle,
-                      width: isSelected ? 1.8 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: seniorMode ? 40 : 36,
-                        height: seniorMode ? 40 : 36,
-                        decoration: BoxDecoration(
-                          color: opt.accentColor.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          opt.icon,
-                          color: opt.method == ClientPaymentMethod.klarna
-                              ? const Color(0xFF9D174D)
-                              : opt.accentColor,
-                          size: seniorMode ? 22 : 20,
+              child: Semantics(
+                inMutuallyExclusiveGroup: true,
+                checked: isSelected,
+                selected: isSelected,
+                button: true,
+                label: '$label. $subtitle',
+                child: InkWell(
+                  key: ValueKey('payment_method_${opt.method.name}'),
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    onChanged(opt.method);
+                  },
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 56),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: seniorMode ? 14 : 12,
+                        vertical: seniorMode ? 12 : 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppTheme.primarySurface.withValues(alpha: 0.75)
+                            : AppTheme.backgroundNeutral,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isSelected ? AppTheme.primary : AppTheme.borderSubtle,
+                          width: isSelected ? 1.8 : 1,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              crossAxisAlignment: WrapCrossAlignment.center,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          ExcludeSemantics(
+                            child: Container(
+                              width: seniorMode ? 40 : 36,
+                              height: seniorMode ? 40 : 36,
+                              decoration: BoxDecoration(
+                                color: opt.accentColor.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                opt.icon,
+                                color: opt.accentColor,
+                                size: seniorMode ? 22 : 20,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                      label,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: seniorMode ? 15 : 13.5,
+                                        color: AppTheme.darkSlate,
+                                      ),
+                                    ),
+                                    if (opt.badgeText != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isSelected
+                                              ? AppTheme.primary
+                                              : Colors.white,
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(
+                                            color: isSelected
+                                                ? AppTheme.primary
+                                                : AppTheme.borderSubtle,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          opt.badgeText!,
+                                          style: TextStyle(
+                                            fontSize: seniorMode ? 12 : 11.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: isSelected
+                                                ? Colors.white
+                                                : AppTheme.slateMuted,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
                                 Text(
-                                  label,
+                                  subtitle,
                                   style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: seniorMode ? 15 : 13.5,
-                                    color: AppTheme.darkSlate,
+                                    fontSize: seniorMode ? 13 : 12,
+                                    color: AppTheme.slateMuted,
+                                    height: 1.25,
                                   ),
                                 ),
-                                if (opt.badgeText != null)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 7,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? AppTheme.primary
-                                          : Colors.white,
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                        color: isSelected
-                                            ? AppTheme.primary
-                                            : AppTheme.borderSubtle,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      opt.badgeText!,
-                                      style: TextStyle(
-                                        fontSize: seniorMode ? 11 : 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: isSelected
-                                            ? Colors.white
-                                            : AppTheme.slateMuted,
-                                      ),
+                                if (opt.method == ClientPaymentMethod.platformPay &&
+                                    platformPaySupported &&
+                                    isSelected) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Cartera digital verificada en este dispositivo ✓',
+                                    style: TextStyle(
+                                      fontSize: seniorMode ? 12.5 : 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.secondaryColor,
                                     ),
                                   ),
+                                ],
                               ],
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              subtitle,
-                              style: TextStyle(
-                                fontSize: seniorMode ? 12.5 : 11.5,
-                                color: AppTheme.slateMuted,
-                                height: 1.25,
-                              ),
+                          ),
+                          const SizedBox(width: 6),
+                          ExcludeSemantics(
+                            child: Icon(
+                              isSelected
+                                  ? Icons.radio_button_checked_rounded
+                                  : Icons.radio_button_off_rounded,
+                              color: isSelected ? AppTheme.primary : AppTheme.slateMuted,
+                              size: seniorMode ? 24 : 21,
                             ),
-                            if (opt.method == ClientPaymentMethod.platformPay &&
-                                platformPaySupported &&
-                                isSelected) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                'Cartera digital verificada en este dispositivo ✓',
-                                style: TextStyle(
-                                  fontSize: seniorMode ? 12 : 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.secondaryColor,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Icon(
-                        isSelected
-                            ? Icons.radio_button_checked_rounded
-                            : Icons.radio_button_off_rounded,
-                        color: isSelected ? AppTheme.primary : AppTheme.slateMuted,
-                        size: seniorMode ? 24 : 21,
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             );
           }),
+          if (!expandSecondary)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _showSecondaryMethods = true),
+                icon: const Icon(Icons.expand_more_rounded, size: 20),
+                label: const Text('Más métodos de pago (Klarna, SEPA, Revolut)'),
+              ),
+            ),
         ],
       ),
     );
@@ -298,21 +340,29 @@ class PrimaryCheckoutActionBar extends StatelessWidget {
             defaultTargetPlatform == TargetPlatform.android);
 
     if (showNativePlatformPay) {
-      return SizedBox(
-        height: seniorMode ? 56 : 50,
-        width: double.infinity,
-        child: PlatformPayButton(
-          onPressed: onPressed,
-          type: PlatformButtonType.pay,
-          appearance: PlatformButtonStyle.black,
-          borderRadius: 14,
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: seniorMode ? 56 : 50,
+          minWidth: double.infinity,
+        ),
+        child: SizedBox(
+          height: seniorMode ? 56 : 50,
+          width: double.infinity,
+          child: PlatformPayButton(
+            onPressed: onPressed,
+            type: PlatformButtonType.pay,
+            appearance: PlatformButtonStyle.black,
+            borderRadius: 14,
+          ),
         ),
       );
     }
 
-    return SizedBox(
-      height: seniorMode ? 56 : 50,
-      width: double.infinity,
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        minHeight: seniorMode ? 56 : 52,
+        minWidth: double.infinity,
+      ),
       child: FilledButton(
         onPressed: isProcessing ? null : onPressed,
         child: isProcessing
@@ -335,11 +385,12 @@ class PrimaryCheckoutActionBar extends StatelessWidget {
                   Flexible(
                     child: Text(
                       fallbackButtonLabel,
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: seniorMode ? 16.5 : 15,
                         fontWeight: FontWeight.w700,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

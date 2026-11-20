@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -73,18 +74,28 @@ class _ReviewDialogState extends State<ReviewDialog> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: List.generate(5, (index) {
               final starValue = index + 1.0;
-              return InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  onChanged(starValue);
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(4.0),
-                  child: Icon(
-                    index < currentVal ? Icons.star_rounded : Icons.star_border_rounded,
-                    color: AppTheme.amber,
-                    size: seniorMode ? 32 : 28,
+              final isSelected = starValue <= currentVal;
+              return Semantics(
+                button: true,
+                selected: starValue == currentVal,
+                label: '${index + 1} de 5 estrellas en $label',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: _isSubmitting
+                      ? null
+                      : () {
+                          HapticFeedback.selectionClick();
+                          onChanged(starValue);
+                        },
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                    child: Center(
+                      child: Icon(
+                        isSelected ? Icons.star_rounded : Icons.star_border_rounded,
+                        color: AppTheme.amber,
+                        size: seniorMode ? 32 : 28,
+                      ),
+                    ),
                   ),
                 ),
               );
@@ -231,7 +242,8 @@ class _ReviewDialogState extends State<ReviewDialog> {
               controller: _commentController,
               maxLines: 3,
               decoration: InputDecoration(
-                hintText: 'Cuéntanos qué es lo que más te ha gustado del cuidado (opcional)...',
+                labelText: 'Comentario sobre el cuidado (opcional)',
+                hintText: 'Cuéntanos qué es lo que más te ha gustado del cuidado...',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
               ),
             ),
@@ -241,13 +253,15 @@ class _ReviewDialogState extends State<ReviewDialog> {
                 padding: const EdgeInsets.only(top: 12.0),
                 child: Center(
                   child: TextButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      showDialog(context: context, builder: (_) => DisputeDialog(booking: widget.bookings.first));
-                    },
+                    onPressed: _isSubmitting
+                        ? null
+                        : () {
+                            Navigator.pop(context);
+                            showDialog(context: context, builder: (_) => DisputeDialog(booking: widget.bookings.first));
+                          },
                     icon: const Icon(Icons.report_problem, size: 16),
                     label: const Text('Abrir Disputa / Informar de un problema'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.orange.shade800),
+                    style: TextButton.styleFrom(foregroundColor: AppTheme.warning),
                   ),
                 ),
               ),
@@ -256,7 +270,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
           child: const Text('Más tarde'),
         ),
         ElevatedButton(
@@ -280,6 +294,13 @@ class _ReviewDialogState extends State<ReviewDialog> {
                           hygieneRating: _hygiene,
                           tipAmount: allowedTip,
                         );
+                    unawaited(ObservabilityService.logEvent(
+                      'review_submitted',
+                      parameters: {
+                        'rating': overall,
+                        'tip_eur': allowedTip,
+                      },
+                    ));
                     if (context.mounted) {
                       Navigator.pop(context);
                       CustomSnackBar.show(
@@ -296,7 +317,14 @@ class _ReviewDialogState extends State<ReviewDialog> {
                       setState(() => _isSubmitting = false);
                     }
                     if (context.mounted) {
-                      CustomSnackBar.show(context, message: 'Error al enviar reseña.', type: SnackBarType.error);
+                      CustomSnackBar.show(
+                        context,
+                        message: UserFacingErrorMapper.toSpanishMessage(
+                          e,
+                          fallback: 'No pudimos enviar tu valoración. Inténtalo de nuevo.',
+                        ),
+                        type: SnackBarType.error,
+                      );
                     }
                   }
                 },

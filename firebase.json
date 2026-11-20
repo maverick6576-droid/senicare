@@ -1,6 +1,7 @@
 {
   "hosting": {
     "public": "public",
+    "cleanUrls": true,
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -21,6 +22,7 @@
       }
     ],
     "rewrites": [
+      { "source": "/delete-account", "destination": "/delete-account.html" },
       { "source": "/reauth", "destination": "/index.html" },
       { "source": "/return", "destination": "/index.html" },
       { "source": "/tracking/**", "destination": "/index.html" },

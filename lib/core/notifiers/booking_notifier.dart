@@ -346,20 +346,10 @@ class BookingNotifier extends ChangeNotifier {
     Map<String, dynamic> result = {'success': true};
 
     if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
-      try {
-        result = await StripeService.recordBookingCheckOut(
-          bookingId: bookingId,
-          careNotes: trimmedNotes,
-        );
-      } catch (e) {
-        // Fallback directo a Firestore si falla la función en red pero estamos autenticados
-        await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-          'liveStatus': 'completed',
-          'status': 'completed',
-          'checkOutTime': Timestamp.fromDate(now),
-          'careNotes': trimmedNotes,
-        });
-      }
+      result = await StripeService.recordBookingCheckOut(
+        bookingId: bookingId,
+        careNotes: trimmedNotes,
+      );
     }
 
     if (b != null) {

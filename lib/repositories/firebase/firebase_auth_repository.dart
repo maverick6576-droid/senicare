@@ -129,7 +129,25 @@ class FirebaseAuthRepository implements AuthRepository {
       );
 
       final userCredential = await _auth.signInWithCredential(credential);
-      await _createUserDocIfNotExists(userCredential.user, role, isLogin: isLogin);
+      final user = userCredential.user;
+      final fullName = [
+        appleCredential.givenName?.trim() ?? '',
+        appleCredential.familyName?.trim() ?? '',
+      ].where((part) => part.isNotEmpty).join(' ');
+      if (user != null && fullName.isNotEmpty && (user.displayName == null || user.displayName!.trim().isEmpty)) {
+        try {
+          await user.updateDisplayName(fullName);
+          await user.reload();
+        } catch (e) {
+          debugPrint('Apple displayName update warning: $e');
+        }
+      }
+      await _createUserDocIfNotExists(
+        _auth.currentUser ?? user,
+        role,
+        isLogin: isLogin,
+        fallbackDisplayName: fullName.isNotEmpty ? fullName : null,
+      );
     } catch (e) {
       debugPrint('⚠️ Error en signInWithApple: $e');
       rethrow;
@@ -142,15 +160,24 @@ class FirebaseAuthRepository implements AuthRepository {
     return List.generate(length, (_) => charset[random.nextInt(charset.length)]).join();
   }
 
-  Future<void> _createUserDocIfNotExists(User? user, String role, {bool isLogin = true}) async {
+  Future<void> _createUserDocIfNotExists(
+    User? user,
+    String role, {
+    bool isLogin = true,
+    String? fallbackDisplayName,
+  }) async {
     if (user == null) return;
     final docRef = _firestore.collection('users').doc(user.uid);
     final doc = await docRef.get();
+    final resolvedName = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+        ? user.displayName!.trim()
+        : (fallbackDisplayName ?? 'Sin nombre');
     
     if (!doc.exists) {
       await docRef.set({
         'email': user.email ?? '',
         'role': role,
+        if (resolvedName != 'Sin nombre') 'name': resolvedName,
         'legalConsentAcceptedAt': FieldValue.serverTimestamp(),
         'legalPolicyVersion': '2026-11',
       });
@@ -158,7 +185,7 @@ class FirebaseAuthRepository implements AuthRepository {
       if (role == 'caregiver') {
         final profile = CaregiverProfile(
           id: user.uid,
-          name: user.displayName ?? 'Sin nombre',
+          name: resolvedName,
           title: 'Cuidador',
           bio: 'Nuevo cuidador registrado en espera de validación.',
           pricePerHour: 15.0,

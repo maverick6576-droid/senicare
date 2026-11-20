@@ -7,13 +7,28 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Función auxiliar: administrador verificado (root o custom claim asignado por Cloud Functions)
+    // Función auxiliar: administrador verificado con 2FA completado en servidor
     function isAdmin() {
       return isAuthenticated() &&
-        request.auth.token.email_verified == true && (
-          request.auth.token.email == 'maverick6576@gmail.com' ||
-          request.auth.token.admin == true
-        );
+        request.auth.token.email_verified == true &&
+        request.auth.token.admin == true &&
+        request.auth.token.admin2fa == true;
+    }
+
+    // Tipos de imagen raster seguros (excluye image/svg+xml para evitar Stored XSS)
+    function isSafeRasterImage() {
+      return request.resource != null &&
+        request.resource.contentType.matches('image/(jpeg|jpg|png|webp|heic|heif)');
+    }
+
+    function isSafeAudio() {
+      return request.resource != null &&
+        request.resource.contentType.matches('audio/(mpeg|mp4|x-m4a|m4a|wav|x-wav|aac|ogg|webm)');
+    }
+
+    function isSafeVideo() {
+      return request.resource != null &&
+        request.resource.contentType.matches('video/(mp4|quicktime|webm)');
     }
 
     // Miembro autorizado de una sala de chat (cliente dueño, familiar conectado vía claim, o cuidador)
@@ -26,84 +41,109 @@ service firebase.storage {
     }
 
     // --- Fotos de perfil de cuidadores ---
-    // Solo el propietario ({uid}_...) o un administrador puede subir/modificar su avatar.
     match /caregiver_avatars/{fileName} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (
-        fileName.matches(request.auth.uid + '_.*') ||
+      allow create, update: if isAuthenticated() && (
+        fileName.matches('^' + request.auth.uid + '_.*') ||
         isAdmin()
-      ) && (
-        request.resource == null || (
-          request.resource.size < 15 * 1024 * 1024 &&
-          request.resource.contentType.matches('image/.*')
-        )
+      ) && request.resource != null &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        isSafeRasterImage();
+      allow delete: if isAuthenticated() && (
+        fileName.matches('^' + request.auth.uid + '_.*') ||
+        isAdmin()
       );
     }
 
-    // --- Documentos de verificación (DNI, Penales) ---
-    // Solo el propio cuidador o un administrador puede leer o subir sus documentos;
-    // tras aprobación, el cuidador no puede borrar/reemplazar los documentos auditados.
+    // --- Notas de presentación de voz de cuidadores ---
+    match /caregiver_voice/{uid}/{fileName} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (
+        request.auth.uid == uid ||
+        isAdmin()
+      ) && request.resource != null &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        isSafeAudio();
+      allow delete: if isAuthenticated() && (
+        request.auth.uid == uid ||
+        isAdmin()
+      );
+    }
+
+    match /caregiver_voice/{fileName} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (
+        fileName.matches('^' + request.auth.uid + '_.*') ||
+        isAdmin()
+      ) && request.resource != null &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        isSafeAudio();
+      allow delete: if isAuthenticated() && (
+        fileName.matches('^' + request.auth.uid + '_.*') ||
+        isAdmin()
+      );
+    }
+
+    // --- Documentos de verificación KYC (DNI, Antecedentes Penales) ---
+    // Escritura acotada a <= 10MB antes de aprobación; lectura y borrado exclusivos de administración o propietario no aprobado.
     function isApprovedCaregiver(uid) {
       return firestore.exists(/databases/(default)/documents/caregivers/$(uid)) &&
         firestore.get(/databases/(default)/documents/caregivers/$(uid)).data.get('verificationStatus', '') == 'approved';
     }
 
     match /caregiver_docs/{fileName} {
-      allow read: if isAuthenticated() && (
-        fileName.matches(request.auth.uid + '_.*') ||
-        isAdmin()
+      allow read: if isAdmin() || (
+        isAuthenticated() &&
+        fileName.matches('^' + request.auth.uid + '_.*')
       );
       allow create, update: if isAdmin() || (
         isAuthenticated() &&
-        fileName.matches(request.auth.uid + '_.*') &&
+        fileName.matches('^' + request.auth.uid + '_.*') &&
         !isApprovedCaregiver(request.auth.uid) &&
         request.resource != null &&
-        request.resource.size < 20 * 1024 * 1024 &&
+        request.resource.size <= 10 * 1024 * 1024 &&
         (
-          request.resource.contentType.matches('image/.*') ||
+          isSafeRasterImage() ||
           request.resource.contentType == 'application/pdf'
         )
       );
-      allow delete: if isAdmin() || (
-        isAuthenticated() &&
-        fileName.matches(request.auth.uid + '_.*') &&
-        !isApprovedCaregiver(request.auth.uid)
-      );
+      allow delete: if isAdmin();
     }
 
     // --- Fotos de perfil de clientes / familias ---
     match /client_avatars/{fileName} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (
-        fileName.matches(request.auth.uid + '_.*') ||
-        (request.auth.token.familyId != null && fileName.matches(request.auth.token.familyId + '_.*')) ||
+      allow create, update: if isAuthenticated() && (
+        fileName.matches('^' + request.auth.uid + '_.*') ||
+        (request.auth.token.familyId != null && fileName.matches('^' + request.auth.token.familyId + '_.*')) ||
         isAdmin()
-      ) && (
-        request.resource == null || (
-          request.resource.size < 15 * 1024 * 1024 &&
-          request.resource.contentType.matches('image/.*')
-        )
+      ) && request.resource != null &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        isSafeRasterImage();
+      allow delete: if isAuthenticated() && (
+        fileName.matches('^' + request.auth.uid + '_.*') ||
+        (request.auth.token.familyId != null && fileName.matches('^' + request.auth.token.familyId + '_.*')) ||
+        isAdmin()
       );
     }
 
     // --- Archivos multimedia del chat (fotos, vídeos, PDF y notas de voz) ---
+    // No se permite delete por participantes para preservar evidencias ante disputas.
     match /chat_media/{roomId}/{allPaths=**} {
       allow read: if isChatRoomParticipant(roomId) || isAdmin();
-      allow write: if (isChatRoomParticipant(roomId) || isAdmin()) && (
-        request.resource == null || (
-          request.resource.size < 25 * 1024 * 1024 &&
-          (
-            request.resource.contentType.matches('image/.*') ||
-            request.resource.contentType.matches('audio/.*') ||
-            request.resource.contentType.matches('video/.*') ||
-            request.resource.contentType == 'application/pdf'
-          )
-        )
-      );
+      allow create, update: if (isChatRoomParticipant(roomId) || isAdmin()) &&
+        request.resource != null &&
+        request.resource.size <= 20 * 1024 * 1024 &&
+        (
+          isSafeRasterImage() ||
+          isSafeAudio() ||
+          isSafeVideo() ||
+          request.resource.contentType == 'application/pdf'
+        );
+      allow delete: if isAdmin();
     }
 
     // --- Fotos del Diario del Cuidado de reservas ---
-    // Verifica en Firestore la participación real en `bookings/{bookingId}` (no en metadata modificable por el cliente).
     function isBookingJournalParticipant(bookingId) {
       return isAuthenticated() &&
         firestore.exists(/databases/(default)/documents/bookings/$(bookingId)) && (
@@ -127,10 +167,10 @@ service firebase.storage {
       allow create, update: if isAdmin() || (
         isBookingJournalParticipant(bookingId) &&
         request.resource != null &&
-        request.resource.size < 15 * 1024 * 1024 &&
+        request.resource.size <= 15 * 1024 * 1024 &&
         (
-          request.resource.contentType.matches('image/.*') ||
-          request.resource.contentType.matches('video/.*') ||
+          isSafeRasterImage() ||
+          isSafeVideo() ||
           request.resource.contentType == 'application/pdf'
         )
       );
@@ -141,6 +181,11 @@ service firebase.storage {
     match /app_assets/{allPaths=**} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // Default deny explícito para cualquier otra ruta
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

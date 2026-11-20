@@ -253,25 +253,27 @@ class _SpotlightTutorialOverlayState extends State<SpotlightTutorialOverlay> {
             onNext: isLast ? widget.onFinish : () => _goToStep(_stepIndex + 1),
           );
 
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: SpotlightBackdrop(
-                  targetRect: rect,
-                  previousRect: _previousRect,
+          return BlockSemantics(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: SpotlightBackdrop(
+                    targetRect: rect,
+                    previousRect: _previousRect,
+                  ),
                 ),
-              ),
-              Positioned(
-                left: sideMargin,
-                right: sideMargin,
-                top: cardTop,
-                bottom: cardBottom,
-                child: Align(
-                  alignment: cardAlignment,
-                  child: cardWidget,
+                Positioned(
+                  left: sideMargin,
+                  right: sideMargin,
+                  top: cardTop,
+                  bottom: cardBottom,
+                  child: Align(
+                    alignment: cardAlignment,
+                    child: cardWidget,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -444,7 +446,7 @@ class SpotlightTutorialCard extends StatelessWidget {
                       horizontal: 12,
                       vertical: 6,
                     ),
-                    minimumSize: Size(0, isSenior ? 42 : 36),
+                    minimumSize: Size(48, isSenior ? 52 : 48),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -563,7 +565,7 @@ class SpotlightTutorialCard extends StatelessWidget {
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.darkSlate,
-                        minimumSize: Size(0, isSenior ? 50 : 44),
+                        minimumSize: Size(48, isSenior ? 52 : 48),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),

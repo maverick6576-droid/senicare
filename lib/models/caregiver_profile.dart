@@ -29,23 +29,15 @@ class CaregiverProfile {
   final bool isKycVerified;
   final bool hasSeenCaregiverTutorial;
   final int noShowsCount;
+  final bool officialCertificationVerified;
+  final int? repeatFamiliesRate;
 
   bool get hasDni => dniUrl.trim().isNotEmpty || hasDniSubmitted;
   bool get hasCriminalRecord => criminalRecordUrl.trim().isNotEmpty || hasCriminalSubmitted;
   bool get hasStripeAccount => stripeAccountId != null && stripeAccountId!.isNotEmpty;
   bool get isSuperCaregiver => (verified || verificationStatus == 'approved') && rating >= 4.7 && reviewsCount >= 2 && noShowsCount == 0;
-  int get retentionRate => rating >= 4.9 ? 97 : (rating >= 4.7 ? 94 : (rating >= 4.5 ? 90 : 86));
-  bool get hasOfficialCertification {
-    if (!(verified || verificationStatus == 'approved')) return false;
-    final combined = '${title.toLowerCase()} ${bio.toLowerCase()} ${specialties.join(" ").toLowerCase()}';
-    return combined.contains('sociosanit') ||
-        combined.contains('tcae') ||
-        combined.contains('auxiliar') ||
-        combined.contains('enferm') ||
-        combined.contains('geriatr') ||
-        combined.contains('alzheimer') ||
-        hasCriminalRecord;
-  }
+  int? get retentionRate => (reviewsCount >= 3 && repeatFamiliesRate != null && repeatFamiliesRate! > 0) ? repeatFamiliesRate : null;
+  bool get hasOfficialCertification => (verified || verificationStatus == 'approved') && officialCertificationVerified;
   final List<DateTime> incidentDates;
   final DateTime? blockedUntil;
   final String accountStatus;
@@ -79,6 +71,8 @@ class CaregiverProfile {
     this.isKycVerified = false,
     this.hasSeenCaregiverTutorial = false,
     this.noShowsCount = 0,
+    this.officialCertificationVerified = false,
+    this.repeatFamiliesRate,
     this.incidentDates = const [],
     this.blockedUntil,
     this.accountStatus = 'active',
@@ -121,6 +115,8 @@ class CaregiverProfile {
         isKycVerified: data['isKycVerified'] ?? false,
         hasSeenCaregiverTutorial: data['caregiverTutorialSeen'] == true,
         noShowsCount: data['noShowsCount'] ?? 0,
+        officialCertificationVerified: data['officialCertificationVerified'] == true,
+        repeatFamiliesRate: (data['repeatFamiliesRate'] as num?)?.toInt(),
         incidentDates: (data['incidentDates'] as List<dynamic>?)?.map((d) => (d as Timestamp).toDate()).toList() ?? [],
         blockedUntil: (data['blockedUntil'] as Timestamp?)?.toDate(),
         accountStatus: data['status']?.toString() ?? 'active',

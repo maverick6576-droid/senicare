@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
@@ -113,10 +114,18 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
       auth.activeFamilyId = userId;
       auth.currentClient = await DependencyInjection.clients.getClient(userId);
       auth.onboardingComplete = true;
+      unawaited(ObservabilityService.logEvent(
+        'onboarding_completed',
+        parameters: {'role': 'client'},
+      ));
       auth.forceRefresh();
     } catch (e) {
       if (mounted) {
-        CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.info);
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(e),
+          type: SnackBarType.error,
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -147,15 +156,19 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
                   const SizedBox(height: 20),
                   TextFormField(
                     controller: _nameCtrl,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.name],
                     decoration: const InputDecoration(labelText: 'Nombre Completo', border: OutlineInputBorder()),
-                    validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Introduce el nombre completo' : null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _phoneCtrl,
-                    decoration: const InputDecoration(labelText: 'Teléfono', border: OutlineInputBorder()),
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.telephoneNumber],
+                    decoration: const InputDecoration(labelText: 'Teléfono de contacto', border: OutlineInputBorder()),
                     keyboardType: TextInputType.phone,
-                    validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Introduce un teléfono de contacto válido' : null,
                   ),
                   const SizedBox(height: 16),
                   AddressFormWidget(
@@ -168,25 +181,39 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
                       ),
                   const SizedBox(height: 24),
                   Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.blue.shade200)),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.infoSurface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.info.withValues(alpha: 0.25)),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Row(
                           children: [
-                            Icon(Icons.info_outline, color: Colors.blue),
+                            Icon(Icons.info_outline, color: AppTheme.info),
                             SizedBox(width: 8),
-                            Expanded(child: Text('Detalles de la Persona a Cuidar', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue))),
+                            Expanded(
+                              child: Text(
+                                'Detalles de la Persona a Cuidar',
+                                style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.info),
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        const Text('Aclara que la información introducida a continuación (y la dirección) pertenece a la persona que va a recibir los cuidados, no necesariamente a la que se registra.', style: TextStyle(fontSize: 12, color: Colors.blueGrey)),
+                        const Text(
+                          'Estos datos y la dirección corresponden a tu familiar que recibirá los cuidados, para que el cuidador llegue preparado.',
+                          style: TextStyle(fontSize: 13, color: AppTheme.slateMuted, height: 1.35),
+                        ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _patientDetailsCtrl,
                           maxLines: 3,
+                          textInputAction: TextInputAction.done,
                           decoration: const InputDecoration(
+                            labelText: 'Necesidades y pautas de cuidado',
                             hintText: 'Ej: Mi padre de 80 años, movilidad reducida, necesita ayuda para el aseo...',
                             border: OutlineInputBorder(),
                             fillColor: Colors.white,
@@ -208,11 +235,10 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: double.infinity, minHeight: 52),
                     child: ElevatedButton(
-                      onPressed: _submit,
+                      onPressed: _isLoading ? null : _submit,
                       child: const Text('Finalizar Registro', style: TextStyle(fontSize: 16)),
                     ),
                   )

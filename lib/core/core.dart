@@ -19,4 +19,5 @@ export 'observability_service.dart';
 export 'map_config.dart';
 export 'receipt_pdf_service.dart';
 export 'flexible_schedule_helper.dart';
+export 'user_facing_error_mapper.dart';
 export '../l10n/app_localizations.dart';

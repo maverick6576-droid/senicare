@@ -1,4 +1,4 @@
-package com.example.senicare
+package com.senicare.app
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

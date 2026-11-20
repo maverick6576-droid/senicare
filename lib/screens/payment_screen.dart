@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
@@ -64,6 +65,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final client = context.read<AuthNotifier>().currentClient;
     _customChecklist = List<String>.from(client?.defaultCareChecklist ?? []);
     _applyPackDiscount = _exactHours >= 4.0;
+    unawaited(ObservabilityService.logEvent(
+      'checkout_opened',
+      parameters: {
+        'caregiver_id': widget.caregiver.id,
+        'hours': _exactHours,
+      },
+    ));
     _loadStats();
     _detectPlatformPay();
   }
@@ -151,6 +159,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Future<void> _handlePayment() async {
+    if (_isProcessingPayment) return;
     // ── 0. Capture all context-dependent objects BEFORE any async gap ──
     final auth = context.read<AuthNotifier>();
     final bookingState = context.read<BookingNotifier>();
@@ -296,7 +305,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           CustomDialog.showError(
             context,
             title: 'No se pudo iniciar la reserva',
-            message: e.toString().replaceFirst('Exception: ', ''),
+            message: UserFacingErrorMapper.toSpanishMessage(e),
           );
         }
         return;
@@ -389,7 +398,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           CustomDialog.showError(
             context,
             title: 'Error al crear la reserva',
-            message: 'No se pudo registrar la reserva. El pago NO ha sido procesado.\n\nDetalles: $e',
+            message: 'No se pudo registrar la reserva. El pago NO ha sido procesado.\n\n${UserFacingErrorMapper.toSpanishMessage(e)}',
           );
         }
         return;
@@ -400,8 +409,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
         'booking_${DateTime.now().millisecondsSinceEpoch}';
 
     // ── 5. Present selected Stripe payment method (Express Wallet, Bizum Checkout or PaymentSheet) ──
-    _safeSetState(() => _isProcessingPayment = false);
-    if (!mounted) return;
+    if (!mounted) {
+      _safeSetState(() => _isProcessingPayment = false);
+      return;
+    }
 
     CheckoutFlowResult flowResult;
     try {
@@ -422,12 +433,22 @@ class _PaymentScreenState extends State<PaymentScreen> {
     } catch (e) {
       debugPrint('Unexpected error during payment flow: $e');
       flowResult = const CheckoutFlowResult(outcome: 'error');
+    } finally {
+      _safeSetState(() => _isProcessingPayment = false);
     }
 
     // ── 6. Handle result ──
     switch (flowResult.outcome) {
       case 'success':
       case 'processing':
+        unawaited(ObservabilityService.logEvent(
+          'payment_succeeded',
+          parameters: {
+            'method': _selectedPaymentMethod.backendId,
+            'outcome': flowResult.outcome,
+            'total_eur': total,
+          },
+        ));
         if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
           try {
             await StripeService.confirmClientBookingPayment(
@@ -490,9 +511,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
     bool isProcessingBank = false,
   }) async {
     final dateFormatted = DateFormat('dd/MM/yyyy').format(DateTime.parse(widget.dateString));
-    final hoursStr = widget.slots
-        .map((s) => '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
-        .join(', ');
+    final hoursStr = _hasCustomRange
+        ? '${TimeInterval.formatHm(widget.customStartTime!)} - ${TimeInterval.formatHm(widget.customEndTime!)}'
+        : widget.slots
+            .map((s) => '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
+            .join(', ');
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -649,6 +672,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
 
     final double totalHours = _exactHours;
+    _applyPackDiscount = totalHours >= 4.0;
     final double rawBaseCost =
         ((widget.caregiver.pricePerHour * totalHours) * 100).roundToDouble() /
             100.0;
@@ -702,22 +726,22 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: widget.slots.length >= 4
+                    color: _applyPackDiscount
                         ? AppTheme.secondaryColor
                         : AppTheme.backgroundNeutral,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: widget.slots.length >= 4
+                      color: _applyPackDiscount
                           ? AppTheme.secondaryColor
                           : AppTheme.borderSubtle,
                     ),
                   ),
                   child: Text(
-                    widget.slots.length >= 4 ? '-5% Activo' : '4h+ Auto',
+                    _applyPackDiscount ? '-5% Activo' : '4h+ Auto',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: widget.slots.length >= 4
+                      color: _applyPackDiscount
                           ? Colors.white
                           : AppTheme.slateMuted,
                     ),
@@ -734,7 +758,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Cuidador:'),
+                      const Expanded(child: Text('Cuidador:')),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
@@ -763,14 +787,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Horarios:'),
+                      const Expanded(child: Text('Horarios:')),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          widget.slots
-                              .map((s) =>
-                                  '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
-                              .join(', '),
+                          _hasCustomRange
+                              ? '${TimeInterval.formatHm(widget.customStartTime!)} - ${TimeInterval.formatHm(widget.customEndTime!)}'
+                              : widget.slots
+                                  .map((s) =>
+                                      '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
+                                  .join(', '),
                           style: const TextStyle(fontWeight: FontWeight.bold),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -786,7 +812,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       const Expanded(child: Text('Duración:')),
                       const SizedBox(width: 8),
                       Text(
-                        '$totalHours hora${totalHours > 1 ? 's' : ''}',
+                        '${totalHours.toStringAsFixed(totalHours % 1 == 0 ? 0 : 2)} hora${totalHours > 1 ? 's' : ''}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -826,40 +852,54 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Flexible(
-                        child: InkWell(
-                          onTap: () => _showManagementFeeSheet(context),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  '3% Comisión de Gestión y Cobertura:',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                                ),
+                        child: Semantics(
+                          button: true,
+                          label: 'Información sobre el 3 por ciento de comisión de gestión y cobertura',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => _showManagementFeeSheet(context),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minHeight: 48),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      '3% Comisión de Gestión y Cobertura:',
+                                      style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                                    ),
+                                  ),
+                                  SizedBox(width: 6),
+                                  Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
+                                ],
                               ),
-                              SizedBox(width: 4),
-                              Icon(Icons.info_outline_rounded, size: 16, color: AppTheme.primary),
-                            ],
+                            ),
                           ),
                         ),
                       ),
                       Text(currencyFormat.format(clientFee),
-                          style: const TextStyle(color: Colors.grey)),
+                          style: const TextStyle(color: AppTheme.slateMuted)),
                     ],
                   ),
                   const Divider(height: 32),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total:',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 18)),
-                      Text(
-                        currencyFormat.format(total),
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primary,
-                            fontSize: 22),
+                      const Expanded(
+                        child: Text('Total:',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 18)),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          currencyFormat.format(total),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.primary,
+                              fontSize: 22),
+                          textAlign: TextAlign.end,
+                        ),
                       ),
                     ],
                   ),
@@ -878,40 +918,42 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
           const SizedBox(height: 20),
           _buildCheckoutCareChecklistCard(),
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.green.shade50,
-            child: const Row(
-              children: [
-                Icon(Icons.verified_user, color: Colors.green),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Pago 100% Seguro. Tu dinero está protegido por Stripe Escrow hasta que finalice el servicio y confirmes que todo ha ido bien.',
-                    style: TextStyle(fontSize: 12, color: Colors.green),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.blue.shade200),
+              color: AppTheme.primarySurface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
             ),
-            child: Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.shield, color: Colors.blue),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Pagos por servicios asistenciales presenciales a domicilio (exentos de IAP digital conforme a App Store Guideline 3.1.5 / Google Play). El importe queda retenido en garantía (Stripe Escrow) y solo se transfiere a ${widget.caregiver.name.split(' ')[0]} tras realizar el servicio y validar su llegada.',
-                    style: const TextStyle(color: Colors.blue, height: 1.5),
+                const Row(
+                  children: [
+                    Icon(Icons.verified_user_rounded, color: AppTheme.primary, size: 22),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Pago 100% Protegido y Cancelación Gratuita',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14.5,
+                          color: AppTheme.darkSlate,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '• Tu dinero queda protegido en custodia (Stripe Escrow) y solo se transfiere a ${widget.caregiver.name.split(' ').first} tras realizar el cuidado en casa.\n'
+                  '• Cancelación gratuita con reembolso íntegro hasta 24 horas antes del servicio.\n'
+                  '• Seguro de Responsabilidad Civil y soporte familiar incluidos.',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.slateMuted,
+                    height: 1.45,
                   ),
                 ),
               ],
@@ -996,7 +1038,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 child: TextField(
                   controller: _taskCtrl,
                   decoration: InputDecoration(
-                    hintText: 'Añadir tarea específica (ej. Pastilla 12:30)...',
+                    labelText: 'Nueva tarea para el cuidador',
+                    hintText: 'Ej. Pastilla a las 12:30...',
                     isDense: true,
                     filled: true,
                     fillColor: Colors.white,

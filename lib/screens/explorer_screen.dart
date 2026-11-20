@@ -287,7 +287,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                 side: BorderSide(
                   color: AppTheme.primary.withValues(alpha: 0.35),
                 ),
-                minimumSize: Size(0, isSenior ? 48 : 44),
+                minimumSize: const Size(48, 48),
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -733,7 +733,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
 
     final trustParts = <String>[];
     if (c.hasOfficialCertification) trustParts.add('Certificación oficial');
-    if (c.retentionRate >= 90) {
+    if (c.retentionRate != null && c.retentionRate! >= 90) {
       trustParts.add('${c.retentionRate}% familias repiten');
     }
 
@@ -1022,7 +1022,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                     ElevatedButton.icon(
                       onPressed: () => _openCaregiverProfile(c),
                       style: ElevatedButton.styleFrom(
-                        minimumSize: Size(140, isSenior ? 52 : 46),
+                        minimumSize: Size(140, isSenior ? 52 : 48),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 14,
                           vertical: 10,
@@ -1159,7 +1159,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
           const SizedBox(height: 4),
           Row(
             children: [
-              const Icon(Icons.schedule_rounded, size: 16, color: Colors.white70),
+              const Icon(Icons.schedule_rounded, size: 16, color: Colors.white),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -1220,7 +1220,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                     backgroundColor: Colors.white,
                     foregroundColor: AppTheme.primary,
                     elevation: 0,
-                    minimumSize: Size(0, isSenior ? 46 : 42),
+                    minimumSize: const Size(48, 48),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -1303,8 +1303,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                 IconButton(
                   key: const Key('explorer_booking_expand_button'),
                   tooltip: 'Ampliar reserva',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                   onPressed: () {
                     _searchFocusNode.unfocus();
                     setState(() => _isBookingBannerMinimized = false);
@@ -1312,7 +1311,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
                   icon: const Icon(
                     Icons.unfold_more_rounded,
                     color: Colors.white,
-                    size: 18,
+                    size: 20,
                   ),
                 ),
               ],

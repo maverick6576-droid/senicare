@@ -37,6 +37,8 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   List<Review> _reviews = [];
   bool _isLoading = false;
   bool _isLoadingReviews = false;
+  String? _slotsError;
+  String? _reviewsError;
   bool _isPlayingVoiceIntro = false;
   double _voiceIntroProgress = 0.0;
   AudioPlayer? _voicePlayer;
@@ -47,6 +49,14 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   @override
   void initState() {
     super.initState();
+    ObservabilityService.logEvent(
+      'caregiver_profile_viewed',
+      parameters: {
+        'caregiver_id': widget.caregiver.id,
+        'is_verified': widget.caregiver.verified ? 1 : 0,
+        'review_count': widget.caregiver.reviewsCount,
+      },
+    );
     _loadSlots();
     _loadReviews();
   }
@@ -97,8 +107,10 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isPlayingVoiceIntro = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo reproducir el audio de presentación: $e')),
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(e),
+          type: SnackBarType.error,
         );
       }
     }
@@ -107,40 +119,64 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
   bool _hasMoreReviews = true;
 
   Future<void> _loadReviews({bool loadMore = false}) async {
-    if (_isLoadingReviews || !_hasMoreReviews && loadMore) return;
-    
-    setState(() => _isLoadingReviews = true);
-    final newReviews = await DependencyInjection.reviews.fetchReviewsForCaregiver(
-      widget.caregiver.id, 
-      refresh: !loadMore
-    );
-    
-    if (mounted) {
-      setState(() {
-        if (!loadMore) {
-          _reviews = newReviews;
-        } else {
-          _reviews.addAll(newReviews);
-        }
-        _hasMoreReviews = newReviews.isNotEmpty;
-        _isLoadingReviews = false;
-      });
+    if (_isLoadingReviews || (!_hasMoreReviews && loadMore)) return;
+
+    setState(() {
+      _isLoadingReviews = true;
+      if (!loadMore) _reviewsError = null;
+    });
+    try {
+      final newReviews = await DependencyInjection.reviews.fetchReviewsForCaregiver(
+        widget.caregiver.id,
+        refresh: !loadMore,
+      );
+
+      if (mounted) {
+        setState(() {
+          if (!loadMore) {
+            _reviews = newReviews;
+          } else {
+            _reviews.addAll(newReviews);
+          }
+          _hasMoreReviews = newReviews.isNotEmpty;
+          _isLoadingReviews = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingReviews = false;
+          _reviewsError = UserFacingErrorMapper.toSpanishMessage(e);
+        });
+      }
     }
   }
 
   Future<void> _loadSlots() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _slotsError = null;
+    });
     final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-    final slots = await DependencyInjection.caregivers.fetchTimeSlots(widget.caregiver.id, dateStr);
-    
-    // Sort slots by time
-    slots.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-    
-    if (mounted) {
-      setState(() {
-        _slots = slots;
-        _isLoading = false;
-      });
+    try {
+      final slots = await DependencyInjection.caregivers.fetchTimeSlots(widget.caregiver.id, dateStr);
+
+      // Sort slots by time
+      slots.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+
+      if (mounted) {
+        setState(() {
+          _slots = slots;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _slotsError = UserFacingErrorMapper.toSpanishMessage(e);
+        });
+      }
     }
   }
 
@@ -167,6 +203,7 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(c.name)),
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 96),
         children: [
           if (isOwnProfile)
             Container(
@@ -259,37 +296,38 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                           ),
                         ),
                       ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppTheme.secondaryColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        '🔄 El ${c.retentionRate}% de las familias repiten',
-                        style: const TextStyle(
-                          color: AppTheme.secondaryColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
+                    if (c.retentionRate != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppTheme.successSurface,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '🔄 El ${c.retentionRate}% de las familias repiten',
+                          style: const TextStyle(
+                            color: AppTheme.success,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
-                    ),
                     if (c.isKycVerified)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade50,
+                          color: AppTheme.successSurface,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.verified, color: Colors.green, size: 15),
+                            Icon(Icons.verified, color: AppTheme.success, size: 15),
                             SizedBox(width: 4),
                             Text(
                               'Identidad Verificada',
                               style: TextStyle(
-                                color: Colors.green,
+                                color: AppTheme.success,
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -301,14 +339,14 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: Colors.indigo.withValues(alpha: 0.1),
+                          color: AppTheme.infoSurface,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.indigo.withValues(alpha: 0.35)),
+                          border: Border.all(color: AppTheme.info.withValues(alpha: 0.35)),
                         ),
-                        child: Text(
+                        child: const Text(
                           '🎓 Certificación Sociosanitaria Verificada',
                           style: TextStyle(
-                            color: Colors.indigo.shade700,
+                            color: AppTheme.info,
                             fontSize: 12,
                             fontWeight: FontWeight.w800,
                           ),
@@ -322,19 +360,22 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                   runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.star, color: AppTheme.amber, size: 20),
-                        const SizedBox(width: 4),
-                        Text('${c.rating.toStringAsFixed(1)} (${c.reviewsCount} reseñas)', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ],
+                    Semantics(
+                      label: '${c.rating.toStringAsFixed(1)} de 5 estrellas, ${c.reviewsCount} reseñas',
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.star, color: AppTheme.warning, size: 20),
+                          const SizedBox(width: 4),
+                          Text('${c.rating.toStringAsFixed(1)} (${c.reviewsCount} reseñas)', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
                     ),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.location_on, color: Colors.grey, size: 20),
-                        Flexible(child: Text(distanceText, style: const TextStyle(color: Colors.grey), overflow: TextOverflow.ellipsis)),
+                        const Icon(Icons.location_on, color: AppTheme.slateMuted, size: 20),
+                        Flexible(child: Text(distanceText, style: const TextStyle(color: AppTheme.slateMuted), overflow: TextOverflow.ellipsis)),
                       ],
                     ),
                   ],
@@ -397,74 +438,70 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.borderSubtle),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  if (c.voiceIntroUrl.trim().isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: AppTheme.backgroundNeutral,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppTheme.borderSubtle),
-                      ),
-                      child: Row(
-                        children: [
-                          InkWell(
+                if (c.voiceIntroUrl.trim().isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.backgroundNeutral,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppTheme.borderSubtle),
+                    ),
+                    child: Row(
+                      children: [
+                        Semantics(
+                          button: true,
+                          label: _isPlayingVoiceIntro
+                              ? 'Pausar presentación de voz de ${c.name}'
+                              : 'Escuchar presentación de voz de ${c.name}',
+                          child: InkWell(
                             borderRadius: BorderRadius.circular(24),
                             onTap: _toggleVoiceIntro,
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primary,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                _isPlayingVoiceIntro ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                color: Colors.white,
-                                size: 22,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                              child: Container(
+                                alignment: Alignment.center,
+                                padding: const EdgeInsets.all(12),
+                                decoration: const BoxDecoration(
+                                  color: AppTheme.primary,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  _isPlayingVoiceIntro ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '🎙️ Presentación en voz de ${c.name.split(" ").first}',
-                                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppTheme.darkSlate),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Presentación en voz de ${c.name.split(" ").first}',
+                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppTheme.darkSlate),
+                              ),
+                              const SizedBox(height: 6),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: LinearProgressIndicator(
+                                  value: _voiceIntroProgress,
+                                  minHeight: 6,
+                                  backgroundColor: AppTheme.primarySurface,
+                                  valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
                                 ),
-                                const SizedBox(height: 6),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(6),
-                                  child: LinearProgressIndicator(
-                                    value: _voiceIntroProgress,
-                                    minHeight: 6,
-                                    backgroundColor: AppTheme.primarySurface,
-                                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                    ],
                   ),
-                ),
+                ],
                 const SizedBox(height: 18),
                 Text('Sobre mí', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
@@ -526,6 +563,31 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                   builder: (context) {
                     if (_isLoading) {
                       return const Center(child: CircularProgressIndicator());
+                    }
+                    if (_slotsError != null) {
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.dangerSurface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppTheme.danger.withValues(alpha: 0.3)),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              _slotsError!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: AppTheme.danger, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 10),
+                            OutlinedButton.icon(
+                              onPressed: _loadSlots,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Reintentar cargar horarios'),
+                            ),
+                          ],
+                        ),
+                      );
                     }
 
                     final now = DateTime.now();
@@ -721,13 +783,16 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(
-                                    'Horario: ${selectedInterval.formattedRange}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      color: AppTheme.darkSlate,
+                                  Expanded(
+                                    child: Text(
+                                      'Horario: ${selectedInterval.formattedRange}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        color: AppTheme.darkSlate,
+                                      ),
                                     ),
                                   ),
+                                  const SizedBox(width: 8),
                                   Text(
                                     selectedInterval.formattedDuration,
                                     style: const TextStyle(
@@ -819,6 +884,14 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                                           sStart.isBefore(selEnd) &&
                                           sEnd.isAfter(selStart);
                                     }).toList();
+                                    unawaited(ObservabilityService.logEvent(
+                                      'booking_started',
+                                      parameters: {
+                                        'caregiver_id': c.id,
+                                        'hours': exactHours,
+                                        'estimated_total_eur': estimatedTotalClient,
+                                      },
+                                    ));
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -855,12 +928,45 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                 const SizedBox(height: 16),
                 Text('Valoraciones y Desglose de Calidad', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 12),
-                _buildCategoryRatingsBreakdown(c),
-                const SizedBox(height: 16),
+                if (_reviews.isNotEmpty) ...[
+                  _buildCategoryRatingsBreakdown(c),
+                  const SizedBox(height: 16),
+                ],
                 if (_isLoadingReviews)
                   const Center(child: CircularProgressIndicator())
+                else if (_reviewsError != null)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.dangerSurface,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(_reviewsError!, style: const TextStyle(color: AppTheme.danger)),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: () => _loadReviews(loadMore: false),
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Reintentar'),
+                        ),
+                      ],
+                    ),
+                  )
                 else if (_reviews.isEmpty)
-                  const Text('Este cuidador aún no tiene reseñas.', style: TextStyle(color: Colors.grey))
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.backgroundNeutral,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppTheme.borderSubtle),
+                    ),
+                    child: const Text(
+                      'Aún sin valoraciones publicadas — perfil verificado por el equipo de SeniCare.',
+                      style: TextStyle(color: AppTheme.slateMuted, fontWeight: FontWeight.w600),
+                    ),
+                  )
                 else
                   ..._reviews.map((r) => Padding(
                         padding: const EdgeInsets.only(bottom: 16.0),
@@ -869,7 +975,9 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.account_circle, color: Colors.grey),
+                                const ExcludeSemantics(
+                                  child: Icon(Icons.account_circle, color: AppTheme.slateMuted),
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -879,13 +987,18 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                Row(
-                                  children: List.generate(
-                                    5,
-                                    (index) => Icon(
-                                      index < r.rating.round() ? Icons.star : Icons.star_border,
-                                      color: Colors.amber,
-                                      size: 16,
+                                Semantics(
+                                  label: '${r.rating.round()} de 5 estrellas',
+                                  child: ExcludeSemantics(
+                                    child: Row(
+                                      children: List.generate(
+                                        5,
+                                        (index) => Icon(
+                                          index < r.rating.round() ? Icons.star : Icons.star_border,
+                                          color: AppTheme.amber,
+                                          size: 16,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -996,8 +1109,8 @@ class _CaregiverDetailScreenState extends State<CaregiverDetailScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                SizedBox(
-                  width: 28,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 32),
                   child: Text(
                     score.toStringAsFixed(1),
                     textAlign: TextAlign.right,

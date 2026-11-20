@@ -36,7 +36,11 @@ class SettingsScreen extends StatelessWidget {
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                     ),
                   ),
-                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                  IconButton(
+                    tooltip: 'Cerrar',
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -154,7 +158,7 @@ class SettingsScreen extends StatelessWidget {
         Navigator.pop(context);
         CustomSnackBar.show(
           context,
-          message: 'No se pudo exportar tus datos: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(e),
           type: SnackBarType.error,
         );
       }
@@ -166,7 +170,7 @@ class SettingsScreen extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar Cuenta', style: TextStyle(color: Colors.red)),
+        title: const Text('Eliminar Cuenta', style: TextStyle(color: AppTheme.danger)),
         content: Text(
           isSharedMember
               ? '¿Estás seguro de que quieres eliminar tu cuenta personal?\n\n'
@@ -178,10 +182,10 @@ class SettingsScreen extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancelar', style: TextStyle(color: AppTheme.slateMuted)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Eliminar Definitivamente', style: TextStyle(color: Colors.white)),
           ),
@@ -234,7 +238,10 @@ class SettingsScreen extends StatelessWidget {
         Navigator.pop(context); // close loading
         CustomSnackBar.show(
           context,
-          message: 'Error al eliminar cuenta: $e\nPuede que necesites cerrar sesión y volver a entrar para confirmar tu identidad.',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No pudimos eliminar tu cuenta ahora mismo. Es posible que debas cerrar sesión y volver a entrar para confirmar tu identidad.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -250,6 +257,7 @@ class SettingsScreen extends StatelessWidget {
         title: const Text('Ajustes, Accesibilidad y Privacidad'),
       ),
       body: ListView(
+        cacheExtent: 1200,
         padding: const EdgeInsets.all(16),
         children: [
           Text(
@@ -330,24 +338,37 @@ class SettingsScreen extends StatelessWidget {
                     elevation: 0,
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(value: 'es', label: Text('Español')),
-                          ButtonSegment(value: 'ca', label: Text('Català')),
-                          ButtonSegment(value: 'en', label: Text('English')),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(value: 'es', label: Text('Español')),
+                              ButtonSegment(value: 'ca', label: Text('Català')),
+                              ButtonSegment(value: 'en', label: Text('English')),
+                            ],
+                            selected: {config.locale.languageCode},
+                            onSelectionChanged: (selection) async {
+                              final code = selection.first;
+                              HapticFeedback.selectionClick();
+                              await config.setLocale(Locale(code));
+                              if (!ctx.mounted) return;
+                              CustomSnackBar.show(
+                                ctx,
+                                message: code == 'es'
+                                    ? AppLocalizations(Locale(code)).languageSavedToast
+                                    : '${AppLocalizations(Locale(code)).languageSavedToast} (Traducción completa próximamente)',
+                                type: SnackBarType.info,
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Navegación disponible en Español, Català e Inglés. Traducción completa de todas las pantallas próximamente.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 12, color: AppTheme.slateMuted),
+                          ),
                         ],
-                        selected: {config.locale.languageCode},
-                        onSelectionChanged: (selection) async {
-                          final code = selection.first;
-                          HapticFeedback.selectionClick();
-                          await config.setLocale(Locale(code));
-                          if (!ctx.mounted) return;
-                          CustomSnackBar.show(
-                            ctx,
-                            message: AppLocalizations(Locale(code)).languageSavedToast,
-                            type: SnackBarType.info,
-                          );
-                        },
                       ),
                     ),
                   ),
@@ -430,12 +451,14 @@ class SettingsScreen extends StatelessWidget {
                                 color: config.seniorMode ? AppTheme.primary : AppTheme.slateMuted,
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                config.seniorMode ? 'Modo Senior Activado (Tamaño XL)' : 'Modo Estándar (Tamaño Normal)',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: config.seniorMode ? 14 : 12.5,
-                                  color: config.seniorMode ? AppTheme.primary : AppTheme.darkSlate,
+                              Expanded(
+                                child: Text(
+                                  config.seniorMode ? 'Modo Senior Activado (Tamaño XL)' : 'Modo Estándar (Tamaño Normal)',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: config.seniorMode ? 14 : 12.5,
+                                    color: config.seniorMode ? AppTheme.primary : AppTheme.darkSlate,
+                                  ),
                                 ),
                               ),
                             ],
@@ -466,7 +489,7 @@ class SettingsScreen extends StatelessWidget {
                               },
                               style: FilledButton.styleFrom(
                                 backgroundColor: config.seniorMode ? AppTheme.primary : AppTheme.darkSlate,
-                                minimumSize: Size(double.infinity, config.seniorMode ? 52 : 42),
+                                minimumSize: Size(double.infinity, config.seniorMode ? 56 : 48),
                               ),
                               child: Text(
                                 'Botón de Prueba Táctil',
@@ -632,12 +655,12 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          const Text('Zona de Peligro', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red)),
+          const Text('Zona de Peligro', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.danger)),
           const SizedBox(height: 10),
           Card(
             child: ListTile(
-              leading: const Icon(Icons.delete_forever, color: Colors.red),
-              title: const Text('Eliminar Cuenta Definitivamente', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              leading: const Icon(Icons.delete_forever, color: AppTheme.danger),
+              title: const Text('Eliminar Cuenta Definitivamente', style: TextStyle(color: AppTheme.danger, fontWeight: FontWeight.bold)),
               subtitle: const Text('Borra todos tus datos personales y de perfil de forma irreversible (RGPD Art. 17).'),
               onTap: () => _showDeleteConfirmation(context),
             ),

@@ -9,8 +9,8 @@ from firebase_admin import credentials, firestore
 import stripe
 
 # 1. Configuración de credenciales de Producción Real
-STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', 'sk_test_' + '51ToJ11Fur4CnDyhizmXzh0dd0IdWwuyCJUZCHvoo45xVJsWUh1kIimMAIC6TJ9zu7sy6b5bQyv7T5TFwamerkNrp004UQGqHIB')
-FIREBASE_KEY_PATH = 'firebase-key.json'
+STRIPE_SECRET_KEY = os.environ["STRIPE_SECRET_KEY"]
+FIREBASE_KEY_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "firebase-key.json")
 
 stripe.api_key = STRIPE_SECRET_KEY
 

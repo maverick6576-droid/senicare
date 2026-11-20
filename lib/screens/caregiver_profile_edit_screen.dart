@@ -918,16 +918,13 @@ class _CaregiverProfileEditScreenState
         return;
       }
 
-      await DependencyInjection.caregivers.updateProfile(_profile!.id, {
-        'stripeAccountId': accountId,
-      });
       await _loadProfile();
       await StripeService.launchOnboarding(accountId);
     } catch (e) {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al conectar Stripe: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(e),
           type: SnackBarType.error,
         );
       }

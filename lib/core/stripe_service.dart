@@ -127,36 +127,57 @@ class StripeService {
   static const String defaultMerchantIdentifier = 'merchant.com.senicare.app';
   static const String returnUrl = 'senicare://stripe-redirect';
 
-  static String _configuredPublishableKey = _defaultTestPublishableKey;
+  static String _configuredPublishableKey =
+      kReleaseMode ? '' : _defaultTestPublishableKey;
   static String _configuredMerchantId = defaultMerchantIdentifier;
+  static bool _isConfigured = !kReleaseMode;
 
-  static bool get isTestMode => _configuredPublishableKey.startsWith('pk_test_');
+  static bool get isTestMode => !kReleaseMode && _configuredPublishableKey.startsWith('pk_test_');
+  static bool get isLiveMode => _configuredPublishableKey.startsWith('pk_live_');
+  static bool get isConfigured => _isConfigured;
   static String get merchantIdentifier => _configuredMerchantId;
 
   static Future<void> init([String? publishableKey, String? merchantId]) async {
+    const defineKey = String.fromEnvironment('STRIPE_PUBLISHABLE_KEY');
+    const defineMerchant = String.fromEnvironment('STRIPE_MERCHANT_IDENTIFIER');
     String? envKey;
     String? envMerchant;
-    if (dotenv.isInitialized) {
+    if (!kReleaseMode && dotenv.isInitialized) {
       envKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'];
       envMerchant = dotenv.env['STRIPE_MERCHANT_IDENTIFIER'];
     }
 
-    String keyToUse = _defaultTestPublishableKey;
-    if (publishableKey != null && publishableKey.isNotEmpty) {
-      keyToUse = publishableKey;
-    } else if (envKey != null && envKey.isNotEmpty) {
-      keyToUse = envKey;
+    String keyToUse = '';
+    if (publishableKey != null && publishableKey.trim().isNotEmpty) {
+      keyToUse = publishableKey.trim();
+    } else if (defineKey.trim().isNotEmpty) {
+      keyToUse = defineKey.trim();
+    } else if (!kReleaseMode && envKey != null && envKey.trim().isNotEmpty) {
+      keyToUse = envKey.trim();
+    } else if (!kReleaseMode) {
+      keyToUse = _defaultTestPublishableKey;
+    }
+
+    if (kReleaseMode && !keyToUse.startsWith('pk_live_')) {
+      _isConfigured = false;
+      _configuredPublishableKey = '';
+      throw StateError(
+        'Producción requiere STRIPE_PUBLISHABLE_KEY válida con prefijo pk_live_ (--dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_...).',
+      );
     }
 
     String merchantToUse = defaultMerchantIdentifier;
-    if (merchantId != null && merchantId.isNotEmpty) {
-      merchantToUse = merchantId;
-    } else if (envMerchant != null && envMerchant.isNotEmpty) {
-      merchantToUse = envMerchant;
+    if (merchantId != null && merchantId.trim().isNotEmpty) {
+      merchantToUse = merchantId.trim();
+    } else if (defineMerchant.trim().isNotEmpty) {
+      merchantToUse = defineMerchant.trim();
+    } else if (envMerchant != null && envMerchant.trim().isNotEmpty) {
+      merchantToUse = envMerchant.trim();
     }
 
     _configuredPublishableKey = keyToUse;
     _configuredMerchantId = merchantToUse;
+    _isConfigured = keyToUse.isNotEmpty;
 
     Stripe.publishableKey = keyToUse;
     Stripe.merchantIdentifier = merchantToUse;
