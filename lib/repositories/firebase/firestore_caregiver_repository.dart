@@ -48,10 +48,15 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
         querySnapshot = await firestoreQuery.get();
       } catch (e) {
         debugPrint('Warning: Compound query failed ($e). Falling back to approved caregivers query.');
-        querySnapshot = await _collection.where('verificationStatus', isEqualTo: 'approved').limit(30).get();
+        Query fallbackQuery =
+            _collection.where('verificationStatus', isEqualTo: 'approved').limit(30);
+        if (_lastDocument != null) {
+          fallbackQuery = fallbackQuery.startAfterDocument(_lastDocument!);
+        }
+        querySnapshot = await fallbackQuery.get();
       }
       
-      if (querySnapshot.docs.length < 20) {
+      if (querySnapshot.docs.length < 30) {
         _hasMore = false;
       }
 

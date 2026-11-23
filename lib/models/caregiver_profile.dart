@@ -184,4 +184,33 @@ class CaregiverProfile {
       'minorIncidentsCount': minorIncidentsCount,
     };
   }
+
+  /// Payload inicial seguro para `caregivers/{uid}` compatible con las reglas
+  /// de Firestore (`allow create`), omitiendo campos financieros, de confianza y
+  /// de moderación gestionados exclusivamente por servidor/admin.
+  Map<String, dynamic> toCreateFirestore() {
+    return {
+      'name': name,
+      'title': title,
+      'bio': bio,
+      'pricePerHour': pricePerHour,
+      'distance': distance,
+      'imageUrl': imageUrl,
+      'voiceIntroUrl': voiceIntroUrl,
+      'specialties': specialties,
+      'isVerified': false,
+      'verified': false,
+      'availableSlots': availableSlots,
+      'hasDniSubmitted': hasDni,
+      'hasCriminalSubmitted': hasCriminalRecord,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      'maxDistanceRadius': maxDistanceRadius,
+      'homeAddress': homeAddress,
+      'verificationStatus': 'pending',
+      'status': 'pending',
+      'onboardingComplete': onboardingComplete,
+      'caregiverTutorialSeen': hasSeenCaregiverTutorial,
+    };
+  }
 }

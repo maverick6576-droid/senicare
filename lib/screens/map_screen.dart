@@ -142,77 +142,115 @@ class _MapScreenState extends State<MapScreen> {
                   ...mappableCaregivers.map((c) {
                     return Marker(
                       point: LatLng(c.latitude!, c.longitude!),
-                      width: 86,
-                      height: 54,
-                      child: GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => CaregiverDetailScreen(caregiver: c),
-                            ),
-                          );
-                        },
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: c.isSuperCaregiver ? Colors.amber.shade600 : AppTheme.primary,
-                                  width: 1.8,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.15),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
+                      width: 96,
+                      height: 58,
+                      child: Semantics(
+                        button: true,
+                        label:
+                            '${c.name}, ${c.pricePerHour.toInt()} euros por hora',
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    CaregiverDetailScreen(caregiver: c),
                               ),
-                              child: Row(
+                            );
+                          },
+                          child: MediaQuery(
+                            data: MediaQuery.of(context).copyWith(
+                              textScaler: TextScaler.noScaling,
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  ClipOval(
-                                    child: c.imageUrl.isNotEmpty
-                                        ? CachedNetworkImage(
-                                            imageUrl: c.imageUrl,
-                                            width: 20,
-                                            height: 20,
-                                            fit: BoxFit.cover,
-                                            errorWidget: (_, _, _) => Container(
-                                              width: 20,
-                                              height: 20,
-                                              color: AppTheme.primarySurface,
-                                              child: const Icon(Icons.person, size: 14, color: AppTheme.primary),
-                                            ),
-                                          )
-                                        : Container(
-                                            width: 20,
-                                            height: 20,
-                                            color: AppTheme.primarySurface,
-                                            child: const Icon(Icons.person, size: 14, color: AppTheme.primary),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: c.isSuperCaregiver
+                                            ? AppTheme.amber
+                                            : AppTheme.primary,
+                                        width: 1.8,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.15),
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ClipOval(
+                                          child: c.imageUrl.isNotEmpty
+                                              ? CachedNetworkImage(
+                                                  imageUrl: c.imageUrl,
+                                                  width: 20,
+                                                  height: 20,
+                                                  fit: BoxFit.cover,
+                                                  errorWidget: (_, _, _) =>
+                                                      Container(
+                                                    width: 20,
+                                                    height: 20,
+                                                    color:
+                                                        AppTheme.primarySurface,
+                                                    child: const Icon(
+                                                      Icons.person,
+                                                      size: 14,
+                                                      color: AppTheme.primary,
+                                                    ),
+                                                  ),
+                                                )
+                                              : Container(
+                                                  width: 20,
+                                                  height: 20,
+                                                  color:
+                                                      AppTheme.primarySurface,
+                                                  child: const Icon(
+                                                    Icons.person,
+                                                    size: 14,
+                                                    color: AppTheme.primary,
+                                                  ),
+                                                ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${c.pricePerHour.toInt()}€',
+                                          style: const TextStyle(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppTheme.darkSlate,
                                           ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${c.pricePerHour.toInt()}€',
-                                    style: const TextStyle(
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppTheme.darkSlate,
+                                        ),
+                                        if (c.isSuperCaregiver)
+                                          const Text(
+                                            '🏆',
+                                            style: TextStyle(fontSize: 10),
+                                          ),
+                                      ],
                                     ),
                                   ),
-                                  if (c.isSuperCaregiver)
-                                    const Text('🏆', style: TextStyle(fontSize: 10)),
+                                  const Icon(
+                                    Icons.arrow_drop_down_rounded,
+                                    color: AppTheme.primary,
+                                    size: 18,
+                                  ),
                                 ],
                               ),
                             ),
-                            const Icon(Icons.arrow_drop_down_rounded, color: AppTheme.primary, size: 18),
-                          ],
+                          ),
                         ),
                       ),
                     );
@@ -270,6 +308,7 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
+        tooltip: 'Centrar en mi ubicación',
         backgroundColor: AppTheme.primary,
         child: const Icon(Icons.my_location, color: Colors.white),
         onPressed: () {

@@ -136,8 +136,16 @@ class AdminValidationsTab extends StatelessWidget {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => _updateStatus(id, 'rejected')),
-                    IconButton(icon: const Icon(Icons.check, color: Colors.green), onPressed: () => _updateStatus(id, 'approved')),
+                    IconButton(
+                      tooltip: 'Rechazar verificación',
+                      icon: const Icon(Icons.close, color: AppTheme.danger),
+                      onPressed: () => _updateStatus(id, 'rejected'),
+                    ),
+                    IconButton(
+                      tooltip: 'Aprobar verificación',
+                      icon: const Icon(Icons.check, color: AppTheme.success),
+                      onPressed: () => _updateStatus(id, 'approved'),
+                    ),
                   ],
                 ),
               ),
@@ -212,7 +220,14 @@ class _AdminDisputesTabState extends State<AdminDisputesTab> {
     } catch (e) {
       debugPrint('Error: $e');
       if (context.mounted) {
-        CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.error);
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo resolver la disputa.',
+          ),
+          type: SnackBarType.error,
+        );
       }
     } finally {
       if (context.mounted) {
@@ -230,7 +245,17 @@ class _AdminDisputesTabState extends State<AdminDisputesTab> {
       stream: _db.collection('bookings').where('disputeEscalated', isEqualTo: true).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final docs = snapshot.data!.docs.where((d) => (d.data() as Map<String, dynamic>)['escrowStatus'] != 'resolved_partial').toList();
+        final docs = snapshot.data!.docs.where((d) {
+          final escrow = (d.data() as Map<String, dynamic>)['escrowStatus']?.toString();
+          return !const {
+            'resolved_partial',
+            'refunded',
+            'released',
+            'released_manual',
+            'released_auto',
+            'cancelled',
+          }.contains(escrow);
+        }).toList();
         if (docs.isEmpty) return const Center(child: Text('No hay disputas activas.'));
 
         return ListView.builder(
@@ -270,8 +295,15 @@ class AdminUsersTab extends StatefulWidget {
 
 class _AdminUsersTabState extends State<AdminUsersTab> {
   String query = '';
+  late final Stream<QuerySnapshot> _usersStream;
 
   FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _usersStream = _db.collection('users').snapshots();
+  }
 
   Future<void> _deleteUser(String id, String collection) async {
     final db = _db;
@@ -310,7 +342,16 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
           });
           if (mounted) CustomSnackBar.show(context, message: 'Estado actualizado', type: SnackBarType.success);
         } catch(e) {
-          if (mounted) CustomSnackBar.show(context, message: 'Error: $e', type: SnackBarType.error);
+          if (mounted) {
+            CustomSnackBar.show(
+              context,
+              message: UserFacingErrorMapper.toSpanishMessage(
+                e,
+                fallback: 'No se pudo actualizar el estado del cuidador.',
+              ),
+              type: SnackBarType.error,
+            );
+          }
         }
       }
     });
@@ -329,7 +370,7 @@ class _AdminUsersTabState extends State<AdminUsersTab> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: _db.collection('users').snapshots(),
+            stream: _usersStream,
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
               
@@ -393,17 +434,71 @@ class _AdminTeamTabState extends State<AdminTeamTab> {
   }
 
   Future<void> _addAdmin(String email) async {
-    if (email.isEmpty) return;
-    await _db.collection('admins').doc(email).set({
-      'email': email,
-      '2faEnabled': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty) return;
+    try {
+      if (widget.firestore != null) {
+        await _db.collection('admins').doc(normalized).set({
+          'email': normalized,
+          '2faEnabled': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        await FirebaseFunctions.instanceFor(region: 'europe-west1')
+            .httpsCallable('adminAddAdmin')
+            .call({'email': normalized});
+      }
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Administrador añadido correctamente.',
+          type: SnackBarType.success,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo añadir al administrador.',
+          ),
+          type: SnackBarType.error,
+        );
+      }
+    }
   }
 
   Future<void> _removeAdmin(String email) async {
-    if (email == 'maverick6576@gmail.com') return; // Master admin check
-    await _db.collection('admins').doc(email).delete();
+    final normalized = email.trim().toLowerCase();
+    if (normalized == 'maverick6576@gmail.com') return; // Master admin check
+    try {
+      if (widget.firestore != null) {
+        await _db.collection('admins').doc(normalized).delete();
+      } else {
+        await FirebaseFunctions.instanceFor(region: 'europe-west1')
+            .httpsCallable('adminRemoveAdmin')
+            .call({'email': normalized});
+      }
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: 'Administrador eliminado correctamente.',
+          type: SnackBarType.info,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo eliminar al administrador.',
+          ),
+          type: SnackBarType.error,
+        );
+      }
+    }
   }
 
   @override
@@ -421,7 +516,8 @@ class _AdminTeamTabState extends State<AdminTeamTab> {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.add_circle, color: Colors.red, size: 36),
+                tooltip: 'Añadir administrador',
+                icon: const Icon(Icons.add_circle, color: AppTheme.danger, size: 36),
                 onPressed: () {
                   _addAdmin(_emailController.text.trim());
                   _emailController.clear();
@@ -761,7 +857,7 @@ class _AdminFinancesTabState extends State<AdminFinancesTab> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(title, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+        Text(title, style: const TextStyle(fontSize: 12, color: AppTheme.slateMuted, fontWeight: FontWeight.bold)),
         Text('${value.toStringAsFixed(2)} €', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
       ],
     );

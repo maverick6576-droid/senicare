@@ -72,7 +72,14 @@ class _CaregiverCalendarScreenState extends State<CaregiverCalendarScreen> {
       slot.isAvailable = !newValue;
       if (mounted) {
         setState(() {});
-        CustomSnackBar.show(context, message: 'Error al guardar: $e', type: SnackBarType.error);
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo guardar la disponibilidad.',
+          ),
+          type: SnackBarType.error,
+        );
       }
     }
   }
@@ -525,10 +532,10 @@ class _CaregiverCalendarScreenState extends State<CaregiverCalendarScreen> {
       debugPrint('Error generating recurring schedule: $e');
       scaffoldMessenger.showSnackBar(SnackBar(
         content: Text(
-          'Error al generar el horario: $e\n'
+          '${UserFacingErrorMapper.toSpanishMessage(e, fallback: 'No se pudo completar la generación del horario.')}\n'
           'Se han guardado $processedDays días antes del fallo.',
         ),
-        backgroundColor: Colors.red,
+        backgroundColor: AppTheme.danger,
         duration: const Duration(seconds: 6),
       ));
     } finally {
@@ -592,7 +599,14 @@ class _CaregiverCalendarScreenState extends State<CaregiverCalendarScreen> {
       }
     } catch (e) {
       if (mounted) {
-        CustomSnackBar.show(context, message: 'Error al crear horarios: $e', type: SnackBarType.error);
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudieron crear los horarios.',
+          ),
+          type: SnackBarType.error,
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);

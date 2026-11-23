@@ -289,6 +289,12 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         metadata = SettableMetadata(contentType: 'image/png');
       } else if (ext == '.jpg' || ext == '.jpeg') {
         metadata = SettableMetadata(contentType: 'image/jpeg');
+      } else if (ext == '.webp') {
+        metadata = SettableMetadata(contentType: 'image/webp');
+      } else if (ext == '.heic') {
+        metadata = SettableMetadata(contentType: 'image/heic');
+      } else if (ext == '.heif') {
+        metadata = SettableMetadata(contentType: 'image/heif');
       }
 
       final ref = FirebaseStorage.instance.ref().child(folder).child(fileName);

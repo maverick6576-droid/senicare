@@ -68,7 +68,10 @@ class FirebaseAuthRepository implements AuthRepository {
             dniUrl: extraData?['dniUrl'] ?? '',
             criminalRecordUrl: extraData?['criminalRecordUrl'] ?? '',
           );
-          await _firestore.collection('caregivers').doc(user.uid).set(profile.toFirestore());
+          await _firestore
+              .collection('caregivers')
+              .doc(user.uid)
+              .set(profile.toCreateFirestore());
         }
       }
     } catch (e) {
@@ -200,7 +203,10 @@ class FirebaseAuthRepository implements AuthRepository {
           dniUrl: '',
           criminalRecordUrl: '',
         );
-        await _firestore.collection('caregivers').doc(user.uid).set(profile.toFirestore());
+        await _firestore
+            .collection('caregivers')
+            .doc(user.uid)
+            .set(profile.toCreateFirestore());
       }
     } else {
       final existingRole = doc.data()?['role']?.toString().trim() ?? '';

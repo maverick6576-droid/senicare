@@ -304,7 +304,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al enviar el mensaje: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -406,7 +409,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo iniciar la grabación de voz: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo iniciar la grabación de voz.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -489,7 +495,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo enviar la nota de voz: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo enviar la nota de voz.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -552,7 +561,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al reproducir audio: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo reproducir el audio.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -741,7 +753,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo enviar la imagen: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo enviar la imagen. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -800,7 +815,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo compartir la ubicación: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo compartir tu ubicación.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -2166,7 +2184,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             const SizedBox(width: 6),
             CircleAvatar(
-              radius: 23,
+              radius: 24,
               backgroundColor: AppTheme.primary,
               child: IconButton(
                 tooltip: _hasComposerText ? 'Enviar' : 'Grabar nota de voz',

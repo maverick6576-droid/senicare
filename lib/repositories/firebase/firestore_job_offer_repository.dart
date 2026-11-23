@@ -149,10 +149,6 @@ class FirestoreJobOfferRepository implements JobOfferRepository {
         await existing.docs.first.reference.update({
           'message': application.message,
           'proposedPrice': application.proposedPrice,
-          'caregiverName': application.caregiverName,
-          'caregiverImageUrl': application.caregiverImageUrl,
-          'caregiverRating': application.caregiverRating,
-          'caregiverReviewsCount': application.caregiverReviewsCount,
           'appliedAt': Timestamp.fromDate(application.appliedAt),
         });
       } else {

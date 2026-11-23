@@ -256,7 +256,11 @@ class _DisputeDialogState extends State<DisputeDialog> {
                     if (mounted) {
                       setState(() {
                         _isSubmitting = false;
-                        _inlineError = 'Error al enviar la incidencia: $e';
+                        _inlineError = UserFacingErrorMapper.toSpanishMessage(
+                          e,
+                          fallback:
+                              'No se pudo enviar la incidencia. Inténtalo de nuevo.',
+                        );
                       });
                     }
                   }

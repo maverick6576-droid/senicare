@@ -60,10 +60,12 @@ class _JoinFamilyDialogState extends State<_JoinFamilyDialog> {
       );
     } catch (e) {
       if (!mounted) return;
-      final clean = e.toString().replaceFirst('Bad state: ', '').trim();
       setState(() {
         _isSubmitting = false;
-        _errorText = clean;
+        _errorText = UserFacingErrorMapper.toSpanishMessage(
+          e,
+          fallback: 'No se pudo validar el código de invitación.',
+        );
       });
     }
   }

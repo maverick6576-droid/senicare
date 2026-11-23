@@ -20,11 +20,36 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
   final _priceCtrl = TextEditingController();
   int _accumulatedHours = 0;
 
+  late Stream<JobOffer?> _offerStream;
+  String? _cachedAppsOfferId;
+  Stream<List<JobApplication>>? _appsStream;
+  String? _cachedMyAppKey;
+  Stream<JobApplication?>? _myAppStream;
+
   @override
   void initState() {
     super.initState();
     _priceCtrl.text = widget.offer.pricePerHour.toStringAsFixed(2);
+    _offerStream = DependencyInjection.jobOffers.streamOffer(widget.offer.id);
     _loadAccumulatedHours();
+  }
+
+  Stream<List<JobApplication>> _getAppsStream(String offerId) {
+    if (_appsStream == null || _cachedAppsOfferId != offerId) {
+      _cachedAppsOfferId = offerId;
+      _appsStream = DependencyInjection.jobOffers.streamOfferApplications(offerId);
+    }
+    return _appsStream!;
+  }
+
+  Stream<JobApplication?> _getMyAppStream(String offerId, String userId) {
+    final key = '$offerId::$userId';
+    if (_myAppStream == null || _cachedMyAppKey != key) {
+      _cachedMyAppKey = key;
+      _myAppStream = DependencyInjection.jobOffers
+          .streamCaregiverApplicationForOffer(offerId, userId);
+    }
+    return _myAppStream!;
   }
 
   Future<void> _loadAccumulatedHours() async {
@@ -212,7 +237,10 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
             } catch (e) {
               setModalState(() {
                 isSubmitting = false;
-                submitError = e.toString().replaceAll('Exception: ', '');
+                submitError = UserFacingErrorMapper.toSpanishMessage(
+                  e,
+                  fallback: 'No se pudo enviar tu propuesta. Inténtalo de nuevo.',
+                );
               });
             }
           }
@@ -260,8 +288,10 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           Text(
                             'Comisión est. ($commissionPct%):',
@@ -363,14 +393,14 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Detalle de Oferta')),
       body: StreamBuilder<JobOffer?>(
-        stream: DependencyInjection.jobOffers.streamOffer(widget.offer.id),
+        stream: _offerStream,
         initialData: widget.offer,
         builder: (context, offerSnapshot) {
           final offer = offerSnapshot.data ?? widget.offer;
 
           if (isClient) {
             return StreamBuilder<List<JobApplication>>(
-              stream: DependencyInjection.jobOffers.streamOfferApplications(offer.id),
+              stream: _getAppsStream(offer.id),
               builder: (context, appsSnapshot) {
                 final apps = appsSnapshot.data ?? [];
                 return _buildBody(
@@ -394,7 +424,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
 
           final caregiver = auth.currentCaregiver;
           return StreamBuilder<JobApplication?>(
-            stream: DependencyInjection.jobOffers.streamCaregiverApplicationForOffer(offer.id, currentUserId),
+            stream: _getMyAppStream(offer.id, currentUserId),
             builder: (context, myAppSnapshot) {
               return _buildBody(
                 context: context,

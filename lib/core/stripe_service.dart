@@ -330,6 +330,7 @@ class StripeService {
   static Future<Map<String, dynamic>?> createPaymentIntentOnly({
     required int amountInCents,
     required String currency,
+    List<String>? bookingIds,
     String? caregiverStripeAccountId,
     String preferredMethod = 'auto',
     String? familyId,
@@ -344,6 +345,7 @@ class StripeService {
       final response = await callable.call({
         'amountInCents': amountInCents,
         'currency': currency,
+        if (bookingIds != null && bookingIds.isNotEmpty) 'bookingIds': bookingIds,
         'caregiverStripeAccountId': caregiverStripeAccountId,
         'preferredMethod': preferredMethod,
         if (familyId != null && familyId.isNotEmpty) 'familyId': familyId,

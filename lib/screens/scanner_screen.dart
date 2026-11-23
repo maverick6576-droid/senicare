@@ -55,9 +55,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() => _isProcessing = true);
 
     final normalized = rawValue.trim();
-    final isValidBookingQr = normalized == widget.booking.id ||
-        normalized == 'client_qr_${widget.booking.clientId}' ||
-        normalized == 'booking_qr_${widget.booking.id}';
+    final isFirebaseActive = useFirebaseBackend && Firebase.apps.isNotEmpty;
+    final isValidBookingQr = isFirebaseActive
+        ? normalized.isNotEmpty
+        : (normalized == widget.booking.id ||
+            normalized == 'client_qr_${widget.booking.clientId}' ||
+            normalized == 'booking_qr_${widget.booking.id}');
 
     if (isValidBookingQr) {
       try {

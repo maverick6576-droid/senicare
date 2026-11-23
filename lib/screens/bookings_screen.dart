@@ -26,22 +26,24 @@ class _BookingsScreenState extends State<BookingsScreen>
   final ScrollController _scrollActive = ScrollController();
   final ScrollController _scrollHistory = ScrollController();
   final Map<String, Future<ClientProfile?>> _clientFutures = {};
-  final Map<String, Future<String?>> _bookingPinFutures = {};
+  final Map<String, Future<({String? pin, String? qrToken})>>
+      _bookingSecretFutures = {};
   final Map<String, GlobalKey> _bookingCardKeys = {};
   final Set<String> _busyBookingIds = {};
   String? _highlightedBookingId;
   String? _highlightedOfferTitle;
   int _focusLoadMoreAttempts = 0;
 
-  Future<String?> _getBookingSecretPin(Booking b) {
+  Future<({String? pin, String? qrToken})> _getBookingCheckInSecrets(
+      Booking b) {
     final directPin = b.bookingPin?.trim();
-    if (directPin != null && directPin.isNotEmpty) {
-      return Future.value(directPin);
-    }
     if (!useFirebaseBackend || Firebase.apps.isEmpty || b.id.isEmpty) {
-      return Future.value(null);
+      return Future.value((
+        pin: (directPin != null && directPin.isNotEmpty) ? directPin : null,
+        qrToken: b.id,
+      ));
     }
-    return _bookingPinFutures.putIfAbsent(b.id, () async {
+    return _bookingSecretFutures.putIfAbsent(b.id, () async {
       try {
         final secretDoc = await FirebaseFirestore.instance
             .collection('bookings')
@@ -49,11 +51,25 @@ class _BookingsScreenState extends State<BookingsScreen>
             .collection('secrets')
             .doc('checkin')
             .get();
-        return secretDoc.data()?['bookingPin']?.toString();
+        final data = secretDoc.data();
+        final pin = data?['bookingPin']?.toString().trim();
+        final qrToken = data?['qrToken']?.toString().trim();
+        return (
+          pin: (pin != null && pin.isNotEmpty) ? pin : directPin,
+          qrToken: (qrToken != null && qrToken.isNotEmpty) ? qrToken : null,
+        );
       } catch (_) {
-        return null;
+        return (pin: directPin, qrToken: null);
       }
     });
+  }
+
+  Future<String?> _getBookingSecretPin(Booking b) {
+    final directPin = b.bookingPin?.trim();
+    if (directPin != null && directPin.isNotEmpty) {
+      return Future.value(directPin);
+    }
+    return _getBookingCheckInSecrets(b).then((s) => s.pin);
   }
   String _caregiverFilter = 'all'; // 'all', 'pending', 'today'
 
@@ -143,7 +159,8 @@ class _BookingsScreenState extends State<BookingsScreen>
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo completar la acción: $e',
+          message:
+              'No se pudo completar la acción. ${UserFacingErrorMapper.toSpanishMessage(e, fallback: 'Inténtalo de nuevo.')}',
           type: SnackBarType.error,
         );
       }
@@ -1708,9 +1725,9 @@ class _BookingsScreenState extends State<BookingsScreen>
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 10.5,
+                    fontSize: 12,
                     fontWeight: done ? FontWeight.w800 : FontWeight.w500,
-                    color: done ? AppTheme.darkSlate : Colors.grey.shade500,
+                    color: done ? AppTheme.darkSlate : AppTheme.slateMuted,
                   ),
                 ),
               ],
@@ -3069,10 +3086,43 @@ class _BookingsScreenState extends State<BookingsScreen>
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: AppTheme.borderSubtle),
                     ),
-                    child: QrImageView(
-                      data: b.id,
-                      version: QrVersions.auto,
-                      size: 128.0,
+                    child: FutureBuilder<({String? pin, String? qrToken})>(
+                      future: _getBookingCheckInSecrets(b),
+                      builder: (context, secretSnap) {
+                        if (secretSnap.connectionState ==
+                            ConnectionState.waiting) {
+                          return const SizedBox(
+                            width: 128,
+                            height: 128,
+                            child: Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        final qrData = secretSnap.data?.qrToken ??
+                            (!useFirebaseBackend ? b.id : null);
+                        if (qrData == null || qrData.isEmpty) {
+                          return const SizedBox(
+                            width: 128,
+                            height: 128,
+                            child: Center(
+                              child: Text(
+                                'Usa el código PIN superior para validar la llegada.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.slateMuted,
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                        return QrImageView(
+                          data: qrData,
+                          version: QrVersions.auto,
+                          size: 128.0,
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -3535,7 +3585,10 @@ class _BookingsScreenState extends State<BookingsScreen>
       if (context.mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo adjuntar la foto: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo adjuntar la foto. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -3812,7 +3865,10 @@ class _BookingsScreenState extends State<BookingsScreen>
       if (context.mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo generar el evento de calendario: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo generar el evento de calendario.',
+          ),
           type: SnackBarType.error,
         );
       }

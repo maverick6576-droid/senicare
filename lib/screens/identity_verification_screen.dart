@@ -107,7 +107,10 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       if (!mounted) return;
       CustomSnackBar.show(
         context,
-        message: 'No se pudo subir el documento: $e',
+        message: UserFacingErrorMapper.toSpanishMessage(
+          e,
+          fallback: 'No se pudo subir el documento. Inténtalo de nuevo.',
+        ),
         type: SnackBarType.error,
       );
     } finally {

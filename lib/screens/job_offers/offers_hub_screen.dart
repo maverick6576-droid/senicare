@@ -1626,37 +1626,44 @@ class _CaregiverOffersViewState extends State<_CaregiverOffersView>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            application != null ? 'Tu propuesta' : 'Tarifa ofrecida',
-                            style: const TextStyle(fontSize: 11.5, color: AppTheme.slateMuted, fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${effectiveHourlyRate.toStringAsFixed(2)} €/h',
-                            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.primary),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          const Text(
-                            'Ganancia neta est.',
-                            style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted, fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '~${estimatedNet.toStringAsFixed(2)} €',
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.secondaryColor,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              application != null ? 'Tu propuesta' : 'Tarifa ofrecida',
+                              style: const TextStyle(fontSize: 11.5, color: AppTheme.slateMuted, fontWeight: FontWeight.w600),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 2),
+                            Text(
+                              '${effectiveHourlyRate.toStringAsFixed(2)} €/h',
+                              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.primary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text(
+                              'Ganancia neta est.',
+                              textAlign: TextAlign.end,
+                              style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '~${estimatedNet.toStringAsFixed(2)} €',
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.secondaryColor,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),

@@ -170,6 +170,7 @@ class BookingNotifier extends ChangeNotifier {
         'disputeAmount': disputeAmount,
         'disputeReason': reason,
         'disputeDescription': description,
+        'disputeEscalated': false,
         'disputeOpenedAt': FieldValue.serverTimestamp(),
       });
     }
@@ -305,34 +306,19 @@ class BookingNotifier extends ChangeNotifier {
     String bookingId, {
     bool verifiedByServer = false,
   }) async {
-    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
-    if (b == null) return;
-    
-    final checkInTime = DateTime.now();
-    bool isPunctual = true;
-    try {
-      final parts = b.day.split('-');
-      final String startTimeStr = b.slot.contains('-') ? b.slot.split('-')[0] : b.slot;
-      final timeParts = startTimeStr.split(':');
-      final expectedTime = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]), int.parse(timeParts[0]), int.parse(timeParts[1]));
-      
-      final diffMinutes = checkInTime.difference(expectedTime).inMinutes;
-      isPunctual = diffMinutes <= 15;
-    } catch (e) {
-      debugPrint('Error calculating punctuality: $e');
+    if (!verifiedByServer && useFirebaseBackend && Firebase.apps.isNotEmpty) {
+      throw UnsupportedError(
+        'El check-in en Firebase debe verificarse mediante verifyBookingCheckIn.',
+      );
     }
 
+    final b = bookings.where((b) => b.id == bookingId).firstOrNull;
+    if (b == null) return;
+
+    final checkInTime = DateTime.now();
     b.liveStatus = 'in_progress';
     b.checkInTime = checkInTime;
     notifyListeners();
-
-    if (!verifiedByServer && useFirebaseBackend && Firebase.apps.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-        'checkInTime': Timestamp.fromDate(checkInTime),
-        'isPunctual': isPunctual,
-        'liveStatus': 'in_progress',
-      });
-    }
   }
 
   Future<Map<String, dynamic>> completeService(String bookingId, {String? careNotes}) async {
@@ -499,13 +485,7 @@ class BookingNotifier extends ChangeNotifier {
   }
 
   Future<void> requestRefund(String bookingId, double amount, String reason) async {
-    if (useFirebaseBackend && Firebase.apps.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
-        'disputeRequested': true,
-        'disputeAmount': amount,
-        'disputeReason': reason,
-      });
-    }
+    await openDispute(bookingId, amount, reason, reason);
   }
 
   Future<void> acceptRefund(String bookingId) async {

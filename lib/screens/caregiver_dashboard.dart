@@ -960,7 +960,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     final isOvertime = activeService.isExpired;
 
     return Card(
-      color: const Color(0xFF0F4C3A),
+      color: AppTheme.primarySenior,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -1063,21 +1063,50 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  InkWell(
-                                    onTap: () => _openMaps(profile.homeAddress),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.22),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.navigation_rounded, color: Colors.white, size: 12),
-                                          SizedBox(width: 4),
-                                          Text('Maps', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                                        ],
+                                  Semantics(
+                                    button: true,
+                                    label: 'Abrir dirección en mapas',
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(10),
+                                      onTap: () => _openMaps(profile.homeAddress),
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          minHeight: 48,
+                                          minWidth: 48,
+                                        ),
+                                        child: Center(
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.22),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.navigation_rounded,
+                                                  color: Colors.white,
+                                                  size: 14,
+                                                ),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'Maps',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1101,9 +1130,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 children: [
                   const Icon(Icons.access_time_rounded, color: Colors.white70, size: 15),
                   const SizedBox(width: 6),
-                  Text(
-                    'Llegada registrada a las ${DateFormat('HH:mm').format(activeService.checkInTime!)}',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                  Expanded(
+                    child: Text(
+                      'Llegada registrada a las ${DateFormat('HH:mm').format(activeService.checkInTime!)}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ],
               ),
@@ -1122,41 +1153,75 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('📋 Tareas del Cuidado', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                        Text('$completedTasks/$totalTasks hechas', style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                        const Expanded(
+                          child: Text(
+                            '📋 Tareas del Cuidado',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '$completedTasks/$totalTasks hechas',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    ...activeService.careChecklist.map((item) => InkWell(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        bookingState.toggleChecklistTask(activeService.id, item.id);
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            Icon(
-                              item.completed ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                              size: 18,
-                              color: item.completed ? Colors.greenAccent : Colors.white60,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                item.title,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  decoration: item.completed ? TextDecoration.lineThrough : null,
-                                  decorationColor: Colors.white70,
+                    ...activeService.careChecklist.map((item) => Semantics(
+                          checked: item.completed,
+                          label: item.title,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              bookingState.toggleChecklistTask(
+                                activeService.id,
+                                item.id,
+                              );
+                            },
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minHeight: 48),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      item.completed
+                                          ? Icons.check_circle_rounded
+                                          : Icons.radio_button_unchecked_rounded,
+                                      size: 20,
+                                      color: item.completed
+                                          ? Colors.greenAccent
+                                          : Colors.white70,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        item.title,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13.5,
+                                          decoration: item.completed
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                          decorationColor: Colors.white70,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    )),
+                          ),
+                        )),
                   ],
                 ),
               ),

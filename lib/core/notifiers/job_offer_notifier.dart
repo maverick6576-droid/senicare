@@ -69,9 +69,17 @@ class JobOfferNotifier extends ChangeNotifier {
     _subscribeClientOffers();
   }
 
+  void _completeClientRefresh() {
+    final c = _clientRefreshCompleter;
+    _clientRefreshCompleter = null;
+    if (c != null && !c.isCompleted) {
+      c.complete();
+    }
+  }
+
   Future<void> refreshClientOffers() async {
     if (_lastClientId == null || _lastClientId!.isEmpty) return;
-    _clientRefreshCompleter?.complete();
+    _completeClientRefresh();
     final completer = Completer<void>();
     _clientRefreshCompleter = completer;
 
@@ -84,9 +92,7 @@ class JobOfferNotifier extends ChangeNotifier {
     await completer.future.timeout(
       const Duration(seconds: 3),
       onTimeout: () {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
+        _completeClientRefresh();
         isLoadingClientOffers = false;
         notifyListeners();
       },
@@ -114,8 +120,7 @@ class JobOfferNotifier extends ChangeNotifier {
         _isLoadingMoreClient = false;
         clientError = null;
         _hasMoreClientOffers = offers.length >= _clientLimit;
-        _clientRefreshCompleter?.complete();
-        _clientRefreshCompleter = null;
+        _completeClientRefresh();
 
         final activeOfferIds = offers.map((o) => o.id).toSet();
         final staleSubIds = _appSubs.keys.where((id) => !activeOfferIds.contains(id)).toList();
@@ -136,8 +141,7 @@ class JobOfferNotifier extends ChangeNotifier {
         isLoadingClientOffers = false;
         _isLoadingMoreClient = false;
         clientError = 'No pudimos cargar tus ofertas. Revisa tu conexión e inténtalo de nuevo.';
-        _clientRefreshCompleter?.complete();
-        _clientRefreshCompleter = null;
+        _completeClientRefresh();
         notifyListeners();
       },
     );
@@ -289,11 +293,13 @@ class JobOfferNotifier extends ChangeNotifier {
       if (offer.urgencyBonusRate <= 0) {
         offer.urgencyBonusRate = 0.10;
       }
-      unawaited(
-        DependencyInjection.jobOffers
-            .promoteOfferToUrgent(offerId, bonusRate: offer.urgencyBonusRate)
-            .catchError((_) {}),
-      );
+      if (!useFirebaseBackend) {
+        unawaited(
+          DependencyInjection.jobOffers
+              .promoteOfferToUrgent(offerId, bonusRate: offer.urgencyBonusRate)
+              .catchError((_) {}),
+        );
+      }
     }
   }
 
@@ -487,8 +493,7 @@ class JobOfferNotifier extends ChangeNotifier {
       sub.cancel();
     }
     _appSubs.clear();
-    _clientRefreshCompleter?.complete();
-    _clientRefreshCompleter = null;
+    _completeClientRefresh();
     clientOffers = [];
     nearbyOffers = [];
     myApplications = [];
@@ -516,8 +521,7 @@ class JobOfferNotifier extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _clientRefreshCompleter?.complete();
-    _clientRefreshCompleter = null;
+    _completeClientRefresh();
     _clientSub?.cancel();
     _nearbySub?.cancel();
     for (final sub in _appSubs.values) {

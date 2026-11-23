@@ -97,12 +97,26 @@ class _ReportDialogState extends State<ReportDialog> {
                         );
                     if (context.mounted) {
                       Navigator.pop(context);
-                      CustomSnackBar.show(context, message: 'Incidente reportado con éxito. El equipo se pondrá en contacto contigo pronto.', type: SnackBarType.error);
+                      CustomSnackBar.show(
+                        context,
+                        message:
+                            'Incidente reportado con éxito. El equipo se pondrá en contacto contigo pronto.',
+                        type: SnackBarType.success,
+                      );
                     }
                   } catch (e) {
-                    setState(() => _isSubmitting = false);
+                    if (mounted) {
+                      setState(() => _isSubmitting = false);
+                    }
                     if (context.mounted) {
-                      CustomSnackBar.show(context, message: 'Error al enviar el reporte.', type: SnackBarType.error);
+                      CustomSnackBar.show(
+                        context,
+                        message: UserFacingErrorMapper.toSpanishMessage(
+                          e,
+                          fallback: 'No se pudo enviar el reporte. Inténtalo de nuevo.',
+                        ),
+                        type: SnackBarType.error,
+                      );
                     }
                   }
                 },

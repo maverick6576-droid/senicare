@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:flutter/foundation.dart';
+import 'package:senicare/core/core.dart';
 
 class LiveDniScannerScreen extends StatefulWidget {
   const LiveDniScannerScreen({super.key});
@@ -68,7 +69,14 @@ class _LiveDniScannerScreenState extends State<LiveDniScannerScreen> {
       debugPrint('Error initializing camera: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo abrir la cámara: $e')),
+          SnackBar(
+            content: Text(
+              UserFacingErrorMapper.toSpanishMessage(
+                e,
+                fallback: 'No se pudo abrir la cámara en este dispositivo.',
+              ),
+            ),
+          ),
         );
         Navigator.pop(context);
       }

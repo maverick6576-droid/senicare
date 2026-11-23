@@ -677,7 +677,13 @@ class _GuidedMatchingWizardState extends State<GuidedMatchingWizard> {
                               color: AppTheme.primaryColor,
                             ),
                           ),
-                          const Text('/hora', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                          const Text(
+                            '/hora',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.slateMuted,
+                            ),
+                          ),
                         ],
                       ),
                     ],

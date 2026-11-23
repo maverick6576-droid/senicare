@@ -572,8 +572,8 @@ class _InboxScreenState extends State<InboxScreen> {
                                                   Icons.done_all_rounded,
                                                   size: 17,
                                                   color: chat.lastMessageIsRead
-                                                      ? const Color(0xFF0284C7)
-                                                      : Colors.grey.shade500,
+                                                      ? AppTheme.info
+                                                      : AppTheme.slateMuted,
                                                 ),
                                                 const SizedBox(width: 4),
                                               ],
@@ -595,7 +595,7 @@ class _InboxScreenState extends State<InboxScreen> {
                                                         ? FontWeight.w600
                                                         : FontWeight.normal,
                                                     color: isPeerTyping
-                                                        ? const Color(0xFF16A34A)
+                                                        ? AppTheme.success
                                                         : (unreadCount > 0
                                                             ? AppTheme.darkSlate
                                                             : AppTheme.slateMuted),

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:senicare/core/core.dart';
-import 'package:senicare/models/models.dart';
 import 'package:senicare/widgets/address_form_widget.dart';
 import 'package:senicare/widgets/widgets.dart';
 
@@ -80,10 +79,6 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
         }
       }
 
-      final displayName = _nameCtrl.text.trim().isNotEmpty
-          ? _nameCtrl.text.trim()
-          : (auth.currentUserDisplayName ?? 'Administrador');
-
       final data = {
         'name': _nameCtrl.text.trim(),
         'phone': _phoneCtrl.text.trim(),
@@ -93,19 +88,6 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
         'rgpdArt9ConsentAcceptedAt': DateTime.now().toIso8601String(),
         'latitude': lat,
         'longitude': lon,
-        'ownerUid': userId,
-        'memberUids': [userId],
-        'members': {
-          userId: FamilyMember(
-            uid: userId,
-            email: auth.currentUserEmail ?? '',
-            displayName: displayName,
-            role: FamilyRole.admin,
-            joinedAt: DateTime.now(),
-            joinedVia: 'owner',
-            isOwner: true,
-          ).toMap(),
-        },
       };
 
       await DependencyInjection.clients.updateClient(userId, data);

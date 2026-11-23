@@ -9,7 +9,8 @@ service cloud.firestore {
     function isAdmin() {
       return request.auth != null &&
         request.auth.token.admin == true &&
-        request.auth.token.admin2fa == true;
+        request.auth.token.admin2fa == true &&
+        request.auth.token.email_verified == true;
     }
     function isFamilyMember(familyId) {
       return isAuthenticated() && (
@@ -75,6 +76,7 @@ service cloud.firestore {
     match /admins/{adminId} {
       allow read: if isAdmin() || (
         request.auth != null &&
+        request.auth.token.email_verified == true &&
         request.auth.token.email != null &&
         request.auth.token.email == adminId
       );
@@ -187,13 +189,29 @@ service cloud.firestore {
     // 5. Ofertas de Empleo
     match /job_offers/{offerId} {
       allow read: if isAuthenticated();
-      allow create: if isFamilyAdmin(request.resource.data.clientId) || isAdmin();
+      allow create: if isAdmin() || (
+        isFamilyAdmin(request.resource.data.clientId) &&
+        request.resource.data.status == 'open' &&
+        (!('applicationsCount' in request.resource.data) || request.resource.data.applicationsCount == 0) &&
+        (!('clientFeeRate' in request.resource.data) ||
+          (request.resource.data.clientFeeRate is number && request.resource.data.clientFeeRate >= 0.03)) &&
+        (!('isUrgent' in request.resource.data) || request.resource.data.isUrgent == false) &&
+        (!('urgencyBonusRate' in request.resource.data) || request.resource.data.urgencyBonusRate == 0) &&
+        (!('title' in request.resource.data) ||
+          (request.resource.data.title is string && request.resource.data.title.size() <= 200)) &&
+        (!('description' in request.resource.data) ||
+          (request.resource.data.description is string && request.resource.data.description.size() <= 3000))
+      );
       allow update: if isAdmin() || (
         isFamilyAdmin(resource.data.clientId) &&
         request.resource.data.clientId == resource.data.clientId &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'urgencyBonusRate', 'isUrgent', 'clientFeeRate', 'applicationsCount'
-        ])
+        ]) &&
+        (!('title' in request.resource.data) ||
+          (request.resource.data.title is string && request.resource.data.title.size() <= 200)) &&
+        (!('description' in request.resource.data) ||
+          (request.resource.data.description is string && request.resource.data.description.size() <= 3000))
       );
       allow delete: if isFamilyAdmin(resource.data.clientId) || isAdmin();
 
@@ -205,8 +223,16 @@ service cloud.firestore {
           isAdmin()
         );
         allow create: if request.auth != null &&
+          applicationId == request.auth.uid &&
           request.auth.uid == request.resource.data.caregiverId &&
           request.resource.data.status == "pending" &&
+          exists(/databases/$(database)/documents/job_offers/$(offerId)) &&
+          get(/databases/$(database)/documents/job_offers/$(offerId)).data.status == 'open' &&
+          request.resource.data.proposedPrice is number &&
+          request.resource.data.proposedPrice >= 6 &&
+          request.resource.data.proposedPrice <= 200 &&
+          (!('message' in request.resource.data) ||
+            (request.resource.data.message is string && request.resource.data.message.size() <= 2000)) &&
           exists(/databases/$(database)/documents/caregivers/$(request.auth.uid)) &&
           (
             get(/databases/$(database)/documents/caregivers/$(request.auth.uid)).data.get('status', '') == 'approved' ||
@@ -225,7 +251,14 @@ service cloud.firestore {
             resource.data.caregiverId == request.auth.uid &&
             request.resource.data.caregiverId == request.auth.uid &&
             resource.data.status == "pending" &&
-            request.resource.data.status == "pending"
+            request.resource.data.status == "pending" &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['message', 'proposedPrice', 'appliedAt']) &&
+            (!('proposedPrice' in request.resource.data) ||
+              (request.resource.data.proposedPrice is number &&
+                request.resource.data.proposedPrice >= 6 &&
+                request.resource.data.proposedPrice <= 200)) &&
+            (!('message' in request.resource.data) ||
+              (request.resource.data.message is string && request.resource.data.message.size() <= 2000))
           )
         );
         allow delete: if isAuthenticated() && (
@@ -247,6 +280,16 @@ service cloud.firestore {
           "discountApplied", "escrowLock", "checkInTime", "checkOutTime", "checkInMethod", "isPunctual"
         ]);
       }
+      function validBookingDiaryBounds() {
+        return (
+          (!('careNotes' in request.resource.data) ||
+            request.resource.data.careNotes == null ||
+            (request.resource.data.careNotes is string && request.resource.data.careNotes.size() <= 2000)) &&
+          (!('carePhotoUrls' in request.resource.data) ||
+            request.resource.data.carePhotoUrls == null ||
+            (request.resource.data.carePhotoUrls is list && request.resource.data.carePhotoUrls.size() <= 20))
+        );
+      }
 
       allow read: if isAuthenticated() && (
         request.auth.uid == resource.data.clientId ||
@@ -267,7 +310,8 @@ service cloud.firestore {
             (
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 "careChecklist", "careNotes", "carePhotoUrls", "reviewPromptDismissed", "isReviewed"
-              ])
+              ]) &&
+              validBookingDiaryBounds()
             ) ||
             (
               resource.data.status in ["confirmed", "completed"] &&
@@ -282,7 +326,13 @@ service cloud.firestore {
               (!('disputeEscalated' in request.resource.data) || request.resource.data.disputeEscalated == false) &&
               request.resource.data.disputeAmount is number &&
               request.resource.data.disputeAmount > 0 &&
-              request.resource.data.disputeAmount <= resource.data.cost
+              request.resource.data.disputeAmount <= resource.data.cost &&
+              (!('disputeReason' in request.resource.data) ||
+                request.resource.data.disputeReason == null ||
+                (request.resource.data.disputeReason is string && request.resource.data.disputeReason.size() <= 300)) &&
+              (!('disputeDescription' in request.resource.data) ||
+                request.resource.data.disputeDescription == null ||
+                (request.resource.data.disputeDescription is string && request.resource.data.disputeDescription.size() <= 2000))
             ) ||
             (
               resource.data.escrowStatus == "disputed" &&
@@ -294,7 +344,8 @@ service cloud.firestore {
           (isFamilyMember(resource.data.clientId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               "careChecklist", "careNotes", "carePhotoUrls", "reviewPromptDismissed", "isReviewed"
-            ])
+            ]) &&
+            validBookingDiaryBounds()
           ) ||
           // C. Cuidador asignado: aceptar pending->confirmed, seguimiento en curso (check-in y check-out vía Cloud Functions), escalado
           (request.auth.uid == resource.data.caregiverId && (
@@ -308,7 +359,10 @@ service cloud.firestore {
               resource.data.status == "confirmed" &&
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 "liveStatus", "onTheWayAt", "careChecklist", "careNotes", "carePhotoUrls"
-              ])
+              ]) &&
+              (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["liveStatus"]) ||
+                request.resource.data.liveStatus == "on_the_way") &&
+              validBookingDiaryBounds()
             ) ||
             (
               resource.data.escrowStatus == "disputed" &&
@@ -380,14 +434,23 @@ service cloud.firestore {
 
         allow read: if isParticipant();
         allow create: if isParticipant() &&
-          isMessageAuthor(request.resource.data) &&
+          chatId.split('_').size() == 2 &&
+          request.resource.data.senderId == request.auth.uid &&
+          (
+            (request.resource.data.sender == 'Client' && isFamilyMember(chatId.split('_')[0])) ||
+            (request.resource.data.sender == 'Caregiver' && request.auth.uid == chatId.split('_')[1])
+          ) &&
+          (!('text' in request.resource.data) ||
+            (request.resource.data.text is string && request.resource.data.text.size() <= 4000)) &&
           request.resource.data.get('isRead', false) == false &&
           request.resource.data.get('isDeleted', false) == false;
         allow update: if isAdmin() || (
           isParticipant() &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             "senderId", "sender", "receiverId", "timestamp"
-          ]) && (
+          ]) &&
+          (!('text' in request.resource.data) ||
+            (request.resource.data.text is string && request.resource.data.text.size() <= 4000)) && (
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead", "readAt", "reactions"]) ||
             (
               isMessageAuthor(resource.data) &&
@@ -417,10 +480,25 @@ service cloud.firestore {
     }
     match /reports/{reportId} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated() && (
-        request.resource.data.reporterId == request.auth.uid ||
-        isFamilyMember(request.resource.data.reporterId)
-      );
+      allow create: if isAuthenticated() &&
+        (
+          request.resource.data.reporterId == request.auth.uid ||
+          isFamilyMember(request.resource.data.reporterId)
+        ) &&
+        request.resource.data.keys().hasOnly([
+          'reporterId', 'reportedId', 'bookingId', 'reason', 'description', 'details', 'status', 'createdAt'
+        ]) &&
+        (!('status' in request.resource.data) || request.resource.data.status == 'open') &&
+        (!('reason' in request.resource.data) ||
+          (request.resource.data.reason is string && request.resource.data.reason.size() <= 500)) &&
+        (!('description' in request.resource.data) ||
+          (request.resource.data.description is string && request.resource.data.description.size() <= 2000)) &&
+        (!('details' in request.resource.data) ||
+          (request.resource.data.details is string && request.resource.data.details.size() <= 2000)) &&
+        (!('reportedId' in request.resource.data) ||
+          (request.resource.data.reportedId is string && request.resource.data.reportedId.size() <= 128)) &&
+        (!('bookingId' in request.resource.data) ||
+          (request.resource.data.bookingId is string && request.resource.data.bookingId.size() <= 128));
       allow update, delete: if isAdmin();
     }
     match /reviews/{reviewId} {
@@ -430,6 +508,9 @@ service cloud.firestore {
         request.resource.data.rating is number &&
         request.resource.data.rating >= 1 &&
         request.resource.data.rating <= 5 &&
+        (!('comment' in request.resource.data) ||
+          request.resource.data.comment == null ||
+          (request.resource.data.comment is string && request.resource.data.comment.size() <= 2000)) &&
         'bookingId' in request.resource.data &&
         reviewId == request.resource.data.bookingId &&
         exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)) &&
@@ -445,6 +526,14 @@ service cloud.firestore {
     match /experiments/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+    match /admin_alerts/{docId} {
+      allow read: if isAdmin();
+      allow write: if false; // Solo Cloud Functions
+    }
+    match /orphan_payment_alerts/{docId} {
+      allow read: if isAdmin();
+      allow write: if false; // Solo Cloud Functions
     }
     match /rate_limits/{docId} {
       allow read, write: if false; // Solo Cloud Functions

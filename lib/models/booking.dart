@@ -21,7 +21,7 @@ class CareChecklistItem {
     return CareChecklistItem(
       id: map['id']?.toString() ?? DateTime.now().microsecondsSinceEpoch.toString(),
       title: map['title']?.toString() ?? '',
-      completed: map['completed'] == true,
+      completed: map['completed'] == true || map['isCompleted'] == true,
       completedAt: map['completedAt']?.toString(),
     );
   }

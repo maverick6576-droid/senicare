@@ -511,7 +511,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo generar el código: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo generar el código de invitación.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -543,7 +546,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo revocar el código: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo revocar el código de invitación.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -579,7 +585,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo cambiar el rol: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo cambiar el rol del familiar.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -621,7 +630,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo desconectar al familiar: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo desconectar al familiar.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -680,7 +692,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo obtener la ubicación: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo obtener tu ubicación actual.',
+          ),
           type: SnackBarType.warning,
         );
       }
@@ -876,7 +891,10 @@ class _ClientProfileEditScreenState extends State<ClientProfileEditScreen> {
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al guardar el perfil: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo guardar el perfil. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }

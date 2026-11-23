@@ -71,7 +71,15 @@ class _CaregiverProfileEditScreenState
             .child('caregiver_voice')
             .child(_profile!.id)
             .child('intro_${DateTime.now().millisecondsSinceEpoch}$ext');
-        await ref.putData(bytes, SettableMetadata(contentType: 'audio/${ext.replaceFirst(".", "")}'));
+        final audioContentType = switch (ext) {
+          '.mp3' => 'audio/mpeg',
+          '.m4a' => 'audio/mp4',
+          '.wav' => 'audio/wav',
+          '.aac' => 'audio/aac',
+          '.ogg' => 'audio/ogg',
+          _ => 'audio/mp4',
+        };
+        await ref.putData(bytes, SettableMetadata(contentType: audioContentType));
         voiceUrl = await ref.getDownloadURL();
       } else {
         voiceUrl = 'https://senicare-3342d.web.app/mock_voice_${_profile!.id}$ext';
@@ -90,7 +98,10 @@ class _CaregiverProfileEditScreenState
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al subir el audio: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo subir el audio. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -116,7 +127,10 @@ class _CaregiverProfileEditScreenState
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo eliminar el audio: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo eliminar el audio. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -475,7 +489,10 @@ class _CaregiverProfileEditScreenState
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al guardar el perfil: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo guardar el perfil. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -499,12 +516,21 @@ class _CaregiverProfileEditScreenState
   Future<String?> _uploadFile(String path, String folder) async {
     if (path.startsWith('http')) return path;
 
-    final file = File(path);
-    if (!await file.exists()) {
-      throw Exception('El archivo local seleccionado no existe.');
+    final userId = _profile!.id;
+    if (folder == 'caregiver_docs' &&
+        _profile!.verificationStatus == 'approved' &&
+        useFirebaseBackend &&
+        Firebase.apps.isNotEmpty) {
+      await DependencyInjection.caregivers.updateProfile(userId, {
+        'verificationStatus': 'manual_review',
+      });
     }
 
-    final userId = _profile!.id;
+    final bytes = await XFile(path).readAsBytes();
+    if (bytes.isEmpty) {
+      throw Exception('El archivo local seleccionado está vacío.');
+    }
+
     final ext =
         p.extension(path).isNotEmpty ? p.extension(path).toLowerCase() : '.jpg';
     final ref = FirebaseStorage.instance
@@ -512,16 +538,16 @@ class _CaregiverProfileEditScreenState
         .child(folder)
         .child('${userId}_${DateTime.now().millisecondsSinceEpoch}$ext');
 
-    String contentType = 'application/octet-stream';
-    if (ext == '.pdf') {
-      contentType = 'application/pdf';
-    } else if (ext == '.png') {
-      contentType = 'image/png';
-    } else if (ext == '.jpg' || ext == '.jpeg') {
-      contentType = 'image/jpeg';
-    }
+    final contentType = switch (ext) {
+      '.pdf' => 'application/pdf',
+      '.png' => 'image/png',
+      '.jpg' || '.jpeg' => 'image/jpeg',
+      '.webp' => 'image/webp',
+      '.heic' => 'image/heic',
+      '.heif' => 'image/heif',
+      _ => 'application/octet-stream',
+    };
 
-    final bytes = await file.readAsBytes();
     await ref.putData(bytes, SettableMetadata(contentType: contentType));
     return await ref.getDownloadURL();
   }
@@ -565,7 +591,10 @@ class _CaregiverProfileEditScreenState
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No se pudo obtener la ubicación: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo obtener tu ubicación actual.',
+          ),
           type: SnackBarType.warning,
         );
       }
@@ -621,7 +650,10 @@ class _CaregiverProfileEditScreenState
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al seleccionar la foto: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo seleccionar la foto. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.error,
         );
       }
@@ -736,7 +768,10 @@ class _CaregiverProfileEditScreenState
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'Error al seleccionar imagen: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo seleccionar la imagen. Inténtalo de nuevo.',
+          ),
           type: SnackBarType.warning,
         );
       }
@@ -951,7 +986,10 @@ class _CaregiverProfileEditScreenState
       if (mounted) {
         CustomSnackBar.show(
           context,
-          message: 'No pudimos comprobar el estado bancario ahora: $e',
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No pudimos comprobar el estado bancario ahora.',
+          ),
           type: SnackBarType.error,
         );
       }
