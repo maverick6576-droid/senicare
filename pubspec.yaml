@@ -78,6 +78,7 @@ dependencies:
   firebase_analytics: ^11.6.0
   flutter_localizations:
     sdk: flutter
+  firebase_app_check: ^0.3.2+10
 
 dev_dependencies:
   flutter_test:

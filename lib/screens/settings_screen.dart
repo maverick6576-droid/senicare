@@ -325,9 +325,9 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    l10n.languageSectionSubtitle,
-                    style: const TextStyle(fontSize: 13, color: AppTheme.slateMuted),
+                  const Text(
+                    'Idioma configurado para la aplicación y todas las comunicaciones oficiales.',
+                    style: TextStyle(fontSize: 13, color: AppTheme.slateMuted),
                   ),
                   const SizedBox(height: 10),
                   Card(
@@ -337,37 +337,35 @@ class SettingsScreen extends StatelessWidget {
                     ),
                     elevation: 0,
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
                         children: [
-                          SegmentedButton<String>(
-                            segments: const [
-                              ButtonSegment(value: 'es', label: Text('Español')),
-                              ButtonSegment(value: 'ca', label: Text('Català')),
-                              ButtonSegment(value: 'en', label: Text('English')),
-                            ],
-                            selected: {config.locale.languageCode},
-                            onSelectionChanged: (selection) async {
-                              final code = selection.first;
-                              HapticFeedback.selectionClick();
-                              await config.setLocale(Locale(code));
-                              if (!ctx.mounted) return;
-                              CustomSnackBar.show(
-                                ctx,
-                                message: code == 'es'
-                                    ? AppLocalizations(Locale(code)).languageSavedToast
-                                    : '${AppLocalizations(Locale(code)).languageSavedToast} (Traducción completa próximamente)',
-                                type: SnackBarType.info,
-                              );
-                            },
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primarySurface,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.language_rounded, color: AppTheme.primary, size: 24),
                           ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Navegación disponible en Español, Català e Inglés. Traducción completa de todas las pantallas próximamente.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 12, color: AppTheme.slateMuted),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Español (España)',
+                                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Aplicación 100% en español.',
+                                  style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                                ),
+                              ],
+                            ),
                           ),
+                          const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 22),
                         ],
                       ),
                     ),

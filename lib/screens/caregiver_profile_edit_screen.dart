@@ -461,8 +461,10 @@ class _CaregiverProfileEditScreenState
             .collection('private')
             .doc('verification')
             .set({
-          'dniUrl': dniUrl,
-          'criminalRecordUrl': criminalUrl,
+          if (dniUrl.isNotEmpty) 'dniStoragePath': dniUrl,
+          if (criminalUrl.isNotEmpty) 'criminalStoragePath': criminalUrl,
+          'dniUrl': FieldValue.delete(),
+          'criminalRecordUrl': FieldValue.delete(),
           if (_dniScannedText.isNotEmpty) 'dniScannedText': _dniScannedText,
           if (_criminalScannedText.isNotEmpty)
             'criminalScannedText': _criminalScannedText,
@@ -514,7 +516,9 @@ class _CaregiverProfileEditScreenState
   }
 
   Future<String?> _uploadFile(String path, String folder) async {
-    if (path.startsWith('http')) return path;
+    if (path.startsWith('http') || path.startsWith('caregiver_docs/')) {
+      return path;
+    }
 
     final userId = _profile!.id;
     if (folder == 'caregiver_docs' &&
@@ -549,6 +553,9 @@ class _CaregiverProfileEditScreenState
     };
 
     await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    if (folder == 'caregiver_docs') {
+      return ref.fullPath;
+    }
     return await ref.getDownloadURL();
   }
 

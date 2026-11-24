@@ -28,11 +28,18 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   }) async {
     if (!useFirebaseBackend) return 'mock://uploaded/$prefix';
     final ext = (pickedFile.extension ?? 'jpg').toLowerCase();
-    final contentType = ext == 'pdf'
-        ? 'application/pdf'
-        : (ext == 'png' ? 'image/png' : 'image/jpeg');
-    final fileName = '${caregiverId}_${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
-    final ref = FirebaseStorage.instance.ref().child('caregiver_docs').child(fileName);
+    final contentType = switch (ext) {
+      'pdf' => 'application/pdf',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      _ => 'image/jpeg',
+    };
+    final fileName =
+        '${caregiverId}_${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final ref =
+        FirebaseStorage.instance.ref().child('caregiver_docs').child(fileName);
     final meta = SettableMetadata(contentType: contentType);
 
     if (pickedFile.bytes != null) {
@@ -42,7 +49,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
     } else {
       return null;
     }
-    return ref.getDownloadURL();
+    return ref.fullPath;
   }
 
   Future<void> _verifyDocument(bool isDni) async {
@@ -52,7 +59,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
 
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'],
       withData: kIsWeb,
     );
     if (result == null || result.files.isEmpty) return;
@@ -141,9 +148,13 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       final privateData = <String, dynamic>{
         'lastUpdated': FieldValue.serverTimestamp(),
       };
-      if (dniUrl != null && dniUrl.isNotEmpty) privateData['dniUrl'] = dniUrl;
+      if (dniUrl != null && dniUrl.isNotEmpty) {
+        privateData['dniStoragePath'] = dniUrl;
+        privateData['dniUrl'] = FieldValue.delete();
+      }
       if (criminalRecordUrl != null && criminalRecordUrl.isNotEmpty) {
-        privateData['criminalRecordUrl'] = criminalRecordUrl;
+        privateData['criminalStoragePath'] = criminalRecordUrl;
+        privateData['criminalRecordUrl'] = FieldValue.delete();
       }
       await cgRef.collection('private').doc('verification').set(
             privateData,

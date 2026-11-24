@@ -56,36 +56,145 @@ class AdminDashboard extends StatelessWidget {
   }
 }
 
-class AdminValidationsTab extends StatelessWidget {
+class AdminValidationsTab extends StatefulWidget {
   final FirebaseFirestore? firestore;
   const AdminValidationsTab({super.key, this.firestore});
 
-  FirebaseFirestore get _db => firestore ?? FirebaseFirestore.instance;
+  @override
+  State<AdminValidationsTab> createState() => _AdminValidationsTabState();
+}
+
+class _AdminValidationsTabState extends State<AdminValidationsTab> {
+  late final Stream<QuerySnapshot> _pendingStream;
+  final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>>
+      _privateVerificationFutures = {};
+  final Set<String> _openingDocKeys = {};
+
+  FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _pendingStream = _db
+        .collection('caregivers')
+        .where('verificationStatus', whereIn: ['pending', 'manual_review'])
+        .snapshots();
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _getPrivateVerification(
+      String caregiverId) {
+    return _privateVerificationFutures.putIfAbsent(
+      caregiverId,
+      () => _db
+          .collection('caregivers')
+          .doc(caregiverId)
+          .collection('private')
+          .doc('verification')
+          .get(),
+    );
+  }
 
   Future<void> _updateStatus(String id, String status) async {
-    final isApproved = status == 'approved';
-    await _db.collection('caregivers').doc(id).update({
-      'verificationStatus': status,
-      'isVerified': isApproved,
-      'verified': isApproved,
-    });
+    try {
+      final isApproved = status == 'approved';
+      await _db.collection('caregivers').doc(id).update({
+        'verificationStatus': status,
+        'isVerified': isApproved,
+        'verified': isApproved,
+      });
+      _privateVerificationFutures.remove(id);
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: isApproved
+              ? 'Cuidador aprobado correctamente.'
+              : 'Verificación rechazada.',
+          type: isApproved ? SnackBarType.success : SnackBarType.info,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo actualizar el estado de verificación.',
+          ),
+          type: SnackBarType.error,
+        );
+      }
+    }
   }
 
   Future<void> _launchURL(String url) async {
     if (url.isEmpty) return;
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _openKycDocument({
+    required String caregiverId,
+    required String docType,
+    required String storedRef,
+  }) async {
+    final busyKey = '$caregiverId::$docType';
+    if (_openingDocKeys.contains(busyKey)) return;
+    if (storedRef.isEmpty) {
+      CustomSnackBar.show(
+        context,
+        message: 'Este documento aún no ha sido subido por el cuidador.',
+        type: SnackBarType.info,
+      );
+      return;
+    }
+
+    // Modo test/mock con FakeFirebaseFirestore inyectado
+    if (widget.firestore != null) {
+      await _launchURL(storedRef);
+      return;
+    }
+
+    setState(() => _openingDocKeys.add(busyKey));
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable(
+        'adminGetKycSignedUrl',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+      );
+      final response = await callable.call(<String, dynamic>{
+        'caregiverId': caregiverId,
+        'docType': docType,
+      });
+      final resMap = response.data as Map<dynamic, dynamic>?;
+      final signedUrl = resMap?['signedUrl']?.toString() ?? '';
+      if (signedUrl.isEmpty) {
+        throw Exception('No se recibió el enlace temporal seguro.');
+      }
+      await _launchURL(signedUrl);
+    } catch (e) {
+      if (mounted) {
+        CustomSnackBar.show(
+          context,
+          message: UserFacingErrorMapper.toSpanishMessage(
+            e,
+            fallback: 'No se pudo abrir el documento cifrado.',
+          ),
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _openingDocKeys.remove(busyKey));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: _db
-          .collection('caregivers')
-          .where('verificationStatus', whereIn: ['pending', 'manual_review'])
-          .snapshots(),
+      stream: _pendingStream,
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data!.docs;
@@ -105,27 +214,63 @@ class AdminValidationsTab extends StatelessWidget {
                   children: [
                     Text(data['title'] ?? ''),
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      future: _db
-                          .collection('caregivers')
-                          .doc(id)
-                          .collection('private')
-                          .doc('verification')
-                          .get(),
+                      future: _getPrivateVerification(id),
                       builder: (context, privSnap) {
                         final priv = privSnap.data?.data() ?? {};
-                        final dniUrl = (priv['dniUrl'] ?? data['dniUrl'] ?? '').toString();
-                        final crimUrl = (priv['criminalRecordUrl'] ?? data['criminalRecordUrl'] ?? '').toString();
+                        final dniRef = (priv['dniStoragePath'] ??
+                                priv['dniUrl'] ??
+                                data['dniStoragePath'] ??
+                                data['dniUrl'] ??
+                                '')
+                            .toString();
+                        final crimRef = (priv['criminalStoragePath'] ??
+                                priv['criminalRecordUrl'] ??
+                                data['criminalStoragePath'] ??
+                                data['criminalRecordUrl'] ??
+                                '')
+                            .toString();
+                        final openingDni = _openingDocKeys.contains('$id::dni');
+                        final openingCrim =
+                            _openingDocKeys.contains('$id::criminal');
                         return Row(
                           children: [
                             TextButton.icon(
-                              icon: const Icon(Icons.badge),
+                              icon: openingDni
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.badge),
                               label: const Text('DNI'),
-                              onPressed: () => _launchURL(dniUrl),
+                              onPressed: dniRef.isEmpty || openingDni
+                                  ? null
+                                  : () => _openKycDocument(
+                                        caregiverId: id,
+                                        docType: 'dni',
+                                        storedRef: dniRef,
+                                      ),
                             ),
                             TextButton.icon(
-                              icon: const Icon(Icons.description),
+                              icon: openingCrim
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.description),
                               label: const Text('PDF'),
-                              onPressed: () => _launchURL(crimUrl),
+                              onPressed: crimRef.isEmpty || openingCrim
+                                  ? null
+                                  : () => _openKycDocument(
+                                        caregiverId: id,
+                                        docType: 'criminal',
+                                        storedRef: crimRef,
+                                      ),
                             ),
                           ],
                         );

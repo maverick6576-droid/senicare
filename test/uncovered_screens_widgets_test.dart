@@ -527,11 +527,10 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 300));
 
-      final englishChip = find.text('English');
-      await tester.scrollUntilVisible(englishChip, 200);
-      await tester.tap(englishChip);
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(config.locale.languageCode, 'en');
+      final spanishLabel = find.text('Español (España)');
+      await tester.scrollUntilVisible(spanishLabel, 200);
+      expect(spanishLabel, findsOneWidget);
+      expect(config.locale.languageCode, 'es');
 
       final seniorToggle = find.text('Activar Modo Senior (Letra Grande)');
       await tester.scrollUntilVisible(seniorToggle, 200);
@@ -542,7 +541,7 @@ void main() {
       final reloadedConfig = ConfigNotifier();
       await reloadedConfig.loadPreferences();
       expect(reloadedConfig.seniorMode, isTrue);
-      expect(reloadedConfig.locale.languageCode, 'en');
+      expect(reloadedConfig.locale.languageCode, 'es');
     });
   });
 }

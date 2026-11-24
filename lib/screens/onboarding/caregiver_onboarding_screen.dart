@@ -109,8 +109,15 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
         }
       } catch (_) {}
 
-      final loadedDni = (privateData['dniUrl'] ?? data['dniUrl'])?.toString() ?? '';
-      final loadedCriminal = (privateData['criminalRecordUrl'] ?? data['criminalRecordUrl'])?.toString() ?? '';
+      final loadedDni =
+          (privateData['dniStoragePath'] ?? privateData['dniUrl'] ?? data['dniUrl'])
+                  ?.toString() ??
+              '';
+      final loadedCriminal = (privateData['criminalStoragePath'] ??
+                  privateData['criminalRecordUrl'] ??
+                  data['criminalRecordUrl'])
+              ?.toString() ??
+          '';
       final loadedDniScan = (privateData['dniScannedText'] ?? data['dniScannedText'])?.toString() ?? '';
       final loadedCrimScan = (privateData['criminalScannedText'] ?? data['criminalScannedText'])?.toString() ?? '';
 
@@ -208,8 +215,14 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       await cgRef.set(data, SetOptions(merge: true));
 
       final privateData = <String, dynamic>{};
-      if (_dniUrl != null) privateData['dniUrl'] = _dniUrl;
-      if (_criminalUrl != null) privateData['criminalRecordUrl'] = _criminalUrl;
+      if (_dniUrl != null) {
+        privateData['dniStoragePath'] = _dniUrl;
+        privateData['dniUrl'] = FieldValue.delete();
+      }
+      if (_criminalUrl != null) {
+        privateData['criminalStoragePath'] = _criminalUrl;
+        privateData['criminalRecordUrl'] = FieldValue.delete();
+      }
       if (_dniScannedText.isNotEmpty) privateData['dniScannedText'] = _dniScannedText;
       if (_criminalScannedText.isNotEmpty) privateData['criminalScannedText'] = _criminalScannedText;
       if (privateData.isNotEmpty) {
@@ -257,7 +270,9 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
     String? originalName,
   }) async {
     try {
-      if (path.startsWith('http')) return path;
+      if (path.startsWith('http') || path.startsWith('caregiver_docs/')) {
+        return path;
+      }
 
       // Capture auth synchronously before any await
       final auth = context.read<AuthNotifier>();
@@ -299,6 +314,9 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
 
       final ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
       await ref.putData(uploadBytes, metadata);
+      if (folder == 'caregiver_docs') {
+        return ref.fullPath;
+      }
       return await ref.getDownloadURL();
     } catch (e) {
       debugPrint('Upload error: $e');
@@ -736,8 +754,10 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
       final cgRef = FirebaseFirestore.instance.collection('caregivers').doc(userId);
       await cgRef.set(data, SetOptions(merge: true));
       await cgRef.collection('private').doc('verification').set({
-        'dniUrl': _dniUrl ?? '',
-        'criminalRecordUrl': _criminalUrl ?? '',
+        'dniStoragePath': _dniUrl ?? '',
+        'criminalStoragePath': _criminalUrl ?? '',
+        'dniUrl': FieldValue.delete(),
+        'criminalRecordUrl': FieldValue.delete(),
         'dniScannedText': _dniScannedText,
         'criminalScannedText': _criminalScannedText,
         'lastUpdated': FieldValue.serverTimestamp(),
@@ -1181,6 +1201,15 @@ class _CaregiverOnboardingScreenState extends State<CaregiverOnboardingScreen> {
                             contentPadding: EdgeInsets.zero,
                             leading: Icon(Icons.picture_as_pdf, color: Colors.redAccent),
                             title: Text('Documento PDF seleccionado'),
+                          )
+                        else if (_dniFrontPath!.startsWith('caregiver_docs/'))
+                          const ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.verified_user_rounded,
+                              color: AppTheme.secondaryColor,
+                            ),
+                            title: Text('Documento cifrado en almacenamiento seguro'),
                           )
                         else if (_dniFrontPath!.startsWith('http'))
                           CachedNetworkImage(imageUrl: _dniFrontPath!, height: 100)

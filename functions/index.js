@@ -8,6 +8,7 @@ const webhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
 const MASTER_ADMIN_EMAIL = "maverick6576@gmail.com";
 const STANDARD_CLIENT_FEE_RATE = 0.05;
 const MIN_CLIENT_FEE_RATE = 0.01;
+const ENFORCE_APP_CHECK = process.env.DISABLE_APP_CHECK_ENFORCEMENT !== "true";
 
 admin.initializeApp();
 
@@ -512,7 +513,7 @@ async function isFamilyAdmin(familyId, uid) {
   return false;
 }
 
-exports.createConnectAccount = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.createConnectAccount = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const stripe = require("stripe")(stripeSecret.value());
@@ -548,7 +549,7 @@ exports.createConnectAccount = functions.region("europe-west1").runWith({ secret
   }
 });
 
-exports.getStripeAccountLink = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.getStripeAccountLink = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const accountId = typeof data?.accountId === "string" ? data.accountId.trim() : "";
   if (!accountId) throw new functions.https.HttpsError("invalid-argument", "accountId requerido.");
@@ -588,7 +589,7 @@ exports.getStripeAccountLink = functions.region("europe-west1").runWith({ secret
   }
 });
 
-exports.syncStripeKycStatus = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.syncStripeKycStatus = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
   try {
@@ -816,7 +817,7 @@ function extractStripePaymentMethodType(paymentIntent) {
   return "card";
 }
 
-exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
     const uid = context.auth.uid;
     await checkRateLimit(`booking:${uid}`, 12, 10 * 60 * 1000);
@@ -1325,7 +1326,7 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
     }
 });
 
-exports.createPaymentIntent = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.createPaymentIntent = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   await checkRateLimit(`pi:${uid}`, 12, 10 * 60 * 1000);
@@ -1535,7 +1536,7 @@ async function createIdempotentRefund(stripe, { paymentIntentId, amountInCents, 
   return await stripe.refunds.create(params, options);
 }
 
-exports.verifyBookingCheckIn = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.verifyBookingCheckIn = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const bookingId = typeof data?.bookingId === "string" ? data.bookingId.trim() : "";
@@ -1658,7 +1659,7 @@ exports.verifyBookingCheckIn = functions.region("europe-west1").https.onCall(asy
  *   la app mantiene su comisión porcentual sobre lo trabajado, se devuelve el importe no trabajado
  *   al cliente y se mantiene escrowStatus: "held" para liquidar al cuidador por la vía normal/24h.
  */
-exports.recordBookingCheckOut = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.recordBookingCheckOut = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const bookingId = typeof data?.bookingId === "string" ? data.bookingId.trim() : "";
@@ -1831,7 +1832,7 @@ exports.recordBookingCheckOut = functions.region("europe-west1").runWith({ secre
   }
 });
 
-exports.cancelPendingCheckout = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.cancelPendingCheckout = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const bookingIds = Array.isArray(data?.bookingIds)
@@ -1886,7 +1887,7 @@ exports.cancelPendingCheckout = functions.region("europe-west1").runWith({ secre
   return { success: true, cleaned };
 });
 
-exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
   const bookingId = data?.bookingId;
@@ -1975,7 +1976,7 @@ exports.releaseEscrowPayment = functions.region("europe-west1").runWith({ secret
   }
 });
 
-exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
   const { bookingId, reason } = data || {};
@@ -2157,7 +2158,7 @@ exports.cancelBookingProcess = functions.region("europe-west1").runWith({ secret
   }
 });
 
-exports.caregiverRejectBooking = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.caregiverRejectBooking = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
   const bookingId = data?.bookingId;
@@ -2924,7 +2925,7 @@ exports.monitorLateBookingsCron = functions.region("europe-west1").runWith({ sec
   return null;
 });
 
-exports.adminResolveDispute = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.adminResolveDispute = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!(await isAdminCaller(context))) {
     throw new functions.https.HttpsError("permission-denied", "Solo administradores verificados.");
   }
@@ -3039,7 +3040,7 @@ exports.adminResolveDispute = functions.region("europe-west1").runWith({ secrets
   }
 });
 
-exports.processResolutionAgreement = functions.region("europe-west1").runWith({ secrets: [stripeSecret] }).https.onCall(async (data, context) => {
+exports.processResolutionAgreement = functions.region("europe-west1").runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const stripe = require("stripe")(stripeSecret.value());
   const bookingId = data?.bookingId;
@@ -4493,7 +4494,7 @@ exports.pushOnApplicationUpdated = onDocumentUpdated({
 });
 
 
-exports.adminBlockCaregiver = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.adminBlockCaregiver = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!(await isAdminCaller(context))) throw new functions.https.HttpsError("permission-denied", "Solo administradores verificados.");
   const { caregiverId, days } = data || {};
   if (!caregiverId || typeof caregiverId !== "string") {
@@ -4572,7 +4573,7 @@ function generateInviteCode(length = 8) {
   return code;
 }
 
-exports.createFamilyInvite = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.createFamilyInvite = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   await checkRateLimit(`invite_create:${uid}`, 15, 60 * 60 * 1000);
@@ -4621,7 +4622,7 @@ exports.createFamilyInvite = functions.region("europe-west1").https.onCall(async
   return payload;
 });
 
-exports.revokeFamilyInvite = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.revokeFamilyInvite = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const db = admin.firestore();
@@ -4710,7 +4711,7 @@ async function attachMemberTransaction(tx, db, { familyId, uid, email, displayNa
   };
 }
 
-exports.joinFamilyByCode = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.joinFamilyByCode = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   await checkRateLimit(`invite_join:${uid}`, 8, 10 * 60 * 1000);
@@ -4772,7 +4773,7 @@ exports.joinFamilyByCode = functions.region("europe-west1").https.onCall(async (
   return result;
 });
 
-exports.claimPendingFamilyInvite = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.claimPendingFamilyInvite = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const email = (context.auth.token.email || "").trim().toLowerCase();
@@ -4821,7 +4822,7 @@ exports.claimPendingFamilyInvite = functions.region("europe-west1").https.onCall
   return result;
 });
 
-exports.updateFamilyMemberRole = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.updateFamilyMemberRole = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const { familyId, memberUid, role } = data;
@@ -4847,7 +4848,7 @@ exports.updateFamilyMemberRole = functions.region("europe-west1").https.onCall(a
   return { success: true, role: nextRole };
 });
 
-exports.removeFamilyMember = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.removeFamilyMember = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const { familyId, memberUid } = data;
@@ -4914,7 +4915,7 @@ function serializeFirestoreValue(val) {
   return val;
 }
 
-exports.exportUserDataRgpd = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.exportUserDataRgpd = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const db = admin.firestore();
@@ -4941,7 +4942,7 @@ exports.exportUserDataRgpd = functions.region("europe-west1").https.onCall(async
   };
 });
 
-exports.deleteUserAccountRgpd = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.deleteUserAccountRgpd = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   const uid = context.auth.uid;
   const db = admin.firestore();
@@ -5067,7 +5068,7 @@ exports.deleteUserAccountRgpd = functions.region("europe-west1").https.onCall(as
 
 exports.createAlternativeCheckoutSession = functions
   .region("europe-west1")
-  .runWith({ secrets: [stripeSecret] })
+  .runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK })
   .https.onCall(async (data, context) => {
     try {
       if (!context.auth) {
@@ -5259,7 +5260,7 @@ exports.createAlternativeCheckoutSession = functions
 
 exports.verifyStripePaymentStatus = functions
   .region("europe-west1")
-  .runWith({ secrets: [stripeSecret] })
+  .runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK })
   .https.onCall(async (data, context) => {
     try {
       if (!context.auth) {
@@ -5374,7 +5375,7 @@ exports.stripeCheckoutRedirect = functions
 
 exports.confirmClientBookingPayment = functions
   .region("europe-west1")
-  .runWith({ secrets: [stripeSecret] })
+  .runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK })
   .https.onCall(async (data, context) => {
     try {
       if (!context.auth) {
@@ -5555,7 +5556,7 @@ exports.confirmClientBookingPayment = functions
 
 exports.createTipPaymentIntent = functions
   .region("europe-west1")
-  .runWith({ secrets: [stripeSecret] })
+  .runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK })
   .https.onCall(async (data, context) => {
     try {
       if (!context.auth) {
@@ -5634,7 +5635,7 @@ exports.createTipPaymentIntent = functions
 
 exports.confirmTipPayment = functions
   .region("europe-west1")
-  .runWith({ secrets: [stripeSecret] })
+  .runWith({ secrets: [stripeSecret], enforceAppCheck: ENFORCE_APP_CHECK })
   .https.onCall(async (data, context) => {
     try {
       if (!context.auth) {
@@ -5698,7 +5699,7 @@ exports.confirmTipPayment = functions
     }
   });
 
-exports.setupAdmin2FA = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.setupAdmin2FA = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   }
@@ -5758,7 +5759,7 @@ exports.setupAdmin2FA = functions.region("europe-west1").https.onCall(async (dat
   return { success: true };
 });
 
-exports.verifyAdmin2FA = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.verifyAdmin2FA = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   }
@@ -5802,7 +5803,7 @@ exports.verifyAdmin2FA = functions.region("europe-west1").https.onCall(async (da
   return { success: true };
 });
 
-exports.adminAddAdmin = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.adminAddAdmin = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   try {
     if (!(await isAdminCaller(context))) {
       throw new functions.https.HttpsError("permission-denied", "Solo administradores verificados.");
@@ -5838,7 +5839,7 @@ exports.adminAddAdmin = functions.region("europe-west1").https.onCall(async (dat
   }
 });
 
-exports.adminRemoveAdmin = functions.region("europe-west1").https.onCall(async (data, context) => {
+exports.adminRemoveAdmin = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   try {
     if (!(await isAdminCaller(context))) {
       throw new functions.https.HttpsError("permission-denied", "Solo administradores verificados.");
@@ -5881,7 +5882,126 @@ exports.adminRemoveAdmin = functions.region("europe-west1").https.onCall(async (
   }
 });
 
-exports.syncUserClaims = functions.region("europe-west1").https.onCall(async (data, context) => {
+function extractCaregiverDocStoragePath(rawRef) {
+  const trimmed = typeof rawRef === "string" ? rawRef.trim() : "";
+  if (!trimmed) return "";
+  if (trimmed.startsWith("caregiver_docs/")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("gs://")) {
+    const slashIdx = trimmed.indexOf("/", 5);
+    return slashIdx !== -1 ? trimmed.slice(slashIdx + 1) : "";
+  }
+  if (trimmed.startsWith("https://firebasestorage.googleapis.com/")) {
+    try {
+      const parsed = new URL(trimmed);
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      if (match && match[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    } catch (_) {
+      return "";
+    }
+  }
+  return "";
+}
+
+exports.adminGetKycSignedUrl = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
+  try {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
+    }
+    if (!(await isAdminCaller(context))) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Solo un administrador verificado con 2FA puede revisar documentos KYC."
+      );
+    }
+
+    const adminUid = context.auth.uid;
+    await checkRateLimit(`admin_kyc:${adminUid}`, 60, 10 * 60 * 1000);
+
+    const caregiverId = typeof data?.caregiverId === "string" ? data.caregiverId.trim() : "";
+    const docType = typeof data?.docType === "string" ? data.docType.trim().toLowerCase() : "";
+
+    if (!caregiverId || caregiverId.length > 128 || /[\/\\]/.test(caregiverId)) {
+      throw new functions.https.HttpsError("invalid-argument", "Identificador de cuidador inválido.");
+    }
+    if (!["dni", "criminal"].includes(docType)) {
+      throw new functions.https.HttpsError("invalid-argument", "Tipo de documento inválido (debe ser 'dni' o 'criminal').");
+    }
+
+    const db = admin.firestore();
+    const cgRef = db.collection("caregivers").doc(caregiverId);
+    const [cgSnap, privSnap] = await Promise.all([
+      cgRef.get(),
+      cgRef.collection("private").doc("verification").get(),
+    ]);
+
+    if (!cgSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Perfil de cuidador no encontrado.");
+    }
+
+    const cgData = cgSnap.data() || {};
+    const privData = privSnap.exists ? (privSnap.data() || {}) : {};
+    const rawStoredRef = docType === "dni"
+      ? (privData.dniStoragePath || privData.dniUrl || cgData.dniStoragePath || cgData.dniUrl || "")
+      : (privData.criminalStoragePath || privData.criminalRecordUrl || cgData.criminalStoragePath || cgData.criminalRecordUrl || "");
+
+    const storagePath = extractCaregiverDocStoragePath(rawStoredRef);
+    const expectedPrefix = `caregiver_docs/${caregiverId}_`;
+    if (
+      !storagePath ||
+      storagePath.includes("..") ||
+      !storagePath.startsWith(expectedPrefix)
+    ) {
+      throw new functions.https.HttpsError(
+        "not-found",
+        "El cuidador aún no tiene este documento almacenado en el repositorio seguro."
+      );
+    }
+
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(storagePath);
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new functions.https.HttpsError("not-found", "El archivo KYC ya no existe en Cloud Storage.");
+    }
+
+    const expiresInSeconds = 300; // 5 minutos de validez efímera
+    const expiresAtMs = Date.now() + expiresInSeconds * 1000;
+    const [signedUrl] = await file.getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: expiresAtMs,
+    });
+
+    await db.collection("admin_audit_logs").add({
+      action: "view_kyc_document",
+      adminUid,
+      adminEmail: (context.auth.token?.email || "").trim().toLowerCase(),
+      caregiverId,
+      docType,
+      storagePath,
+      expiresAt: admin.firestore.Timestamp.fromMillis(expiresAtMs),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return {
+      signedUrl,
+      expiresInSeconds,
+    };
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error("Error in adminGetKycSignedUrl:", error);
+    throw new functions.https.HttpsError(
+      "internal",
+      "No se pudo generar el enlace temporal seguro para revisar el documento."
+    );
+  }
+});
+
+exports.syncUserClaims = functions.region("europe-west1").runWith({ enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Debe iniciar sesión.");
   }
@@ -5953,3 +6073,13 @@ exports.syncCaregiverRatingOnReviewCreated = onDocumentCreated({
   });
   return null;
 });
+
+if (process.env.SENICARE_FUNCTIONS_TEST === "true") {
+  exports._testInternals = {
+    computeServerCommissionRate,
+    computeServerClientFeeRate,
+    computeMinimumClientFeeCents,
+    extractCaregiverDocStoragePath,
+    isStripeConnectAccountReady,
+  };
+}

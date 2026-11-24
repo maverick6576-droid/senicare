@@ -108,8 +108,12 @@ class FirestoreCaregiverRepository implements CaregiverRepository {
               .get();
           if (privateDoc.exists) {
             final pData = privateDoc.data() ?? {};
-            final privateDni = pData['dniUrl']?.toString() ?? '';
-            final privateCriminal = pData['criminalRecordUrl']?.toString() ?? '';
+            final privateDni =
+                (pData['dniStoragePath'] ?? pData['dniUrl'])?.toString() ?? '';
+            final privateCriminal =
+                (pData['criminalStoragePath'] ?? pData['criminalRecordUrl'])
+                        ?.toString() ??
+                    '';
             if (privateDni.isNotEmpty || privateCriminal.isNotEmpty) {
               return CaregiverProfile(
                 id: profile.id,

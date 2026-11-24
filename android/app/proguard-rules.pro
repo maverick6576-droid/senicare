@@ -16,5 +16,7 @@
 -keepattributes SourceFile,LineNumberTable
 -keep public class * extends java.lang.Exception
 -keep class com.google.firebase.** { *; }
+-keep class com.google.android.play.core.integrity.** { *; }
+-dontwarn com.google.android.play.core.integrity.**
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**

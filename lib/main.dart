@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'firebase_options.dart';
@@ -30,6 +31,53 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = Firebase.apps.isNotEmpty;
+
+    // Activar Firebase App Check (Play Integrity en Android, App Attest en iOS, reCAPTCHA en Web)
+    if (kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      try {
+        const defineEnterpriseKey =
+            String.fromEnvironment('RECAPTCHA_ENTERPRISE_SITE_KEY');
+        const defineRecaptchaV3Key =
+            String.fromEnvironment('RECAPTCHA_SITE_KEY');
+        final envEnterpriseKey = (!kReleaseMode && dotenv.isInitialized)
+            ? dotenv.env['RECAPTCHA_ENTERPRISE_SITE_KEY']
+            : null;
+        final envRecaptchaV3Key = (!kReleaseMode && dotenv.isInitialized)
+            ? dotenv.env['RECAPTCHA_SITE_KEY']
+            : null;
+
+        final enterpriseKey = defineEnterpriseKey.isNotEmpty
+            ? defineEnterpriseKey
+            : (envEnterpriseKey ?? '');
+        final recaptchaV3Key = defineRecaptchaV3Key.isNotEmpty
+            ? defineRecaptchaV3Key
+            : (envRecaptchaV3Key ?? '');
+
+        final webProvider = enterpriseKey.isNotEmpty
+            ? ReCaptchaEnterpriseProvider(enterpriseKey)
+            : (recaptchaV3Key.isNotEmpty
+                ? ReCaptchaV3Provider(recaptchaV3Key)
+                : null);
+
+        if (!kIsWeb || webProvider != null) {
+          await FirebaseAppCheck.instance.activate(
+            androidProvider: kReleaseMode
+                ? AndroidProvider.playIntegrity
+                : AndroidProvider.debug,
+            appleProvider: kReleaseMode
+                ? AppleProvider.appAttestWithDeviceCheckFallback
+                : AppleProvider.debug,
+            webProvider: webProvider,
+          );
+          await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+        }
+      } catch (e) {
+        debugPrint('⚠️ Firebase App Check init warning: $e');
+      }
+    }
 
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
