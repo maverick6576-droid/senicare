@@ -414,7 +414,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               TextButton.icon(
                 onPressed: () => _showCommissionTiersModal(context),
                 icon: const Icon(Icons.info_outline_rounded, size: 17),
-                label: const Text('Tramos (18%→6%)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                label: const Text('Tramos (18%→10%)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
               ),
             ],
           ),
@@ -429,12 +429,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '📉 Cuanto más cuidas a una familia, menos comisión pagas',
+                    '📉 Fidelidad Compartida: ganas más tú y ahorra la familia',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppTheme.darkSlate),
                   ),
                   SizedBox(height: 6),
                   Text(
-                    'Empiezas cobrando el 82% y al superar 80 horas con la misma familia pasas al 94% neto (solo 6% de comisión).',
+                    'Empiezas cobrando el 82% sobre el 100% íntegro de tu tarifa (sin descuentos impuestos en turnos largos) y subes al 86% (+30h) y al 90% neto (+100h), mientras la cuota de la familia también baja del 5% al 2%.',
                     style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted, height: 1.35),
                   ),
                 ],
@@ -445,17 +445,17 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               final hours = stat['accumulatedHours'] as int? ?? 0;
               final clientName = stat['clientName'] as String? ?? 'Familia';
 
-              double nextTierHours = 20.0;
+              double nextTierHours = 30.0;
               double currentRate = 18.0;
-              if (hours > 20 && hours <= 80) {
-                nextTierHours = 80.0;
-                currentRate = 12.0;
-              } else if (hours > 80) {
-                nextTierHours = 80.0;
-                currentRate = 6.0;
+              if (hours > 30 && hours <= 100) {
+                nextTierHours = 100.0;
+                currentRate = 14.0;
+              } else if (hours > 100) {
+                nextTierHours = 100.0;
+                currentRate = 10.0;
               }
 
-              final progress = hours >= 80 ? 1.0 : (hours / nextTierHours).clamp(0.0, 1.0);
+              final progress = hours >= 100 ? 1.0 : (hours / nextTierHours).clamp(0.0, 1.0);
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 10),
@@ -488,9 +488,9 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      hours >= 80
-                          ? '🏆 $hours h acumuladas · Tarifa máxima (solo 6% comisión)'
-                          : '$hours h acumuladas · Te faltan ${(nextTierHours.toInt() - hours).clamp(1, 80)} h para cobrar el ${hours <= 20 ? "88%" : "94%"}',
+                      hours >= 100
+                          ? '🏆 $hours h acumuladas · Nivel VIP (cobras 90% y la familia solo paga 2% de escudo)'
+                          : '$hours h acumuladas · Faltan ${(nextTierHours.toInt() - hours).clamp(1, 100)} h para cobrar el ${hours <= 30 ? "86%" : "90%"} (y bajar la cuota a la familia)',
                       style: const TextStyle(color: AppTheme.slateMuted, fontSize: 12.5),
                     ),
                   ],
@@ -520,7 +520,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Tramos de Comisión por Fidelidad',
+                    'Tramos de Fidelidad Compartida',
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -528,15 +528,15 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'En SeniCare premiamos tu continuidad con cada familia. Cuantas más horas acumules con un mismo cliente, mayor porcentaje íntegro recibes:',
+              'En SeniCare premiamos tu continuidad y la de la familia sobre el 100% íntegro de tu tarifa por hora:',
               style: TextStyle(fontSize: 13, color: AppTheme.slateMuted, height: 1.4),
             ),
             const SizedBox(height: 14),
-            const Text('• Tramo Inicial (1 a 20 horas): 18% comisión → Recibes el 82% neto.', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+            const Text('• Tramo Inicial (0 a 30 horas): 18% comisión → Recibes el 82% neto (Familia: 5% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            const Text('• Tramo Continuidad (21 a 80 horas): 12% comisión → Recibes el 88% neto.', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+            const Text('• Tramo Continuidad (31 a 100 horas): 14% comisión → Recibes el 86% neto (Familia: 3,5% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            const Text('• 🏆 Tramo Fidelidad (+80 horas): ¡Solo 6% de comisión! → Recibes el 94% neto.', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppTheme.secondaryColor)),
+            const Text('• 🏆 Tramo Fidelidad VIP (+100 horas): ¡Solo 10% comisión! → Recibes el 90% neto (Familia: 2% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppTheme.secondaryColor)),
             const SizedBox(height: 8),
             const Text('• ☕ Propinas de agradecimiento: 0% comisión (100% íntegras para ti).', style: TextStyle(fontSize: 13, color: AppTheme.darkSlate)),
             const SizedBox(height: 18),

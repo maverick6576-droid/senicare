@@ -54,7 +54,7 @@ void main() {
   test('Cálculo neto y comisión efectiva respeta tramos y descuento urgente', () {
     expect(FirestoreStatsRepository.calculateEffectiveOfferCommissionRate(0, 0.0), closeTo(0.18, 0.0001));
     expect(FirestoreStatsRepository.calculateEffectiveOfferCommissionRate(0, 0.10), closeTo(0.08, 0.0001));
-    expect(FirestoreStatsRepository.calculateEffectiveOfferCommissionRate(100, 0.10), closeTo(0.05, 0.0001));
+    expect(FirestoreStatsRepository.calculateEffectiveOfferCommissionRate(110, 0.10), closeTo(0.08, 0.0001));
 
     final netStandard = FirestoreStatsRepository.estimateOfferNetTotal(
       totalHours: 4,

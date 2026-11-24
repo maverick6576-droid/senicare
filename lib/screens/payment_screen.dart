@@ -181,12 +181,21 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final double caregiverCommissionRate =
         FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
     final double totalHours = _exactHours;
-    final double discountMultiplier = isPackEligible ? 0.95 : 1.0;
     final double baseCost =
-        ((widget.caregiver.pricePerHour * totalHours * discountMultiplier) * 100)
-                .roundToDouble() /
+        ((widget.caregiver.pricePerHour * totalHours) * 100).roundToDouble() /
             100.0;
-    double total = ((baseCost * 1.03) * 100).roundToDouble() / 100.0;
+    final double effectiveClientFeeRate =
+        FirestoreStatsRepository.calculateEffectiveClientFeeRate(
+      _accumulatedHours,
+      isFourHourPack: isPackEligible,
+    );
+    final double clientFeeTotal =
+        FirestoreStatsRepository.calculateClientFeeAmount(
+      baseCost: baseCost,
+      accumulatedHours: _accumulatedHours,
+      isFourHourPack: isPackEligible,
+    );
+    double total = ((baseCost + clientFeeTotal) * 100).roundToDouble() / 100.0;
     final double? homeLat = auth.currentClient?.latitude ?? location.latitude;
     final double? homeLon = auth.currentClient?.longitude ?? location.longitude;
 
@@ -348,8 +357,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
           final slotRangeStr = '$startTimeStr-$endTimeStr';
 
           final groupHours = group.length;
-          final groupCost = widget.caregiver.pricePerHour * groupHours * discountMultiplier;
-          final groupClientFee = groupCost * 0.03;
+          final groupCost = widget.caregiver.pricePerHour * groupHours;
+          final groupClientFee = totalHours > 0
+              ? ((clientFeeTotal * (groupHours / totalHours)) * 100)
+                      .roundToDouble() /
+                  100.0
+              : groupCost * effectiveClientFeeRate;
           final groupTotalPaid = groupCost + groupClientFee;
           final groupCommission = groupCost * caregiverCommissionRate;
           final groupPayout = groupCost - groupCommission;
@@ -363,7 +376,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             slot: slotRangeStr,
             cost: groupCost,
             clientFee: groupClientFee,
-            clientFeeRate: 0.03,
+            clientFeeRate: effectiveClientFeeRate,
             caregiverCommissionRate: caregiverCommissionRate,
             caregiverCommissionAmount: groupCommission,
             caregiverPayout: groupPayout,
@@ -631,18 +644,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '¿Qué incluye el 3% de Gestión y Cobertura?',
+                    '¿Qué incluye el Escudo de Protección Familiar?',
                     style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 14),
-            const Text('• 🛡️ Seguro de Responsabilidad Civil hasta 500.000€ durante toda la estancia en el domicilio.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+            const Text('• 🔐 Custodia Bancaria Stripe Escrow: tu dinero queda retenido y no se transfiere hasta verificar la llegada con PIN/QR.', style: TextStyle(fontSize: 13.5, height: 1.4)),
             const SizedBox(height: 8),
-            const Text('• 🔐 Custodia Bancaria Stripe Escrow: tu dinero no se transfiere al cuidador hasta que se verifica su llegada con PIN/QR.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+            const Text('• 🛡️ Cobertura y Verificación: identidad DNI/NIE, antecedentes y seguro de responsabilidad civil hasta 500.000€ durante el turno.', style: TextStyle(fontSize: 13.5, height: 1.4)),
             const SizedBox(height: 8),
-            const Text('• 🎧 Soporte prioritario, sustitución urgente y mediación familiar 7 días a la semana.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+            const Text('• 🏆 Fidelidad Compartida: tu cuota baja automáticamente del 5% al 3,5% (+30h) y al 2% (+100h) con el mismo cuidador, y se reduce un -50% en reservas de 4h o más sin recortar el sueldo del cuidador.', style: TextStyle(fontSize: 13.5, height: 1.4)),
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
@@ -676,9 +689,29 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final double rawBaseCost =
         ((widget.caregiver.pricePerHour * totalHours) * 100).roundToDouble() /
             100.0;
-    final double packDiscountAmount = _applyPackDiscount ? rawBaseCost * 0.05 : 0.0;
-    final double baseCost = rawBaseCost - packDiscountAmount;
-    final double clientFee = baseCost * 0.03;
+    final double baseCost = rawBaseCost;
+    final double fullShieldFee =
+        FirestoreStatsRepository.calculateClientFeeAmount(
+      baseCost: baseCost,
+      accumulatedHours: _accumulatedHours,
+      isFourHourPack: false,
+    );
+    final double clientFee = FirestoreStatsRepository.calculateClientFeeAmount(
+      baseCost: baseCost,
+      accumulatedHours: _accumulatedHours,
+      isFourHourPack: _applyPackDiscount,
+    );
+    final double packDiscountAmount =
+        ((fullShieldFee - clientFee) * 100).roundToDouble() / 100.0;
+    final double effectiveFeePct =
+        FirestoreStatsRepository.calculateEffectiveClientFeeRate(
+              _accumulatedHours,
+              isFourHourPack: _applyPackDiscount,
+            ) *
+            100;
+    final String feePctLabel = effectiveFeePct % 1 == 0
+        ? effectiveFeePct.toStringAsFixed(0)
+        : effectiveFeePct.toStringAsFixed(2).replaceAll(RegExp(r'0$'), '');
     final double total = baseCost + clientFee;
 
     return Scaffold(
@@ -711,13 +744,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Bono Familiar Multi-Sesión (-5% dto.)',
+                        'Bono Familiar Multi-Sesión (-50% en Escudo)',
                         style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.darkSlate),
                       ),
                       Text(
                         totalHours >= 4.0
-                            ? 'Activado automáticamente: ahorras ${currencyFormat.format(packDiscountAmount)} (reserva de ${totalHours.toStringAsFixed(totalHours % 1 == 0 ? 0 : 2)}h)'
-                            : 'Disponible automáticamente al reservar 4 horas o más (llevas ${totalHours.toStringAsFixed(totalHours % 1 == 0 ? 0 : 2)}h)',
+                            ? 'Activado: ahorras ${currencyFormat.format(packDiscountAmount)} en la cuota de protección y el cuidador recibe el 100% de su tarifa (${FirestoreStatsRepository.familyLoyaltyTierTitle(_accumulatedHours)})'
+                            : 'Reserva 4h o más para reducir un 50% la cuota del Escudo Familiar (${FirestoreStatsRepository.familyLoyaltyTierTitle(_accumulatedHours)})',
                         style: const TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
                       ),
                     ],
@@ -737,7 +770,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ),
                   ),
                   child: Text(
-                    _applyPackDiscount ? '-5% Activo' : '4h+ Auto',
+                    _applyPackDiscount ? '-50% Cuota' : '4h+ Auto',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -835,7 +868,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       children: [
                         const Expanded(
                           child: Text(
-                            '📦 Descuento Bono Familiar (-5%):',
+                            '📦 Bono Familiar 4h+ (-50% en Escudo):',
                             style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
                           ),
                         ),
@@ -854,23 +887,23 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       Flexible(
                         child: Semantics(
                           button: true,
-                          label: 'Información sobre el 3 por ciento de comisión de gestión y cobertura',
+                          label: 'Información sobre el Escudo de Protección Familiar',
                           child: InkWell(
                             borderRadius: BorderRadius.circular(8),
                             onTap: () => _showManagementFeeSheet(context),
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(minHeight: 48),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Flexible(
                                     child: Text(
-                                      '3% Comisión de Gestión y Cobertura:',
-                                      style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                                      '🛡️ Escudo de Protección ($feePctLabel%):',
+                                      style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
                                     ),
                                   ),
-                                  SizedBox(width: 6),
-                                  Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
+                                  const SizedBox(width: 6),
+                                  const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
                                 ],
                               ),
                             ),

@@ -1309,7 +1309,7 @@ class _CaregiverProfileEditScreenState
     bool isSenior,
   ) {
     final minRate = FirestoreStatsRepository.calculateCommissionRate(0);
-    final maxRate = FirestoreStatsRepository.calculateCommissionRate(81);
+    final maxRate = FirestoreStatsRepository.calculateCommissionRate(101);
     final minNet = profile.pricePerHour * (1.0 - minRate);
     final maxNet = profile.pricePerHour * (1.0 - maxRate);
 

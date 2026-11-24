@@ -308,7 +308,7 @@ void main() {
 
         expect(find.byType(Switch), findsNothing);
         expect(find.text('4h+ Auto'), findsOneWidget);
-        expect(find.text('-5% Activo'), findsNothing);
+        expect(find.text('-50% Cuota'), findsNothing);
 
         final packSlots = [
           TimeSlot(id: 's1', dateTime: DateTime(2026, 12, 20, 10, 0)),
@@ -338,7 +338,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(Switch), findsNothing);
-        expect(find.text('-5% Activo'), findsOneWidget);
+        expect(find.text('-50% Cuota'), findsOneWidget);
       },
     );
 

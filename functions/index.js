@@ -6,7 +6,8 @@ const { defineSecret } = require("firebase-functions/params");
 const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
 const webhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
 const MASTER_ADMIN_EMAIL = "maverick6576@gmail.com";
-const STANDARD_CLIENT_FEE_RATE = 0.03;
+const STANDARD_CLIENT_FEE_RATE = 0.05;
+const MIN_CLIENT_FEE_RATE = 0.01;
 
 admin.initializeApp();
 
@@ -332,13 +333,30 @@ function hashPin(pin, salt = "") {
 function computeServerCommissionRate(accumulatedHours, urgencyBonusRate = 0) {
   const hours = Number(accumulatedHours) || 0;
   let baseTierRate = 0.18;
-  if (hours > 80) {
-    baseTierRate = 0.06;
-  } else if (hours > 20) {
-    baseTierRate = 0.12;
+  if (hours > 100) {
+    baseTierRate = 0.10;
+  } else if (hours > 30) {
+    baseTierRate = 0.14;
   }
   const safeBonus = Math.min(Math.max(Number(urgencyBonusRate) || 0, 0), 0.10);
-  return Math.min(Math.max(baseTierRate - safeBonus, 0.05), 0.25);
+  return Math.min(Math.max(baseTierRate - safeBonus, 0.08), 0.25);
+}
+
+function computeServerClientFeeRate(accumulatedHours, isFourHourPack = false) {
+  const hours = Number(accumulatedHours) || 0;
+  let baseFeeRate = STANDARD_CLIENT_FEE_RATE; // 5.0% (0-30h)
+  if (hours > 100) {
+    baseFeeRate = 0.02; // 2.0% (>100h)
+  } else if (hours > 30) {
+    baseFeeRate = 0.035; // 3.5% (31-100h)
+  }
+  return isFourHourPack ? (baseFeeRate * 0.5) : baseFeeRate;
+}
+
+function computeMinimumClientFeeCents(accumulatedHours, isFourHourPack = false) {
+  const hours = Number(accumulatedHours) || 0;
+  const baseMinCents = hours <= 30 ? 150 : (hours <= 100 ? 125 : 100);
+  return isFourHourPack ? Math.round(baseMinCents * 0.5) : baseMinCents;
 }
 
 async function checkRateLimit(key, maxAttempts, windowMs) {
@@ -930,7 +948,7 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
             }
             pricePerHour = Number(appData.proposedPrice) || Number(caregiverData.pricePerHour) || 0;
             const rawFeeRate = Number(offerData.clientFeeRate);
-            clientFeeRate = (Number.isFinite(rawFeeRate) && rawFeeRate >= STANDARD_CLIENT_FEE_RATE && rawFeeRate <= 0.15)
+            clientFeeRate = (Number.isFinite(rawFeeRate) && rawFeeRate >= MIN_CLIENT_FEE_RATE && rawFeeRate <= 0.15)
               ? rawFeeRate
               : STANDARD_CLIENT_FEE_RATE;
             const offerStartDate = offerData.startDate?.toDate ? offerData.startDate.toDate() : null;
@@ -972,7 +990,20 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
           : (Number.isFinite(Number(data?.clientLongitude)) ? Number(data.clientLongitude) : null);
 
         const totalRequestedHours = normalizedSessions.reduce((acc, s) => acc + s.hours, 0);
-        const discountMultiplier = (!offerId && totalRequestedHours >= 4) ? 0.95 : 1.0;
+        const isFourHourPack = (!offerId && totalRequestedHours >= 4);
+        const discountMultiplier = 1.0; // Opción 1: El cuidador cobra siempre el 100% de su tarifa por hora
+        if (!offerId) {
+          clientFeeRate = computeServerClientFeeRate(accumulatedHours, isFourHourPack);
+        }
+        const minTotalClientFeeCents = !offerId
+          ? computeMinimumClientFeeCents(accumulatedHours, isFourHourPack)
+          : 0;
+        const totalBaseCostCents = normalizedSessions.reduce(
+          (acc, s) => acc + Math.round(pricePerHour * s.hours * 100),
+          0
+        );
+        const rawTotalFeeCents = Math.round(totalBaseCostCents * clientFeeRate);
+        const effectiveTotalFeeCents = Math.max(rawTotalFeeCents, minTotalClientFeeCents);
 
         const transferGroup = `${offerId ? `offer_${offerId}` : "booking"}_${Date.now()}`;
         const sharedPin = generateBookingPin();
@@ -982,12 +1013,20 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
         const useCheckoutSession = data?.useCheckoutSession === true || preferredMethod === "bizum";
 
         let totalPaidOverallCents = 0;
+        let allocatedFeeCentsSoFar = 0;
         const bookingsToCreate = [];
         const bookingIds = [];
 
-        for (const session of normalizedSessions) {
+        for (let idx = 0; idx < normalizedSessions.length; idx++) {
+            const session = normalizedSessions[idx];
             const costCents = Math.round(pricePerHour * session.hours * discountMultiplier * 100);
-            const clientFeeCents = Math.round(costCents * clientFeeRate);
+            const isLastSession = idx === normalizedSessions.length - 1;
+            const clientFeeCents = isLastSession
+              ? Math.max(0, effectiveTotalFeeCents - allocatedFeeCentsSoFar)
+              : Math.round(
+                  effectiveTotalFeeCents * (totalBaseCostCents > 0 ? (costCents / totalBaseCostCents) : (1 / normalizedSessions.length))
+                );
+            allocatedFeeCentsSoFar += clientFeeCents;
             const commissionAmountCents = Math.round(costCents * commissionRate);
             const caregiverPayoutCents = costCents - commissionAmountCents;
             const totalPaidCents = costCents + clientFeeCents;
@@ -1024,7 +1063,7 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
                     caregiverCommissionAmount: commissionAmount,
                     caregiverPayout,
                     totalPaid,
-                    discountApplied: discountMultiplier < 1.0,
+                    discountApplied: isFourHourPack,
                     careChecklist: sanitizedChecklist,
                     status: "pendingPayment",
                     paymentStatus: "pending",
@@ -1266,7 +1305,7 @@ exports.createSecureBooking = functions.region("europe-west1").runWith({ secrets
           bookingIds,
           bookingPin: sharedPin,
           totalEur: totalPaidOverallCents / 100,
-          discountApplied: discountMultiplier < 1.0,
+          discountApplied: isFourHourPack,
           commissionRate,
         };
     } catch (error) {
@@ -3815,10 +3854,13 @@ exports.stripeWebhook = functions.region("europe-west1").runWith({ secrets: [str
           }
           const costCents = Math.round((Number(booking.cost) || 0) * 100);
           const rawFeeRate = Number(booking.clientFeeRate);
-          const expectedFeeRate = (Number.isFinite(rawFeeRate) && rawFeeRate >= STANDARD_CLIENT_FEE_RATE && rawFeeRate <= 0.15)
+          const expectedFeeRate = (Number.isFinite(rawFeeRate) && rawFeeRate >= MIN_CLIENT_FEE_RATE && rawFeeRate <= 0.15)
             ? rawFeeRate
             : STANDARD_CLIENT_FEE_RATE;
-          const clientFeeCents = Math.round(costCents * expectedFeeRate);
+          const storedFeeCents = Math.round((Number(booking.clientFee) || 0) * 100);
+          const clientFeeCents = storedFeeCents > 0
+            ? storedFeeCents
+            : Math.round(costCents * expectedFeeRate);
           const totalPaidCents = costCents + clientFeeCents;
           const rawCommRate = Number(booking.caregiverCommissionRate);
           const commissionRate = (Number.isFinite(rawCommRate) && rawCommRate >= 0.05 && rawCommRate <= 0.25)

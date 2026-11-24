@@ -13,6 +13,7 @@ Before executing work in any of the domains below, read and follow the correspon
 5. **Security, Secrets, PII & Firebase Rules** -> `.agents/skills/appsec-production-shield/SKILL.md`
 6. **User Psychology, Trust & Behavioral UX** -> `.agents/skills/eldercare-user-psychology/SKILL.md`
 7. **Google Play Console & Apple App Store Publishing** -> `.agents/skills/store-release-pipeline/SKILL.md`
+8. **Business Plan, Viability & Profit Projections** -> `.agents/skills/marketplace-business-strategist/SKILL.md`
 
 ## Non-Negotiable Production Guardrails
 

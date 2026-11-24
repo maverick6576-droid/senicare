@@ -131,8 +131,11 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
 
       final List<Map<String, dynamic>> serverSessions = [];
       final List<Booking> draftBookings = [];
-      final double baseTierRate = FirestoreStatsRepository.calculateCommissionRate(_accumulatedHours);
-      final double effectiveCommissionRate = (baseTierRate - widget.offer.urgencyBonusRate).clamp(0.05, 0.18);
+      final double effectiveCommissionRate =
+          FirestoreStatsRepository.calculateEffectiveOfferCommissionRate(
+        _accumulatedHours,
+        widget.offer.urgencyBonusRate,
+      );
       String generatedPin = (Random().nextInt(9000) + 1000).toString();
       final List<String> createdBookingIds = [];
       Map<String, dynamic> paymentIntentData = {
@@ -651,14 +654,14 @@ class _JobOfferPaymentScreenState extends State<JobOfferPaymentScreen> {
                     children: [
                       Flexible(
                         child: Text(
-                          '${(widget.offer.clientFeeRate * 100).round()}% Gestión y Seguro RC',
+                          '🛡️ ${(widget.offer.clientFeeRate * 100).round()}% Escudo de Protección Familiar',
                           style: TextStyle(fontSize: seniorMode ? 15 : 13.5),
                         ),
                       ),
                       const SizedBox(width: 6),
                       Semantics(
                         button: true,
-                        label: 'Información sobre la comisión de gestión y seguro de responsabilidad civil',
+                        label: 'Información sobre el Escudo de Protección Familiar y seguro de responsabilidad civil',
                         child: InkWell(
                           borderRadius: BorderRadius.circular(20),
                           onTap: () => _showFeeInfoSheet(context),

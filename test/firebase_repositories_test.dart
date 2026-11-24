@@ -271,7 +271,7 @@ void main() {
         pricePerHour: 16.0,
         totalHours: 4,
         isRecurring: false,
-        startDate: DateTime(2026, 11, 22),
+        startDate: DateTime.now().add(const Duration(days: 5)),
         isUrgent: false,
         urgencyBonusRate: 0.0,
         createdAt: DateTime(2026, 11, 12),
@@ -368,8 +368,11 @@ void main() {
       expect(statsList.first['accumulatedHours'], 27);
 
       expect(FirestoreStatsRepository.calculateCommissionRate(10), 0.18);
-      expect(FirestoreStatsRepository.calculateCommissionRate(25), 0.12);
-      expect(FirestoreStatsRepository.calculateCommissionRate(90), 0.06);
+      expect(FirestoreStatsRepository.calculateCommissionRate(45), 0.14);
+      expect(FirestoreStatsRepository.calculateCommissionRate(110), 0.10);
+      expect(FirestoreStatsRepository.calculateBaseClientFeeRate(10), 0.05);
+      expect(FirestoreStatsRepository.calculateBaseClientFeeRate(45), 0.035);
+      expect(FirestoreStatsRepository.calculateBaseClientFeeRate(110), 0.02);
     });
 
     test('JobOffer & JobApplication parse legacy/mixed types safely without breaking offer streams', () async {

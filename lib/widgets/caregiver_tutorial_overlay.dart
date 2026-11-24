@@ -131,7 +131,7 @@ class CaregiverTutorialStep {
           tag: 'Inicio · Comisiones',
           title: 'Cuanto más cuidas, más ganas',
           description:
-              'Empiezas recibiendo el 82% neto de tu tarifa. Al acumular horas con una familia, tu comisión baja hasta solo el 6% (recibes el 94%). ¡Las propinas son 100% para ti!',
+              'Empiezas recibiendo el 82% neto sobre el 100% de tu tarifa. Al acumular horas con una familia, subes hasta el 90% neto y la cuota de la familia también baja. ¡Las propinas son 100% para ti!',
           icon: Icons.trending_up_rounded,
           tabIndex: 0,
           targetSelector: (t) => t.dashboardCommissionsKey,
