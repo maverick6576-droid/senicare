@@ -51,6 +51,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "834223742998-mugpffecdqgat00d8hefn0uqdigqbqgq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.senicare.app",
+            "certificate_hash": "d18fe4fee4a969ac578c1dbecdf5be5d61f914ec"
+          }
+        },
+        {
           "client_id": "834223742998-2s46vm8a43tip1tbldssoeom5te5o6al.apps.googleusercontent.com",
           "client_type": 3
         }
