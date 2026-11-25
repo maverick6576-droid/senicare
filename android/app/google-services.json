@@ -9,10 +9,23 @@
       "client_info": {
         "mobilesdk_app_id": "1:834223742998:android:b53f8169c429d5d7711537",
         "android_client_info": {
-          "package_name": "com.senicare.app"
+          "package_name": "com.example.senicare"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "834223742998-6frms1vuji2ch27o2cf8rmmjtfhr9sf1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.senicare",
+            "certificate_hash": "2c22856e32ba543e39d010f73cfc236e0348212a"
+          }
+        },
+        {
+          "client_id": "834223742998-2s46vm8a43tip1tbldssoeom5te5o6al.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyC_eC5MRYuwz4qVMnbozWt9UYDQvzOkG_8"
@@ -20,7 +33,41 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "834223742998-2s46vm8a43tip1tbldssoeom5te5o6al.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:834223742998:android:ed76a7a6786f7f51711537",
+        "android_client_info": {
+          "package_name": "com.senicare.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "834223742998-2s46vm8a43tip1tbldssoeom5te5o6al.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_eC5MRYuwz4qVMnbozWt9UYDQvzOkG_8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "834223742998-2s46vm8a43tip1tbldssoeom5te5o6al.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
