@@ -67,3 +67,6 @@ create_user.py
 playwright_test.py
 functions/stress_test.js
 functions/verify_finances.js
+node_modules/
+**/node_modules/
+.firebase/
