@@ -45,10 +45,12 @@ jobs:
         env:
           IOS_DIST_CERT_PEM: ${{ secrets.IOS_DIST_CERT_PEM }}
           IOS_DIST_KEY_PEM: ${{ secrets.IOS_DIST_KEY_PEM }}
+          IOS_DIST_CERT_BASE64: ${{ secrets.IOS_DIST_CERT_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
           IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           IOS_PROVISIONING_PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
-        if: (env.IOS_DIST_CERT_PEM != '' || secrets.IOS_DIST_CERT_BASE64 != '') && env.IOS_PROVISIONING_PROFILE_BASE64 != ''
+        if: (env.IOS_DIST_CERT_PEM != '' || env.IOS_DIST_CERT_BASE64 != '') && env.IOS_PROVISIONING_PROFILE_BASE64 != ''
         run: |
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASS=$(uuidgen)
@@ -67,8 +69,8 @@ jobs:
               -out $RUNNER_TEMP/dist.p12 \
               -passout pass:"$P12_PASS"
           else
-            echo "${{ secrets.IOS_DIST_CERT_BASE64 }}" | tr -d '\r\n ' | base64 -D > $RUNNER_TEMP/dist.p12
-            P12_PASS="${{ secrets.IOS_DIST_CERT_PASSWORD }}"
+            echo "$IOS_DIST_CERT_BASE64" | tr -d '\r\n ' | base64 -D > $RUNNER_TEMP/dist.p12
+            P12_PASS="$IOS_DIST_CERT_PASSWORD"
           fi
 
           security import $RUNNER_TEMP/dist.p12 -P "$P12_PASS" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
