@@ -57,13 +57,13 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
 
-          echo "$IOS_DIST_CERT_BASE64" | base64 --decode > $RUNNER_TEMP/dist.p12
+          echo "$IOS_DIST_CERT_BASE64" | tr -d '\r\n ' | base64 --decode > $RUNNER_TEMP/dist.p12
           security import $RUNNER_TEMP/dist.p12 -P "$IOS_DIST_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/senicare.mobileprovision
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | tr -d '\r\n ' | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/senicare.mobileprovision
 
           /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" ios/ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.senicare.app $IOS_PROVISIONING_PROFILE_NAME" ios/ExportOptions.plist
