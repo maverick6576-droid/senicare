@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:senicare/core/theme.dart';
 
 class CustomDialog {
   static Future<void> showError(
@@ -18,20 +19,23 @@ class CustomDialog {
           textAlign: TextAlign.center,
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
         ),
-        content: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.3),
+        content: SingleChildScrollView(
+          child: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15, color: AppTheme.darkSlate, height: 1.35),
+          ),
         ),
         actionsAlignment: MainAxisAlignment.center,
         contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
         actionsPadding: const EdgeInsets.only(top: 16, bottom: 8),
         actions: [
-          const Divider(height: 1, thickness: 1, color: Color(0xFFEEEEEE)),
+          const Divider(height: 1, thickness: 1, color: AppTheme.borderSubtle),
           SizedBox(
             width: double.infinity,
             child: TextButton(
               style: TextButton.styleFrom(
+                minimumSize: const Size(48, 48),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
@@ -40,8 +44,8 @@ class CustomDialog {
                 buttonText,
                 style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.blueAccent,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.info,
                 ),
               ),
             ),
@@ -65,7 +69,7 @@ class CustomDialog {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: Column(
           children: [
-            const Icon(Icons.check_circle_outline, color: Colors.green, size: 48),
+            const Icon(Icons.check_circle_outline, color: AppTheme.success, size: 48),
             const SizedBox(height: 16),
             Text(
               title,
@@ -74,20 +78,23 @@ class CustomDialog {
             ),
           ],
         ),
-        content: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.3),
+        content: SingleChildScrollView(
+          child: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15, color: AppTheme.darkSlate, height: 1.35),
+          ),
         ),
         actionsAlignment: MainAxisAlignment.center,
         contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
         actionsPadding: const EdgeInsets.only(top: 16, bottom: 8),
         actions: [
-          const Divider(height: 1, thickness: 1, color: Color(0xFFEEEEEE)),
+          const Divider(height: 1, thickness: 1, color: AppTheme.borderSubtle),
           SizedBox(
             width: double.infinity,
             child: TextButton(
               style: TextButton.styleFrom(
+                minimumSize: const Size(48, 48),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
@@ -96,8 +103,8 @@ class CustomDialog {
                 buttonText,
                 style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.blueAccent,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.info,
                 ),
               ),
             ),
@@ -117,66 +124,125 @@ class CustomDialog {
   }) {
     return showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(
-          title,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
-        ),
-        content: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.3),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-        actionsPadding: const EdgeInsets.only(top: 16, bottom: 8),
-        actions: [
-          const Divider(height: 1, thickness: 1, color: Color(0xFFEEEEEE)),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton(
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10))),
-                  ),
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: Text(
-                    cancelText,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w400,
-                      color: Colors.blueAccent,
-                    ),
-                  ),
-                ),
-              ),
-              Container(width: 1, height: 48, color: const Color(0xFFEEEEEE)),
-              Expanded(
-                child: TextButton(
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.only(bottomRight: Radius.circular(10))),
-                  ),
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: Text(
-                    confirmText,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: isDestructive ? Colors.red : Colors.blueAccent,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+      builder: (context) {
+        final isLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.25;
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
           ),
-        ],
-      ),
+          content: SingleChildScrollView(
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 15, color: AppTheme.darkSlate, height: 1.35),
+            ),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+          actionsPadding: const EdgeInsets.only(top: 16, bottom: 8),
+          actions: [
+            const Divider(height: 1, thickness: 1, color: AppTheme.borderSubtle),
+            if (isLargeText)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: Text(
+                        confirmText,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: isDestructive ? AppTheme.danger : AppTheme.info,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, thickness: 1, color: AppTheme.borderSubtle),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: Text(
+                        cancelText,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.slateMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(bottomLeft: Radius.circular(10)),
+                          ),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: Text(
+                          cancelText,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.slateMuted,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const VerticalDivider(width: 1, thickness: 1, color: AppTheme.borderSubtle),
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(bottomRight: Radius.circular(10)),
+                          ),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(true),
+                        child: Text(
+                          confirmText,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: isDestructive ? AppTheme.danger : AppTheme.info,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

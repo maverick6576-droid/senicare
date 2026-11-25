@@ -125,6 +125,9 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthNotifier>(context);
     final bookingState = Provider.of<BookingNotifier>(context);
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final isLargeScale = seniorMode || textScale > 1.2;
     final user = auth.currentCaregiver;
     final tutorialTargets = TutorialScope.maybeOf(context);
 
@@ -145,16 +148,19 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               children: [
                 Text(
                   'Hola, $greetingName',
-                  style: const TextStyle(
-                    fontSize: 24,
+                  style: TextStyle(
+                    fontSize: seniorMode ? 26 : 24,
                     fontWeight: FontWeight.w800,
                     color: AppTheme.darkSlate,
                   ),
                 ),
                 const SizedBox(height: 2),
-                const Text(
+                Text(
                   'Aquí tienes el resumen tranquilo de tus turnos e ingresos.',
-                  style: TextStyle(fontSize: 13.5, color: AppTheme.slateMuted),
+                  style: TextStyle(
+                    fontSize: seniorMode ? 15 : 13.5,
+                    color: AppTheme.slateMuted,
+                  ),
                 ),
               ],
             ),
@@ -171,48 +177,99 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               radius: 18,
               borderColor: AppTheme.primary.withValues(alpha: 0.2),
             ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primarySurface,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.calendar_month_rounded, color: AppTheme.primary, size: 24),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: isLargeScale
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        'Tu Disponibilidad',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primarySurface,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.calendar_month_rounded, color: AppTheme.primary, size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Tu Disponibilidad',
+                                  style: TextStyle(fontSize: seniorMode ? 17 : 15, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Define qué días y horas puedes trabajar.',
+                                  style: TextStyle(fontSize: seniorMode ? 14 : 12.5, color: AppTheme.slateMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Define qué días y horas puedes trabajar.',
-                        style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(double.infinity, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const CaregiverCalendarScreen()));
+                        },
+                        icon: const Icon(Icons.schedule_rounded, size: 18),
+                        label: const Text('Configurar Horarios', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primarySurface,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.calendar_month_rounded, color: AppTheme.primary, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Tu Disponibilidad',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Define qué días y horas puedes trabajar.',
+                              style: TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const CaregiverCalendarScreen()));
+                        },
+                        child: const Text('Horarios', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const CaregiverCalendarScreen()));
-                  },
-                  child: const Text('Horarios', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
           ),
 
           Builder(
@@ -318,30 +375,53 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    key: tutorialTargets?.dashboardStatsKey,
-                    children: [
-                      Expanded(
-                        child: StatCard(
+                  if (seniorMode || textScale >= 1.35)
+                    Column(
+                      key: tutorialTargets?.dashboardStatsKey,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        StatCard(
                           title: 'Cobrado',
                           value: '${releasedIncome.toStringAsFixed(2)} €',
                           subtitle: incomeSubtitle,
                           icon: Icons.euro_rounded,
-                          color: Colors.green.shade700,
+                          color: AppTheme.success,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: StatCard(
+                        const SizedBox(height: 12),
+                        StatCard(
                           title: 'Realizados',
                           value: validCompletedBookings.length.toString(),
                           subtitle: servicesSubtitle,
                           icon: Icons.check_circle_rounded,
                           color: AppTheme.primary,
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    )
+                  else
+                    Row(
+                      key: tutorialTargets?.dashboardStatsKey,
+                      children: [
+                        Expanded(
+                          child: StatCard(
+                            title: 'Cobrado',
+                            value: '${releasedIncome.toStringAsFixed(2)} €',
+                            subtitle: incomeSubtitle,
+                            icon: Icons.euro_rounded,
+                            color: AppTheme.success,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: StatCard(
+                            title: 'Realizados',
+                            value: validCompletedBookings.length.toString(),
+                            subtitle: servicesSubtitle,
+                            icon: Icons.check_circle_rounded,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
 
                   if (openDisputes.isNotEmpty) ...[
                     const SizedBox(height: 16),
@@ -364,10 +444,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                             Container(
                               width: 10,
                               height: 10,
-                              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green),
+                              decoration: const BoxDecoration(shape: BoxShape.circle, color: AppTheme.success),
                             ),
                             const SizedBox(width: 8),
-                            const Text('Servicio en Curso', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+                            const Expanded(
+                              child: Text('Servicio en Curso', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -404,19 +486,29 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
           ),
 
           const SizedBox(height: 24),
-          Row(
-            key: tutorialTargets?.dashboardCommissionsKey,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Expanded(
-                child: Text('Mis Familias y Comisiones', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: AppTheme.darkSlate)),
-              ),
-              TextButton.icon(
-                onPressed: () => _showCommissionTiersModal(context),
-                icon: const Icon(Icons.info_outline_rounded, size: 17),
-                label: const Text('Tramos (18%→10%)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              key: tutorialTargets?.dashboardCommissionsKey,
+              spacing: 8,
+              runSpacing: 4,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text(
+                  'Mis Familias y Comisiones',
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                  ),
+                  onPressed: () => _showCommissionTiersModal(context),
+                  icon: const Icon(Icons.info_outline_rounded, size: 17),
+                  label: const Text('Tramos (18%→10%)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           if (_isLoading)
@@ -481,6 +573,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     const SizedBox(height: 10),
                     LinearProgressIndicator(
                       value: progress,
+                      semanticsLabel: 'Progreso de fidelidad con Familia $clientName',
                       backgroundColor: Colors.grey.shade200,
                       color: AppTheme.primary,
                       minHeight: 7,
@@ -505,49 +598,57 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   void _showCommissionTiersModal(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.88,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.trending_down_rounded, color: AppTheme.primary, size: 24),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Tramos de Fidelidad Compartida',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                const Row(
+                  children: [
+                    Icon(Icons.trending_down_rounded, color: AppTheme.primary, size: 24),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Tramos de Fidelidad Compartida',
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'En SeniCare premiamos tu continuidad y la de la familia sobre el 100% íntegro de tu tarifa por hora:',
+                  style: TextStyle(fontSize: 13, color: AppTheme.slateMuted, height: 1.4),
+                ),
+                const SizedBox(height: 14),
+                const Text('• Tramo Inicial (0 a 30 horas): 18% comisión → Recibes el 82% neto (Familia: 5% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                const Text('• Tramo Continuidad (31 a 100 horas): 14% comisión → Recibes el 86% neto (Familia: 3,5% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                const Text('• 🏆 Tramo Fidelidad VIP (+100 horas): ¡Solo 10% comisión! → Recibes el 90% neto (Familia: 2% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppTheme.secondaryColor)),
+                const SizedBox(height: 8),
+                const Text('• ☕ Propinas de agradecimiento: 0% comisión (100% íntegras para ti).', style: TextStyle(fontSize: 13, color: AppTheme.darkSlate)),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Entendido'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'En SeniCare premiamos tu continuidad y la de la familia sobre el 100% íntegro de tu tarifa por hora:',
-              style: TextStyle(fontSize: 13, color: AppTheme.slateMuted, height: 1.4),
-            ),
-            const SizedBox(height: 14),
-            const Text('• Tramo Inicial (0 a 30 horas): 18% comisión → Recibes el 82% neto (Familia: 5% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            const Text('• Tramo Continuidad (31 a 100 horas): 14% comisión → Recibes el 86% neto (Familia: 3,5% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            const Text('• 🏆 Tramo Fidelidad VIP (+100 horas): ¡Solo 10% comisión! → Recibes el 90% neto (Familia: 2% escudo).', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppTheme.secondaryColor)),
-            const SizedBox(height: 8),
-            const Text('• ☕ Propinas de agradecimiento: 0% comisión (100% íntegras para ti).', style: TextStyle(fontSize: 13, color: AppTheme.darkSlate)),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Entendido'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -579,14 +680,14 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     }
 
     final Color bgColor = isRejected
-        ? Colors.red.shade50
-        : (isComplete ? Colors.blue.shade50 : Colors.orange.shade50);
+        ? AppTheme.dangerSurface
+        : (isComplete ? AppTheme.infoSurface : AppTheme.warningSurface);
     final Color borderColor = isRejected
-        ? Colors.red.shade300
-        : (isComplete ? Colors.blue.shade200 : Colors.orange.shade300);
+        ? AppTheme.danger.withValues(alpha: 0.35)
+        : (isComplete ? AppTheme.info.withValues(alpha: 0.3) : AppTheme.warning.withValues(alpha: 0.35));
     final Color accentColor = isRejected
-        ? Colors.red.shade800
-        : (isComplete ? Colors.blue.shade800 : Colors.orange.shade900);
+        ? AppTheme.danger
+        : (isComplete ? AppTheme.info : AppTheme.warning);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -660,25 +761,79 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     final dispute = disputes.first;
     final proposedRefund = dispute.disputeAmount ?? 0.0;
     final remaining = (dispute.cost - proposedRefund).clamp(0.0, dispute.cost);
+    final stackButtons = context.watch<ConfigNotifier>().seniorMode ||
+        MediaQuery.textScalerOf(context).scale(1) > 1.2;
+
+    final rejectBtn = OutlinedButton(
+      onPressed: () async {
+        final confirm = await CustomDialog.showConfirmation(
+          context,
+          title: 'Escalar a Mediación',
+          message: 'Si rechazas, el equipo de Administración de SeniCare mediará en el caso. ¿Continuar?',
+          confirmText: 'Escalar',
+          isDestructive: true,
+        );
+        if (confirm == true) {
+          await bookingState.escalateDispute(dispute.id);
+          if (context.mounted) {
+            CustomSnackBar.show(context, message: 'Incidencia escalada a Administración.', type: SnackBarType.info);
+          }
+        }
+      },
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppTheme.danger,
+        side: BorderSide(color: AppTheme.danger.withValues(alpha: 0.4)),
+      ),
+      child: const Text('Rechazar', textAlign: TextAlign.center),
+    );
+
+    final acceptBtn = FilledButton(
+      onPressed: () async {
+        final confirm = await CustomDialog.showConfirmation(
+          context,
+          title: 'Aceptar Acuerdo',
+          message: 'Se aplicará el ajuste pactado y se liberará tu pago restante de inmediato. ¿Confirmar?',
+          confirmText: 'Aceptar',
+        );
+        if (confirm == true) {
+          try {
+            await bookingState.acceptDisputeProposal(dispute.id);
+            if (context.mounted) {
+              CustomSnackBar.show(context, message: 'Acuerdo aceptado. Pago en proceso.', type: SnackBarType.success);
+            }
+          } catch (e) {
+            if (context.mounted) {
+              CustomSnackBar.show(
+                context,
+                message: UserFacingErrorMapper.toSpanishMessage(e),
+                type: SnackBarType.error,
+              );
+            }
+          }
+        }
+      },
+      style: FilledButton.styleFrom(backgroundColor: AppTheme.success),
+      child: const Text('Aceptar Acuerdo', textAlign: TextAlign.center),
+    );
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.red.shade50,
+        color: AppTheme.dangerSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.red.shade300),
+        border: Border.all(color: AppTheme.danger.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.gavel_rounded, color: Colors.red.shade800, size: 20),
+              const Icon(Icons.gavel_rounded, color: AppTheme.danger, size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Incidencia abierta (${disputes.length})',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.red.shade900),
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppTheme.danger),
                 ),
               ),
             ],
@@ -686,68 +841,26 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
           const SizedBox(height: 6),
           Text(
             'El cliente propone un reembolso de ${proposedRefund.toStringAsFixed(2)} € (recibirías ${remaining.toStringAsFixed(2)} € brutos menos comisión). Tienes 24h para responder:',
-            style: TextStyle(fontSize: 12.5, color: Colors.red.shade900, height: 1.35),
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate, height: 1.35),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () async {
-                    final confirm = await CustomDialog.showConfirmation(
-                      context,
-                      title: 'Escalar a Mediación',
-                      message: 'Si rechazas, el equipo de Administración de SeniCare mediará en el caso. ¿Continuar?',
-                      confirmText: 'Escalar',
-                      isDestructive: true,
-                    );
-                    if (confirm == true) {
-                      await bookingState.escalateDispute(dispute.id);
-                      if (context.mounted) {
-                        CustomSnackBar.show(context, message: 'Incidencia escalada a Administración.', type: SnackBarType.info);
-                      }
-                    }
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red.shade800,
-                    side: BorderSide(color: Colors.red.shade300),
-                  ),
-                  child: const Text('Rechazar'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton(
-                  onPressed: () async {
-                    final confirm = await CustomDialog.showConfirmation(
-                      context,
-                      title: 'Aceptar Acuerdo',
-                      message: 'Se aplicará el ajuste pactado y se liberará tu pago restante de inmediato. ¿Confirmar?',
-                      confirmText: 'Aceptar',
-                    );
-                    if (confirm == true) {
-                      try {
-                        await bookingState.acceptDisputeProposal(dispute.id);
-                        if (context.mounted) {
-                          CustomSnackBar.show(context, message: 'Acuerdo aceptado. Pago en proceso.', type: SnackBarType.success);
-                        }
-                      } catch (e) {
-                        if (context.mounted) {
-                          CustomSnackBar.show(
-                            context,
-                            message: UserFacingErrorMapper.toSpanishMessage(e),
-                            type: SnackBarType.error,
-                          );
-                        }
-                      }
-                    }
-                  },
-                  style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
-                  child: const Text('Aceptar Acuerdo'),
-                ),
-              ),
-            ],
-          ),
+          if (stackButtons)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                acceptBtn,
+                const SizedBox(height: 8),
+                rejectBtn,
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(child: rejectBtn),
+                const SizedBox(width: 10),
+                Expanded(child: acceptBtn),
+              ],
+            ),
         ],
       ),
     );
@@ -755,24 +868,23 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
 
   Widget _buildNextServiceCard(BuildContext context, Booking nextService, BookingNotifier bookingState) {
     return Card(
-      color: AppTheme.primary,
+      color: AppTheme.primarySenior,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Expanded(
-                  child: Text(
-                    '📅 ${_formatFriendlyDay(nextService.day)} • ${nextService.slot}',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                Text(
+                  '📅 ${_formatFriendlyDay(nextService.day)} • ${nextService.slot}',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
                 ),
-                const SizedBox(width: 8),
                 Text(
                   '+${_calculateCaregiverNet(nextService).toStringAsFixed(0)} € netos',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
@@ -799,6 +911,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                           ),
                         ),
                         IconButton(
+                          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                           onPressed: () {
                             Navigator.push(
                               context,
@@ -822,43 +935,45 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.14),
+                          color: Colors.black.withValues(alpha: 0.18),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (profile.homeAddress.isNotEmpty)
-                              Row(
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  Expanded(
-                                    child: Text(
-                                      '📍 ${profile.homeAddress}',
-                                      style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
-                                    ),
+                                  Text(
+                                    '📍 ${profile.homeAddress}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
                                   ),
-                                  const SizedBox(width: 8),
                                   Semantics(
                                     button: true,
+                                    excludeSemantics: true,
                                     label: 'Cómo llegar en Maps a ${profile.homeAddress}',
                                     child: InkWell(
                                       borderRadius: BorderRadius.circular(10),
                                       onTap: () => _openMaps(profile.homeAddress),
                                       child: ConstrainedBox(
-                                        constraints: const BoxConstraints(minHeight: 44),
+                                        constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
                                         child: Container(
                                           alignment: Alignment.center,
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                           decoration: BoxDecoration(
-                                            color: Colors.white.withValues(alpha: 0.24),
+                                            color: Colors.white,
                                             borderRadius: BorderRadius.circular(10),
                                           ),
                                           child: const Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(Icons.navigation_rounded, color: Colors.white, size: 14),
+                                              Icon(Icons.navigation_rounded, color: AppTheme.primarySenior, size: 15),
                                               SizedBox(width: 4),
-                                              Text('Cómo llegar', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                              Text('Cómo llegar', style: TextStyle(color: AppTheme.primarySenior, fontSize: 12.5, fontWeight: FontWeight.w800)),
                                             ],
                                           ),
                                         ),
@@ -899,11 +1014,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     }
                   },
                   icon: const Icon(Icons.directions_car_rounded, size: 18, color: Colors.white),
-                  label: const Text('🚗 Avisar: Estoy en camino'),
+                  label: const Text('🚗 Avisar: Estoy en camino', textAlign: TextAlign.center),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white70, width: 1.5),
-                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    side: const BorderSide(color: Colors.white, width: 1.5),
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
@@ -913,9 +1028,9 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade800,
+                  color: AppTheme.warning,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Row(
@@ -940,12 +1055,16 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
-                  foregroundColor: AppTheme.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  foregroundColor: AppTheme.primarySenior,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 icon: const Icon(Icons.qr_code_scanner_rounded, size: 19),
-                label: const Text('Fichar Llegada (QR / PIN)', style: TextStyle(fontWeight: FontWeight.w800)),
+                label: const Text(
+                  'Fichar Llegada (QR / PIN)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
               ),
             ),
           ],
@@ -1047,25 +1166,27 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.12),
+                          color: Colors.black.withValues(alpha: 0.18),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (profile.homeAddress.isNotEmpty)
-                              Row(
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  Expanded(
-                                    child: Text(
-                                      '📍 ${profile.homeAddress}',
-                                      style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
-                                    ),
+                                  Text(
+                                    '📍 ${profile.homeAddress}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
                                   ),
-                                  const SizedBox(width: 8),
                                   Semantics(
                                     button: true,
-                                    label: 'Abrir dirección en mapas',
+                                    excludeSemantics: true,
+                                    label: 'Abrir dirección en mapas: ${profile.homeAddress}',
                                     child: InkWell(
                                       borderRadius: BorderRadius.circular(10),
                                       onTap: () => _openMaps(profile.homeAddress),
@@ -1077,30 +1198,28 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                         child: Center(
                                           child: Container(
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 6,
+                                              horizontal: 12,
+                                              vertical: 8,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.22),
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(8),
                                             ),
                                             child: const Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
                                                 Icon(
                                                   Icons.navigation_rounded,
-                                                  color: Colors.white,
-                                                  size: 14,
+                                                  color: AppTheme.primarySenior,
+                                                  size: 15,
                                                 ),
                                                 SizedBox(width: 4),
                                                 Text(
                                                   'Maps',
                                                   style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
+                                                    color: AppTheme.primarySenior,
+                                                    fontSize: 12.5,
+                                                    fontWeight: FontWeight.w800,
                                                   ),
                                                 ),
                                               ],
@@ -1128,12 +1247,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  const Icon(Icons.access_time_rounded, color: Colors.white70, size: 15),
+                  const Icon(Icons.access_time_rounded, color: Colors.white, size: 15),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       'Llegada registrada a las ${DateFormat('HH:mm').format(activeService.checkInTime!)}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],
@@ -1144,30 +1263,30 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: Colors.black.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        const Expanded(
-                          child: Text(
-                            '📋 Tareas del Cuidado',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
+                        const Text(
+                          '📋 Tareas del Cuidado',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
                           ),
                         ),
-                        const SizedBox(width: 8),
                         Text(
                           '$completedTasks/$totalTasks hechas',
                           style: const TextStyle(
-                            color: Colors.white70,
+                            color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1200,7 +1319,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                       size: 20,
                                       color: item.completed
                                           ? Colors.greenAccent
-                                          : Colors.white70,
+                                          : Colors.white,
                                     ),
                                     const SizedBox(width: 10),
                                     Expanded(
@@ -1212,7 +1331,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                                           decoration: item.completed
                                               ? TextDecoration.lineThrough
                                               : null,
-                                          decorationColor: Colors.white70,
+                                          decorationColor: Colors.white,
                                         ),
                                       ),
                                     ),
@@ -1232,7 +1351,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.1),
+                  color: Colors.black.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -1251,20 +1370,25 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                   separatorBuilder: (_, _) => const SizedBox(width: 8),
                   itemBuilder: (ctx, i) {
                     final url = activeService.carePhotoUrls[i];
-                    return GestureDetector(
-                      onTap: () => _showPhotoFullScreen(context, url),
-                      child: ClipRRect(
+                    return Semantics(
+                      button: true,
+                      label: 'Ampliar foto ${i + 1} del cuidado',
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(10),
-                        child: Image.network(
-                          url,
-                          width: 68,
-                          height: 68,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
+                        onTap: () => _showPhotoFullScreen(context, url),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            url,
                             width: 68,
                             height: 68,
-                            color: Colors.white24,
-                            child: const Icon(Icons.photo_rounded, color: Colors.white),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Container(
+                              width: 68,
+                              height: 68,
+                              color: Colors.white24,
+                              child: const Icon(Icons.photo_rounded, color: Colors.white),
+                            ),
                           ),
                         ),
                       ),
@@ -1274,42 +1398,59 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
               ),
             ],
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showEditCareNotesDialog(context, activeService, bookingState),
-                    icon: const Icon(Icons.edit_note_rounded, size: 17, color: Colors.white),
-                    label: Text(
-                      activeService.careNotes.isEmpty ? 'Nota del día' : 'Editar nota',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12.5),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.white60),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+            Builder(
+              builder: (context) {
+                final stackJournalButtons =
+                    context.watch<ConfigNotifier>().seniorMode ||
+                        MediaQuery.textScalerOf(context).scale(1) > 1.2;
+                final noteBtn = OutlinedButton.icon(
+                  onPressed: () => _showEditCareNotesDialog(context, activeService, bookingState),
+                  icon: const Icon(Icons.edit_note_rounded, size: 17, color: Colors.white),
+                  label: Text(
+                    activeService.careNotes.isEmpty ? 'Nota del día' : 'Editar nota',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12.5),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _pickAndUploadPhoto(context, activeService, bookingState),
-                    icon: const Icon(Icons.add_a_photo_rounded, size: 16, color: Colors.white),
-                    label: Text(
-                      activeService.carePhotoUrls.isEmpty
-                          ? 'Subir foto'
-                          : 'Foto (${activeService.carePhotoUrls.length})',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12.5),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.white60),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                ),
-              ],
+                );
+                final photoBtn = OutlinedButton.icon(
+                  onPressed: () => _pickAndUploadPhoto(context, activeService, bookingState),
+                  icon: const Icon(Icons.add_a_photo_rounded, size: 16, color: Colors.white),
+                  label: Text(
+                    activeService.carePhotoUrls.isEmpty
+                        ? 'Subir foto'
+                        : 'Foto (${activeService.carePhotoUrls.length})',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12.5),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                );
+                if (stackJournalButtons) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      noteBtn,
+                      const SizedBox(height: 8),
+                      photoBtn,
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: noteBtn),
+                    const SizedBox(width: 8),
+                    Expanded(child: photoBtn),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -1332,6 +1473,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                       context: context,
                       builder: (ctx) => StatefulBuilder(
                         builder: (ctx, setDialogState) => AlertDialog(
+                          actionsOverflowButtonSpacing: 8,
                           title: const Row(
                             children: [
                               Icon(Icons.assignment_outlined, color: AppTheme.primary),
@@ -1470,14 +1612,17 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
       await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
+          actionsOverflowButtonSpacing: 8,
           title: const Text('📝 Resumen del Cuidado'),
-          content: TextField(
-            controller: ctrl,
-            maxLines: 4,
-            autofocus: true,
-            decoration: const InputDecoration(
-              hintText: 'Cómo se encuentra el familiar hoy, comidas, estado de ánimo...',
-              border: OutlineInputBorder(),
+          content: SingleChildScrollView(
+            child: TextField(
+              controller: ctrl,
+              maxLines: 4,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Cómo se encuentra el familiar hoy, comidas, estado de ánimo...',
+                border: OutlineInputBorder(),
+              ),
             ),
           ),
           actions: [
@@ -1507,11 +1652,29 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.transparent,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: InteractiveViewer(
-            child: Image.network(photoUrl, fit: BoxFit.contain),
-          ),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: InteractiveViewer(
+                child: Image.network(photoUrl, fit: BoxFit.contain),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: IconButton(
+                tooltip: 'Cerrar foto',
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black.withValues(alpha: 0.65),
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.close_rounded, size: 22),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1521,11 +1684,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     HapticFeedback.heavyImpact();
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1535,11 +1699,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.dangerSurface,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.sos_rounded, color: Colors.red.shade700, size: 28),
+                    child: const Icon(Icons.sos_rounded, color: AppTheme.danger, size: 28),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -1592,13 +1756,17 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade700,
+                    backgroundColor: AppTheme.danger,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   icon: const Icon(Icons.local_hospital_rounded),
-                  label: const Text('Llamar al 112 (Emergencias Médicas)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Llamar al 112 (Emergencias Médicas)',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
               if (profile != null && profile.phone.isNotEmpty) ...[
@@ -1613,11 +1781,15 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                       }
                     },
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     icon: const Icon(Icons.phone_in_talk_rounded),
-                    label: Text('Llamar a la Familia (${profile.phone})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    label: Text(
+                      'Llamar a la Familia (${profile.phone})',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],
@@ -1639,13 +1811,17 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
 
   Widget _buildIncomingRequestsBanner(BuildContext context, List<Booking> requests, BookingNotifier bookingState) {
     final visibleRequests = _showAllRequests ? requests : requests.take(2).toList();
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+    final stackRequestButtons =
+        seniorMode || MediaQuery.textScalerOf(context).scale(1) > 1.2;
+    const headerAmberText = Color(0xFF78350F);
 
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.amber.shade50,
+        color: AppTheme.warningSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.amber.shade300, width: 1.5),
+        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4), width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1658,13 +1834,13 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             ),
             child: Row(
               children: [
-                Icon(Icons.notifications_active_rounded, color: Colors.amber.shade900, size: 20),
+                const Icon(Icons.notifications_active_rounded, color: headerAmberText, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Tienes ${requests.length} solicitud${requests.length > 1 ? "es" : ""} por responder',
-                    style: TextStyle(
-                      color: Colors.amber.shade900,
+                    style: const TextStyle(
+                      color: headerAmberText,
                       fontWeight: FontWeight.w800,
                       fontSize: 13.5,
                     ),
@@ -1686,37 +1862,90 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                       final displayName = _extractFamilyName(profile, req.clientId);
                       final payout = _calculateCaregiverNet(req);
 
+                      final rejectBtn = OutlinedButton(
+                        onPressed: () async {
+                          final confirm = await CustomDialog.showConfirmation(
+                            context,
+                            title: 'Rechazar Solicitud',
+                            message: '¿Seguro que deseas rechazar este servicio?',
+                            confirmText: 'Rechazar',
+                            isDestructive: true,
+                          );
+                          if (confirm == true) {
+                            await bookingState.rejectBooking(req.id);
+                            if (context.mounted) {
+                              CustomSnackBar.show(context, message: 'Solicitud rechazada.', type: SnackBarType.info);
+                            }
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.danger,
+                          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                          minimumSize: const Size(48, 48),
+                          side: BorderSide(color: AppTheme.danger.withValues(alpha: 0.4)),
+                        ),
+                        child: const Text(
+                          'Rechazar',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                      );
+
+                      final acceptBtn = FilledButton.icon(
+                        onPressed: () async {
+                          HapticFeedback.mediumImpact();
+                          await bookingState.confirmBooking(req.id);
+                          if (context.mounted) {
+                            CustomSnackBar.show(
+                              context,
+                              message: '✅ ¡Servicio aceptado! Recuerda registrar tu llegada al domicilio.',
+                              type: SnackBarType.success,
+                            );
+                          }
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                          minimumSize: const Size(48, 48),
+                        ),
+                        icon: const Icon(Icons.check_rounded, size: 18),
+                        label: const Text(
+                          'Aceptar Servicio',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
+                      );
+
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.amber.shade200),
+                          border: Border.all(color: AppTheme.warning.withValues(alpha: 0.25)),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    'Familia $displayName',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                Text(
+                                  'Familia $displayName',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
                                 ),
-                                const SizedBox(width: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: Colors.green.shade50,
+                                    color: AppTheme.successSurface,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
                                     '+${payout.toStringAsFixed(1)} € netos',
-                                    style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold, fontSize: 12),
+                                    style: const TextStyle(color: AppTheme.success, fontWeight: FontWeight.bold, fontSize: 12),
                                   ),
                                 ),
                               ],
@@ -1732,63 +1961,26 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                               clientProfile: profile,
                               isLoadingClient:
                                   snap.connectionState == ConnectionState.waiting,
-                              seniorMode: context.watch<ConfigNotifier>().seniorMode,
+                              seniorMode: seniorMode,
                             ),
                             const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () async {
-                                      final confirm = await CustomDialog.showConfirmation(
-                                        context,
-                                        title: 'Rechazar Solicitud',
-                                        message: '¿Seguro que deseas rechazar este servicio?',
-                                        confirmText: 'Rechazar',
-                                        isDestructive: true,
-                                      );
-                                      if (confirm == true) {
-                                        await bookingState.rejectBooking(req.id);
-                                        if (context.mounted) {
-                                          CustomSnackBar.show(context, message: 'Solicitud rechazada.', type: SnackBarType.info);
-                                        }
-                                      }
-                                    },
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: AppTheme.danger,
-                                      padding: const EdgeInsets.symmetric(vertical: 10),
-                                      minimumSize: const Size(48, 48),
-                                      side: BorderSide(color: AppTheme.danger.withValues(alpha: 0.35)),
-                                    ),
-                                    child: const Text('Rechazar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  flex: 2,
-                                  child: FilledButton.icon(
-                                    onPressed: () async {
-                                      HapticFeedback.mediumImpact();
-                                      await bookingState.confirmBooking(req.id);
-                                      if (context.mounted) {
-                                        CustomSnackBar.show(
-                                          context,
-                                          message: '✅ ¡Servicio aceptado! Recuerda registrar tu llegada al domicilio.',
-                                          type: SnackBarType.success,
-                                        );
-                                      }
-                                    },
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: AppTheme.primary,
-                                      padding: const EdgeInsets.symmetric(vertical: 10),
-                                      minimumSize: const Size(48, 48),
-                                    ),
-                                    icon: const Icon(Icons.check_rounded, size: 18),
-                                    label: const Text('Aceptar Servicio', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                  ),
-                                ),
-                              ],
-                            ),
+                            if (stackRequestButtons)
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  acceptBtn,
+                                  const SizedBox(height: 8),
+                                  rejectBtn,
+                                ],
+                              )
+                            else
+                              Row(
+                                children: [
+                                  Expanded(child: rejectBtn),
+                                  const SizedBox(width: 8),
+                                  Expanded(flex: 2, child: acceptBtn),
+                                ],
+                              ),
                           ],
                         ),
                       );
@@ -1798,13 +1990,16 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 if (requests.length > 2)
                   Center(
                     child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                      ),
                       onPressed: () => setState(() => _showAllRequests = !_showAllRequests),
-                      icon: Icon(_showAllRequests ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 18),
+                      icon: Icon(_showAllRequests ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 18, color: headerAmberText),
                       label: Text(
                         _showAllRequests
                             ? 'Mostrar menos'
                             : 'Ver las ${requests.length} solicitudes pendientes',
-                        style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold, fontSize: 12.5),
+                        style: const TextStyle(color: headerAmberText, fontWeight: FontWeight.bold, fontSize: 12.5),
                       ),
                     ),
                   ),
@@ -1826,14 +2021,15 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         context.read<AuthNotifier>().currentUserId ?? b.caregiverId;
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('📸 Foto-Momento de Tranquilidad', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('📸 Foto-Momento de Tranquilidad', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 6),
               const Text(
                 'Comparte una foto real del cuidado o paseo para dar tranquilidad a la familia.',

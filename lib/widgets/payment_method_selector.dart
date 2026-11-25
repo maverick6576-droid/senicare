@@ -667,49 +667,52 @@ class _ExternalCheckoutVerificationDialogState
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      actionsOverflowButtonSpacing: 8,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       title: Text(
         'Completa tu pago con ${widget.methodName}',
         style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Aprueba la operación en la ventana segura o en la app de tu banco. Al volver a SeniCare verificaremos el cobro al instante.',
-            style: TextStyle(fontSize: 13.5, height: 1.4, color: AppTheme.slateMuted),
-          ),
-          if (_statusMessage != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppTheme.primarySurface.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  if (_checking)
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else
-                    const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _statusMessage!,
-                      style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
-                    ),
-                  ),
-                ],
-              ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Aprueba la operación en la ventana segura o en la app de tu banco. Al volver a SeniCare verificaremos el cobro al instante.',
+              style: TextStyle(fontSize: 13.5, height: 1.4, color: AppTheme.slateMuted),
             ),
+            if (_statusMessage != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    if (_checking)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _statusMessage!,
+                        style: const TextStyle(fontSize: 12.5, color: AppTheme.darkSlate),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
       actions: [
         TextButton(

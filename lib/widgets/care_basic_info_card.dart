@@ -71,97 +71,126 @@ class _CareBasicInfoCardState extends State<CareBasicInfoCard> {
 
     final titleSize = widget.seniorMode ? 14.5 : 13.0;
     final bodySize = widget.seniorMode ? 13.5 : 12.5;
+    final wrapHeaderPill = MediaQuery.textScalerOf(context).scale(1) > 1.25;
+
+    final togglePill = Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: AppTheme.warning.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _expanded ? 'Ocultar' : 'Desplegar',
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.warning,
+            ),
+          ),
+          const SizedBox(width: 2),
+          Icon(
+            _expanded
+                ? Icons.expand_less_rounded
+                : Icons.expand_more_rounded,
+            size: 16,
+            color: AppTheme.warning,
+          ),
+        ],
+      ),
+    );
 
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.amber.shade50,
+        color: AppTheme.warningSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.amber.shade300),
+        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          InkWell(
-            key: Key('toggle_care_info_${widget.booking.id}'),
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.medical_information_rounded,
-                    size: 18,
-                    color: Colors.amber.shade900,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Información básica del cuidado',
-                          style: TextStyle(
-                            fontSize: titleSize,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.amber.shade900,
+          Semantics(
+            button: true,
+            toggled: _expanded,
+            label: _expanded
+                ? 'Ocultar información básica del cuidado'
+                : 'Desplegar información básica del cuidado',
+            child: InkWell(
+              key: Key('toggle_care_info_${widget.booking.id}'),
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.medical_information_rounded,
+                            size: 18,
+                            color: AppTheme.warning,
                           ),
-                        ),
-                        if (!_expanded && profile != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            _buildCollapsedHint(profile, checklist.length),
-                            style: TextStyle(
-                              fontSize: bodySize - 0.5,
-                              color: AppTheme.slateMuted,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Información básica del cuidado',
+                                  style: TextStyle(
+                                    fontSize: titleSize,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.warning,
+                                  ),
+                                ),
+                                if (!_expanded && profile != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _buildCollapsedHint(profile, checklist.length),
+                                    style: TextStyle(
+                                      fontSize: bodySize - 0.5,
+                                      color: AppTheme.slateMuted,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
+                          if (!wrapHeaderPill) ...[
+                            const SizedBox(width: 6),
+                            togglePill,
+                          ],
                         ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.amber.shade200),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _expanded ? 'Ocultar' : 'Desplegar',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.amber.shade900,
-                          ),
-                        ),
-                        const SizedBox(width: 2),
-                        Icon(
-                          _expanded
-                              ? Icons.expand_less_rounded
-                              : Icons.expand_more_rounded,
-                          size: 16,
-                          color: Colors.amber.shade900,
+                      ),
+                      if (wrapHeaderPill) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: togglePill,
                         ),
                       ],
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
           if (_expanded) ...[
-            Divider(height: 1, color: Colors.amber.shade200),
+            Divider(height: 1, color: AppTheme.warning.withValues(alpha: 0.25)),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
               child: widget.isLoadingClient && profile == null
@@ -173,11 +202,13 @@ class _CareBasicInfoCardState extends State<CareBasicInfoCard> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'Cargando información del cuidado...',
-                          style: TextStyle(
-                            fontSize: bodySize,
-                            color: AppTheme.slateMuted,
+                        Expanded(
+                          child: Text(
+                            'Cargando información del cuidado...',
+                            style: TextStyle(
+                              fontSize: bodySize,
+                              color: AppTheme.slateMuted,
+                            ),
                           ),
                         ),
                       ],
@@ -274,10 +305,10 @@ class _CareBasicInfoCardState extends State<CareBasicInfoCard> {
                                   child: Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Icon(
+                                      const Icon(
                                         Icons.check_circle_outline_rounded,
                                         size: 15,
-                                        color: Colors.amber.shade900,
+                                        color: AppTheme.warning,
                                       ),
                                       const SizedBox(width: 6),
                                       Expanded(
@@ -317,10 +348,10 @@ class _CareBasicInfoCardState extends State<CareBasicInfoCard> {
                                     foregroundColor: AppTheme.primary,
                                     backgroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
+                                      horizontal: 12,
+                                      vertical: 10,
                                     ),
-                                    minimumSize: const Size(0, 34),
+                                    minimumSize: const Size(48, 48),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(10),
                                       side: BorderSide(
@@ -381,7 +412,7 @@ class _InfoRow extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 1),
-            child: Icon(icon, size: 15, color: Colors.amber.shade900),
+            child: Icon(icon, size: 15, color: AppTheme.warning),
           ),
           const SizedBox(width: 6),
           Expanded(

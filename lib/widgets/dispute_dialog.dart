@@ -202,14 +202,15 @@ class _DisputeDialogState extends State<DisputeDialog> {
           ],
         ),
       ),
+      actionsOverflowButtonSpacing: 8,
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          child: const Text('Cancelar', style: TextStyle(color: AppTheme.slateMuted)),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange.shade800,
+            backgroundColor: AppTheme.warning,
             foregroundColor: Colors.white,
           ),
           onPressed: _isSubmitting

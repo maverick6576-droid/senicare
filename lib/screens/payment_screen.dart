@@ -116,7 +116,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   void _showSnackBar(ScaffoldMessengerState messenger, String message, Color color) {
     messenger.showSnackBar(SnackBar(
-      content: Text(message),
+      content: Semantics(
+        liveRegion: true,
+        child: Text(
+          message,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+      ),
       backgroundColor: color,
       duration: const Duration(seconds: 4),
     ));
@@ -172,7 +178,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       _showSnackBar(
         scaffoldMessenger,
         'Solo un Administrador de la familia puede confirmar pagos y reservas.',
-        Colors.orange.shade800,
+        AppTheme.warning,
       );
       return;
     }
@@ -207,7 +213,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       if (connectivityResult.contains(ConnectivityResult.none)) {
         _safeSetState(() => _isProcessingPayment = false);
         _showSnackBar(scaffoldMessenger,
-            'Sin conexión a internet. No se puede procesar el pago.', Colors.red);
+            'Sin conexión a internet. No se puede procesar el pago.', AppTheme.danger);
         return;
       }
     } catch (e) {
@@ -221,7 +227,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       _showSnackBar(
         scaffoldMessenger,
         'Este cuidador aún no ha configurado su cuenta de pago. Contacta con soporte.',
-        Colors.orange,
+        AppTheme.warning,
       );
       return;
     }
@@ -333,7 +339,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             _showSnackBar(
               scaffoldMessenger,
               'La hora ${selected.dateTime.hour.toString().padLeft(2, '0')}:00 acaba de ser reservada por otra familia. Por favor, elige otro horario.',
-              Colors.orange.shade800,
+              AppTheme.warning,
             );
             return;
           }
@@ -535,92 +541,102 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         contentPadding: const EdgeInsets.all(22),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: 1.0),
-              duration: const Duration(milliseconds: 500),
-              curve: Curves.elasticOut,
-              builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.secondaryColor.withValues(alpha: 0.14),
-                  shape: BoxShape.circle,
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.elasticOut,
+                builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.secondaryColor.withValues(alpha: 0.14),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.verified_rounded, color: AppTheme.secondaryColor, size: 48),
                 ),
-                child: const Icon(Icons.verified_rounded, color: AppTheme.secondaryColor, size: 48),
               ),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              '¡Reserva Solicitada con Éxito!',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              isProcessingBank
-                  ? 'Orden SEPA autorizada por ${totalPaid.toStringAsFixed(2)} €. Tu banco la procesará en 1-3 días hábiles y quedará protegida bajo Stripe Escrow para ${widget.caregiver.name}.'
-                  : 'Tu pago de ${totalPaid.toStringAsFixed(2)} € está protegido en custodia bancaria (Stripe Escrow). Solo se liberará a ${widget.caregiver.name} tras realizar el cuidado.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppTheme.primarySurface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+              const SizedBox(height: 14),
+              const Text(
+                '¡Reserva Solicitada con Éxito!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: AppTheme.darkSlate),
               ),
-              child: Column(
-                children: [
-                  const Text(
-                    '🔑 CÓDIGO PIN DE ENTRADA AL DOMICILIO',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.primary),
+              const SizedBox(height: 6),
+              Text(
+                isProcessingBank
+                    ? 'Orden SEPA autorizada por ${totalPaid.toStringAsFixed(2)} €. Tu banco la procesará en 1-3 días hábiles y quedará protegida bajo Stripe Escrow para ${widget.caregiver.name}.'
+                    : 'Tu pago de ${totalPaid.toStringAsFixed(2)} € está protegido en custodia bancaria (Stripe Escrow). Solo se liberará a ${widget.caregiver.name} tras realizar el cuidado.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      '🔑 CÓDIGO PIN DE ENTRADA AL DOMICILIO',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.primary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      pin,
+                      style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 6, color: AppTheme.darkSlate),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Entrégaselo al cuidador cuando llegue a casa',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final text = '✅ Reserva en SeniCare con ${widget.caregiver.name}\n'
+                        '📅 Fecha: $dateFormatted ($hoursStr)\n'
+                        '🔑 Código PIN de llegada: $pin\n'
+                        '🛡️ Pago protegido en garantía: ${totalPaid.toStringAsFixed(2)} €';
+                    await Clipboard.setData(ClipboardData(text: text));
+                    if (ctx.mounted) {
+                      CustomSnackBar.show(ctx, message: '📋 Recibo y PIN copiados para enviar por WhatsApp a tu familia.', type: SnackBarType.success);
+                    }
+                  },
+                  icon: const Icon(Icons.share_rounded, size: 17),
+                  label: const Text(
+                    'Compartir recibo y PIN por WhatsApp',
+                    textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    pin,
-                    style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 6, color: AppTheme.darkSlate),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text(
+                    'Finalizar e ir al Inicio',
+                    textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Entrégaselo al cuidador cuando llegue a casa',
-                    style: TextStyle(fontSize: 11.5, color: AppTheme.slateMuted),
-                  ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  final text = '✅ Reserva en SeniCare con ${widget.caregiver.name}\n'
-                      '📅 Fecha: $dateFormatted ($hoursStr)\n'
-                      '🔑 Código PIN de llegada: $pin\n'
-                      '🛡️ Pago protegido en garantía: ${totalPaid.toStringAsFixed(2)} €';
-                  await Clipboard.setData(ClipboardData(text: text));
-                  if (ctx.mounted) {
-                    CustomSnackBar.show(ctx, message: '📋 Recibo y PIN copiados para enviar por WhatsApp a tu familia.', type: SnackBarType.success);
-                  }
-                },
-                icon: const Icon(Icons.share_rounded, size: 17),
-                label: const Text('Compartir recibo y PIN por WhatsApp'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Finalizar e ir al Inicio'),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -629,43 +645,51 @@ class _PaymentScreenState extends State<PaymentScreen> {
   void _showManagementFeeSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.shield_rounded, color: AppTheme.primary, size: 24),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    '¿Qué incluye el Escudo de Protección Familiar?',
-                    style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800),
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.88,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.shield_rounded, color: AppTheme.primary, size: 24),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '¿Qué incluye el Escudo de Protección Familiar?',
+                      style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            const Text('• 🔐 Custodia Bancaria Stripe Escrow: tu dinero queda retenido y no se transfiere hasta verificar la llegada con PIN/QR.', style: TextStyle(fontSize: 13.5, height: 1.4)),
-            const SizedBox(height: 8),
-            const Text('• 🛡️ Cobertura y Verificación: identidad DNI/NIE, antecedentes y seguro de responsabilidad civil hasta 500.000€ durante el turno.', style: TextStyle(fontSize: 13.5, height: 1.4)),
-            const SizedBox(height: 8),
-            const Text('• 🏆 Fidelidad Compartida: tu cuota baja automáticamente del 5% al 3,5% (+30h) y al 2% (+100h) con el mismo cuidador, y se reduce un -50% en reservas de 4h o más sin recortar el sueldo del cuidador.', style: TextStyle(fontSize: 13.5, height: 1.4)),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Entendido'),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 14),
+              const Text('• 🔐 Custodia Bancaria Stripe Escrow: tu dinero queda retenido y no se transfiere hasta verificar la llegada con PIN/QR.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+              const SizedBox(height: 8),
+              const Text('• 🛡️ Cobertura y Verificación: identidad DNI/NIE, antecedentes y seguro de responsabilidad civil hasta 500.000€ durante el turno.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+              const SizedBox(height: 8),
+              const Text('• 🏆 Fidelidad Compartida: tu cuota baja automáticamente del 5% al 3,5% (+30h) y al 2% (+100h) con el mismo cuidador, y se reduce un -50% en reservas de 4h o más sin recortar el sueldo del cuidador.', style: TextStyle(fontSize: 13.5, height: 1.4)),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Entendido'),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
       ),
     );
   }
@@ -737,7 +761,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
             ),
             child: Row(
               children: [
-                const Text('📦', style: TextStyle(fontSize: 20)),
+                const ExcludeSemantics(
+                  child: Text('📦', style: TextStyle(fontSize: 20)),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -756,6 +782,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -787,28 +814,29 @@ class _PaymentScreenState extends State<PaymentScreen> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Expanded(child: Text('Cuidador:')),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          widget.caregiver.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.end,
-                        ),
+                      const Text('Cuidador:'),
+                      Text(
+                        widget.caregiver.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Expanded(child: Text('Fecha:')),
-                      const SizedBox(width: 8),
+                      const Text('Fecha:'),
                       Text(
                         DateFormat('dd/MM/yyyy')
                             .format(DateTime.parse(widget.dateString)),
@@ -817,33 +845,32 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Expanded(child: Text('Horarios:')),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          _hasCustomRange
-                              ? '${TimeInterval.formatHm(widget.customStartTime!)} - ${TimeInterval.formatHm(widget.customEndTime!)}'
-                              : widget.slots
-                                  .map((s) =>
-                                      '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
-                                  .join(', '),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.end,
-                        ),
+                      const Text('Horarios:'),
+                      Text(
+                        _hasCustomRange
+                            ? '${TimeInterval.formatHm(widget.customStartTime!)} - ${TimeInterval.formatHm(widget.customEndTime!)}'
+                            : widget.slots
+                                .map((s) =>
+                                    '${s.dateTime.hour.toString().padLeft(2, '0')}:${s.dateTime.minute.toString().padLeft(2, '0')}')
+                                .join(', '),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Expanded(child: Text('Duración:')),
-                      const SizedBox(width: 8),
+                      const Text('Duración:'),
                       Text(
                         '${totalHours.toStringAsFixed(totalHours % 1 == 0 ? 0 : 2)} hora${totalHours > 1 ? 's' : ''}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
@@ -851,61 +878,63 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ],
                   ),
                   const Divider(height: 32),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Expanded(
-                        child: Text('Honorarios del cuidador:'),
-                      ),
-                      const SizedBox(width: 8),
+                      const Text('Honorarios del cuidador:'),
                       Text(currencyFormat.format(rawBaseCost)),
                     ],
                   ),
                   if (_applyPackDiscount) ...[
                     const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 2,
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        const Expanded(
-                          child: Text(
-                            '📦 Bono Familiar 4h+ (-50% en Escudo):',
-                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondaryColor),
-                          ),
+                        const Text(
+                          '📦 Bono Familiar 4h+ (-50% en Escudo):',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.secondarySenior),
                         ),
-                        const SizedBox(width: 8),
                         Text(
                           '-${currencyFormat.format(packDiscountAmount)}',
-                          style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.secondaryColor),
+                          style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.secondarySenior),
                         ),
                       ],
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Flexible(
-                        child: Semantics(
-                          button: true,
-                          label: 'Información sobre el Escudo de Protección Familiar',
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(8),
-                            onTap: () => _showManagementFeeSheet(context),
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(minHeight: 48),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      '🛡️ Escudo de Protección ($feePctLabel%):',
-                                      style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
-                                    ),
+                      Semantics(
+                        button: true,
+                        excludeSemantics: true,
+                        label: 'Escudo de Protección ($feePctLabel%). Pulsa para ver qué incluye',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => _showManagementFeeSheet(context),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 48),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    '🛡️ Escudo de Protección ($feePctLabel%):',
+                                    style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMuted),
                                   ),
-                                  const SizedBox(width: 6),
-                                  const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
-                                ],
-                              ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
+                              ],
                             ),
                           ),
                         ),
@@ -915,24 +944,21 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ],
                   ),
                   const Divider(height: 32),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Expanded(
-                        child: Text('Total:',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 18)),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          currencyFormat.format(total),
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.primary,
-                              fontSize: 22),
-                          textAlign: TextAlign.end,
-                        ),
+                      const Text('Total:',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 18)),
+                      Text(
+                        currencyFormat.format(total),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primary,
+                            fontSize: 22),
                       ),
                     ],
                   ),
@@ -1049,66 +1075,130 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
           const SizedBox(height: 12),
           if (_customChecklist.isNotEmpty) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _customChecklist.map((task) {
-                return Chip(
-                  backgroundColor: Colors.white,
-                  label: Text(task, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                  deleteIcon: const Icon(Icons.close_rounded, size: 16),
-                  onDeleted: () {
-                    setState(() => _customChecklist.remove(task));
-                  },
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final maxLabelWidth =
+                    (constraints.maxWidth - 96).clamp(80.0, double.infinity);
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _customChecklist.map((task) {
+                    return Chip(
+                      materialTapTargetSize: MaterialTapTargetSize.padded,
+                      backgroundColor: Colors.white,
+                      label: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: maxLabelWidth),
+                        child: Text(
+                          task,
+                          softWrap: true,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      deleteIcon: const Icon(
+                        Icons.close_rounded,
+                        size: 20,
+                        color: AppTheme.slateMuted,
+                      ),
+                      deleteButtonTooltipMessage: 'Quitar tarea $task',
+                      onDeleted: () {
+                        setState(() => _customChecklist.remove(task));
+                      },
+                    );
+                  }).toList(),
                 );
-              }).toList(),
+              },
             ),
             const SizedBox(height: 10),
           ],
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _taskCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Nueva tarea para el cuidador',
-                    hintText: 'Ej. Pastilla a las 12:30...',
-                    isDense: true,
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+          Builder(
+            builder: (context) {
+              final seniorMode = context.read<ConfigNotifier>().seniorMode;
+              final stackChecklistInput =
+                  seniorMode || MediaQuery.textScalerOf(context).scale(1) > 1.2;
+              void submitTask() {
+                final text = _taskCtrl.text.trim();
+                if (text.isNotEmpty && !_customChecklist.contains(text)) {
+                  setState(() {
+                    _customChecklist.add(text);
+                    _taskCtrl.clear();
+                  });
+                }
+              }
+
+              final inputField = TextField(
+                controller: _taskCtrl,
+                onSubmitted: (_) => submitTask(),
+                decoration: InputDecoration(
+                  labelText: 'Nueva tarea para el cuidador',
+                  hintText: 'Ej. Pastilla a las 12:30...',
+                  isDense: !stackChecklistInput,
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: () {
-                  final text = _taskCtrl.text.trim();
-                  if (text.isNotEmpty && !_customChecklist.contains(text)) {
-                    setState(() {
-                      _customChecklist.add(text);
-                      _taskCtrl.clear();
-                    });
-                  }
-                },
-                child: const Text('Añadir'),
-              ),
-            ],
+              );
+
+              if (stackChecklistInput) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    inputField,
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: submitTask,
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('Añadir tarea'),
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: inputField),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: submitTask,
+                    child: const Text('Añadir'),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: quickOptions
-                .where((o) => !_customChecklist.contains(o))
-                .map((opt) => ActionChip(
-                      backgroundColor: Colors.white,
-                      label: Text('+ $opt', style: const TextStyle(fontSize: 11.5)),
-                      onPressed: () {
-                        setState(() => _customChecklist.add(opt));
-                      },
-                    ))
-                .toList(),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final maxQuickWidth =
+                  (constraints.maxWidth - 56).clamp(80.0, double.infinity);
+              return Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: quickOptions
+                    .where((o) => !_customChecklist.contains(o))
+                    .map((opt) => ActionChip(
+                          materialTapTargetSize: MaterialTapTargetSize.padded,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          backgroundColor: Colors.white,
+                          label: ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: maxQuickWidth),
+                            child: Text(
+                              '+ $opt',
+                              softWrap: true,
+                              style: const TextStyle(fontSize: 11.5),
+                            ),
+                          ),
+                          onPressed: () {
+                            setState(() => _customChecklist.add(opt));
+                          },
+                        ))
+                    .toList(),
+              );
+            },
           ),
         ],
       ),

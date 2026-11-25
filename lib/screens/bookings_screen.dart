@@ -507,8 +507,20 @@ class _BookingsScreenState extends State<BookingsScreen>
                 fontSize: seniorMode ? 16.5 : 15,
               ),
               tabs: [
-                Tab(text: 'Activas (${activeBookings.length})'),
-                Tab(text: 'Historial (${historyBookings.length})'),
+                Tab(
+                  height: seniorMode ? 56 : 48,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text('Activas (${activeBookings.length})'),
+                  ),
+                ),
+                Tab(
+                  height: seniorMode ? 56 : 48,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text('Historial (${historyBookings.length})'),
+                  ),
+                ),
               ],
             ),
           ),
@@ -617,6 +629,7 @@ class _BookingsScreenState extends State<BookingsScreen>
     bool seniorMode = false,
   }) {
     return ChoiceChip(
+      materialTapTargetSize: MaterialTapTargetSize.padded,
       selected: selected,
       onSelected: (_) => onSelected(),
       showCheckmark: false,
@@ -696,7 +709,8 @@ class _BookingsScreenState extends State<BookingsScreen>
                 ),
                 style: TextButton.styleFrom(
                   foregroundColor: AppTheme.primary,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  minimumSize: const Size(48, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 ),
               ),
             ],
@@ -1039,14 +1053,16 @@ class _BookingsScreenState extends State<BookingsScreen>
                         ),
                       ),
                     ),
-                    InkWell(
-                      onTap: () => setState(() {
+                    IconButton(
+                      tooltip: 'Cerrar aviso de oferta',
+                      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                      onPressed: () => setState(() {
                         _highlightedBookingId = null;
                         _highlightedOfferTitle = null;
                       }),
-                      child: const Icon(
+                      icon: const Icon(
                         Icons.close_rounded,
-                        size: 17,
+                        size: 18,
                         color: AppTheme.primary,
                       ),
                     ),
@@ -1119,9 +1135,9 @@ class _BookingsScreenState extends State<BookingsScreen>
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: EdgeInsets.all(seniorMode ? 12 : 10),
                 decoration: BoxDecoration(
-                  color: Colors.deepOrange.shade50,
+                  color: AppTheme.warningSurface,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.deepOrange.shade300),
+                  border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1129,7 +1145,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                     Icon(
                       Icons.schedule_rounded,
                       size: seniorMode ? 22 : 19,
-                      color: Colors.deepOrange.shade700,
+                      color: AppTheme.warning,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -1139,7 +1155,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                           Text(
                             'El cuidador llega tarde (${b.minutesLateNow()} min)',
                             style: TextStyle(
-                              color: Colors.deepOrange.shade900,
+                              color: AppTheme.warning,
                               fontWeight: FontWeight.w800,
                               fontSize: seniorMode ? 14.5 : 13,
                             ),
@@ -1148,7 +1164,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                           Text(
                             'Si no ficha su entrada antes de finalizar el servicio, la reserva se cancelará automáticamente con reembolso íntegro.',
                             style: TextStyle(
-                              color: Colors.deepOrange.shade800,
+                              color: AppTheme.darkSlate,
                               fontSize: seniorMode ? 13 : 11.5,
                               height: 1.3,
                             ),
@@ -1160,33 +1176,41 @@ class _BookingsScreenState extends State<BookingsScreen>
                 ),
               ),
             ],
-            InkWell(
-              onTap: () => _showStatusExplanation(context, b),
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: badge.color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: badge.color.withValues(alpha: 0.35)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.info_outline_rounded, size: 15, color: badge.color),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        badge.label,
-                        style: TextStyle(
-                          color: badge.color,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
-                      ),
+            Semantics(
+              button: true,
+              excludeSemantics: true,
+              label: 'Estado: ${badge.label}. Pulsa para ver explicación',
+              child: InkWell(
+                onTap: () => _showStatusExplanation(context, b),
+                borderRadius: BorderRadius.circular(12),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: badge.color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: badge.color.withValues(alpha: 0.35)),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.info_outline_rounded, size: 16, color: badge.color),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            badge.label,
+                            style: TextStyle(
+                              color: badge.color,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1234,7 +1258,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                     fontWeight: FontWeight.w900,
                     fontSize: 17,
                     color: (!isClient && b.escrowStatus != 'refunded')
-                        ? Colors.green.shade700
+                        ? AppTheme.success
                         : AppTheme.primary,
                   ),
                 ),
@@ -1246,22 +1270,24 @@ class _BookingsScreenState extends State<BookingsScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
+                  color: AppTheme.warningSurface,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.amber.shade300),
+                  border: Border.all(color: AppTheme.warning.withValues(alpha: 0.35)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('☕', style: TextStyle(fontSize: 14)),
+                    const ExcludeSemantics(
+                      child: Text('☕', style: TextStyle(fontSize: 14)),
+                    ),
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
                         'Propina de agradecimiento: +${b.tipAmount.toStringAsFixed(0)} € (100% íntegra)',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: Colors.amber.shade900,
+                          color: AppTheme.warning,
                         ),
                       ),
                     ),
@@ -1300,24 +1326,24 @@ class _BookingsScreenState extends State<BookingsScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
+                  color: AppTheme.warningSurface,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.shade200),
+                  border: Border.all(color: AppTheme.warning.withValues(alpha: 0.35)),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle_rounded,
-                        size: 17, color: Colors.orange.shade800),
+                    const Icon(Icons.check_circle_rounded,
+                        size: 17, color: AppTheme.warning),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         b.onTheWayAt != null
                             ? 'Aviso "En camino" enviado a las ${DateFormat("HH:mm").format(b.onTheWayAt!)}. Ficha al llegar.'
                             : 'Aviso "En camino" enviado a la familia. Recuerda fichar al llegar.',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,
-                          color: Colors.orange.shade900,
+                          color: AppTheme.warning,
                         ),
                       ),
                     ),
@@ -1393,7 +1419,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                       );
                     },
                     style: OutlinedButton.styleFrom(
-                      minimumSize: Size(0, seniorMode && isClient ? 48 : 42),
+                      minimumSize: Size(48, seniorMode ? 52 : 48),
                     ),
                     icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
                     label: Text(
@@ -1403,7 +1429,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
-                        fontSize: seniorMode && isClient ? 15 : 13.5,
+                        fontSize: seniorMode ? 15 : 13.5,
                       ),
                     ),
                   ),
@@ -1422,7 +1448,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                       backgroundColor: AppTheme.backgroundNeutral,
                       foregroundColor: AppTheme.darkSlate,
                       side: const BorderSide(color: AppTheme.borderSubtle),
-                      minimumSize: Size(0, seniorMode ? 48 : 42),
+                      minimumSize: Size(48, seniorMode ? 52 : 48),
                       padding: EdgeInsets.symmetric(
                         horizontal: seniorMode ? 14 : 12,
                       ),
@@ -1441,6 +1467,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                   )
                 else
                   IconButton(
+                    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                     onPressed: () => _showBookingMoreOptionsModal(
                       context,
                       b,
@@ -1476,7 +1503,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         label: 'Completado (Pagado)',
         explanation:
             'El servicio se ha realizado correctamente y el pago ha sido liberado al cuidador (se completaron las 24h tras el fin del servicio o se liberó manualmente).',
-        color: Colors.green.shade700,
+        color: AppTheme.success,
       );
     }
     if (b.escrowStatus == 'refunded') {
@@ -1484,7 +1511,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         label: 'Cancelado (Reembolsado)',
         explanation:
             'El servicio fue cancelado o hubo una incidencia mayor (como un No-Show) y se ha devuelto el importe íntegro al cliente.',
-        color: Colors.red.shade700,
+        color: AppTheme.danger,
       );
     }
     if (b.escrowStatus == 'resolved_partial') {
@@ -1496,7 +1523,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         explanation: isComp
             ? 'Ambas partes alcanzaron un acuerdo satisfactorio para resolver la incidencia y los pagos se han ajustado según lo pactado.'
             : 'La reserva fue cancelada fuera de plazo (con penalización) y se reembolsó la parte correspondiente al cliente.',
-        color: isComp ? Colors.teal.shade700 : Colors.orange.shade800,
+        color: isComp ? AppTheme.primarySenior : AppTheme.warning,
       );
     }
     if (b.escrowStatus == 'disputed') {
@@ -1506,7 +1533,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         explanation: escalated
             ? 'La incidencia ha sido escalada al equipo de Administración y Mediación de Senicare para su arbitraje definitivo.'
             : 'Hay una incidencia en curso entre la familia y el cuidador. Los fondos permanecen en custodia hasta que se alcance un acuerdo o transcurran 24h.',
-        color: Colors.deepOrange.shade700,
+        color: AppTheme.warning,
       );
     }
     if (b.isInProgressAwaitingCheckOut) {
@@ -1515,14 +1542,14 @@ class _BookingsScreenState extends State<BookingsScreen>
           label: '⏳ Turno cumplido (Falta fichar salida)',
           explanation:
               'La hora prevista de fin ya ha pasado, pero el turno sigue abierto porque aún falta registrar la salida con el botón "Finalizar Servicio y Salir".',
-          color: Colors.orange.shade800,
+          color: AppTheme.warning,
         );
       }
       return (
         label: '🟢 En domicilio (Cuidado en curso)',
         explanation:
             'El cuidador ha registrado su llegada presencial (Check-in con QR/PIN) y se encuentra atendiendo al familiar en el domicilio.',
-        color: AppTheme.secondaryColor,
+        color: AppTheme.secondarySenior,
       );
     }
     if (b.liveStatus == 'completed' || b.status == BookingStatus.completed) {
@@ -1530,7 +1557,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         label: '✅ Visita Finalizada (Custodia 24h)',
         explanation:
             'El cuidador ha finalizado el servicio y registrado su salida. El dinero se mantiene en custodia protegida durante 24 horas por si surge alguna duda o puede liberarse antes.',
-        color: Colors.blue.shade700,
+        color: AppTheme.info,
       );
     }
     if (b.checkInTime != null && b.status == BookingStatus.confirmed) {
@@ -1538,7 +1565,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         label: '✅ Visita Realizada (Custodia 24h)',
         explanation:
             'El servicio ha finalizado según el horario previsto y el dinero se mantiene en custodia durante el periodo de garantía de 24 horas.',
-        color: Colors.blue.shade700,
+        color: AppTheme.info,
       );
     }
     if (b.isCaregiverLate()) {
@@ -1547,7 +1574,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         label: '⏰ El cuidador llega tarde ($mins min)',
         explanation:
             'Ya ha pasado la hora prevista de inicio y el cuidador todavía no ha fichado su llegada. Si no llega antes de que finalice la franja reservada, la reserva se cancelará automáticamente con reembolso íntegro.',
-        color: Colors.deepOrange.shade700,
+        color: AppTheme.warning,
       );
     }
     if (b.liveStatus == 'on_the_way' &&
@@ -1558,7 +1585,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         label: '🚗 Cuidador en camino',
         explanation:
             'El cuidador ha avisado de que se encuentra desplazándose hacia el domicilio para iniciar el servicio.',
-        color: Colors.orange.shade800,
+        color: AppTheme.warning,
       );
     }
     if (isBookingExpired(b) &&
@@ -1568,7 +1595,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         label: 'Caducada / No-Show',
         explanation:
             'La hora del servicio ha pasado y no se llegó a fichar la entrada mediante el código QR o PIN.',
-        color: Colors.red.shade700,
+        color: AppTheme.danger,
       );
     }
     if (isBookingExpired(b) && b.status == BookingStatus.pending) {
@@ -1586,28 +1613,28 @@ class _BookingsScreenState extends State<BookingsScreen>
           label: 'Procesando pago...',
           explanation:
               'Se está validando la retención de la tarjeta del cliente a través de la pasarela de pago segura.',
-          color: Colors.orange.shade700,
+          color: AppTheme.warning,
         );
       case BookingStatus.pending:
         return (
           label: 'Pendiente de aceptación',
           explanation:
               'El pago está asegurado, pero el cuidador todavía tiene que aceptar la solicitud de servicio para confirmarla.',
-          color: Colors.amber.shade800,
+          color: AppTheme.warning,
         );
       case BookingStatus.confirmed:
         return (
           label: 'Confirmada',
           explanation:
               'El cuidador ha aceptado el servicio. Solo queda esperar al día y hora acordados para realizar el fichaje presencial (Check-in).',
-          color: Colors.green.shade700,
+          color: AppTheme.success,
         );
       case BookingStatus.cancelled:
         return (
           label: 'Cancelada',
           explanation:
               'El servicio ha sido cancelado antes de tiempo sin penalización.',
-          color: Colors.red.shade700,
+          color: AppTheme.danger,
         );
       case BookingStatus.cancelledLate:
         final isNoShow =
@@ -1617,14 +1644,14 @@ class _BookingsScreenState extends State<BookingsScreen>
           explanation: isNoShow
               ? 'El cuidador no fichó la entrada antes de finalizar el horario de la reserva. La reserva se ha cancelado automáticamente con reembolso íntegro.'
               : 'El servicio ha sido cancelado fuera de plazo (con menos de 24h de antelación), lo cual acarrea una penalización.',
-          color: Colors.red.shade800,
+          color: AppTheme.danger,
         );
       case BookingStatus.completed:
         return (
           label: 'Completada',
           explanation:
               'El servicio ha terminado y todo el flujo de pagos ha concluido correctamente.',
-          color: Colors.blue.shade700,
+          color: AppTheme.info,
         );
     }
   }
@@ -1635,6 +1662,7 @@ class _BookingsScreenState extends State<BookingsScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        actionsOverflowButtonSpacing: 8,
         title: Row(
           children: [
             Icon(Icons.info_outline, color: badge.color),
@@ -1644,7 +1672,7 @@ class _BookingsScreenState extends State<BookingsScreen>
             ),
           ],
         ),
-        content: Text(badge.explanation),
+        content: SingleChildScrollView(child: Text(badge.explanation)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -1678,6 +1706,52 @@ class _BookingsScreenState extends State<BookingsScreen>
       {'label': 'En domicilio', 'done': step3, 'icon': Icons.home_rounded},
       {'label': 'Finalizada', 'done': step4, 'icon': Icons.verified_rounded},
     ];
+
+    final seniorMode = context.watch<ConfigNotifier>().seniorMode;
+    final compactVertical =
+        seniorMode || MediaQuery.textScalerOf(context).scale(1) >= 1.3;
+
+    if (compactVertical) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.backgroundNeutral,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.borderSubtle),
+        ),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: steps.map((step) {
+            final done = step['done'] as bool;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 13,
+                  backgroundColor: done ? AppTheme.secondaryColor : Colors.grey.shade300,
+                  child: Icon(
+                    step['icon'] as IconData,
+                    size: 14,
+                    color: done ? Colors.white : AppTheme.slateMuted,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  step['label'] as String,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: done ? FontWeight.w800 : FontWeight.w600,
+                    color: done ? AppTheme.darkSlate : AppTheme.slateMuted,
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -1715,7 +1789,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                   child: Icon(
                     step['icon'] as IconData,
                     size: 14,
-                    color: done ? Colors.white : Colors.grey.shade600,
+                    color: done ? Colors.white : AppTheme.slateMuted,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -1901,79 +1975,84 @@ class _BookingsScreenState extends State<BookingsScreen>
           else
             ...b.careChecklist.map((item) {
               final timeFormatted = item.completedAt;
-              return InkWell(
-                borderRadius: BorderRadius.circular(10),
-                onTap: (!isClient && isActiveTab)
-                    ? () {
-                        HapticFeedback.mediumImpact();
-                        state.toggleChecklistTask(b.id, item.id);
-                      }
-                    : null,
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: item.completed
-                          ? AppTheme.secondaryColor.withValues(alpha: 0.45)
-                          : Colors.grey.shade200,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        item.completed
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        color: item.completed ? AppTheme.secondaryColor : Colors.grey.shade400,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          item.title,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            decoration: item.completed ? TextDecoration.lineThrough : null,
-                            color: item.completed ? Colors.grey.shade600 : AppTheme.darkSlate,
-                          ),
+              return Semantics(
+                checked: (!isClient && isActiveTab) ? item.completed : null,
+                label: '${item.title}, ${item.completed ? "completada" : "pendiente"}',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: (!isClient && isActiveTab)
+                      ? () {
+                          HapticFeedback.mediumImpact();
+                          state.toggleChecklistTask(b.id, item.id);
+                        }
+                      : null,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: item.completed
+                              ? AppTheme.secondaryColor.withValues(alpha: 0.45)
+                              : AppTheme.borderSubtle,
                         ),
                       ),
-                      if (timeFormatted != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppTheme.secondaryColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            item.completed
+                                ? Icons.check_circle_rounded
+                                : Icons.radio_button_unchecked_rounded,
+                            color: item.completed ? AppTheme.secondaryColor : AppTheme.slateMuted,
+                            size: 20,
                           ),
-                          child: Text(
-                            '✓ $timeFormatted',
-                            style: const TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.secondaryColor,
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              item.title,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                decoration: item.completed ? TextDecoration.lineThrough : null,
+                                color: item.completed ? AppTheme.slateMuted : AppTheme.darkSlate,
+                              ),
                             ),
                           ),
-                        ),
-                      if (isClient &&
-                          isActiveTab &&
-                          !item.completed &&
-                          context.read<AuthNotifier>().canManageCareDetails)
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: const Icon(Icons.close_rounded, size: 17, color: Colors.grey),
-                          tooltip: 'Quitar tarea',
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            state.removeChecklistTask(b.id, item.id);
-                          },
-                        ),
-                    ],
+                          if (timeFormatted != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.secondaryColor.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '✓ $timeFormatted',
+                                style: const TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.secondarySenior,
+                                ),
+                              ),
+                            ),
+                          if (isClient &&
+                              isActiveTab &&
+                              !item.completed &&
+                              context.read<AuthNotifier>().canManageCareDetails)
+                            IconButton(
+                              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                              icon: const Icon(Icons.close_rounded, size: 18, color: AppTheme.slateMuted),
+                              tooltip: 'Quitar tarea ${item.title}',
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                state.removeChecklistTask(b.id, item.id);
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               );
@@ -1987,6 +2066,7 @@ class _BookingsScreenState extends State<BookingsScreen>
               child: Row(
                 children: [
                   ActionChip(
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
                     avatar: const Icon(Icons.add_rounded, size: 16, color: Colors.white),
                     backgroundColor: AppTheme.primary,
                     label: const Text(
@@ -2001,6 +2081,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                       .map((suggestion) => Padding(
                             padding: const EdgeInsets.only(right: 6),
                             child: ActionChip(
+                              materialTapTargetSize: MaterialTapTargetSize.padded,
                               backgroundColor: Colors.white,
                               label: Text(suggestion, style: const TextStyle(fontSize: 11.5)),
                               onPressed: () {
@@ -2062,38 +2143,42 @@ class _BookingsScreenState extends State<BookingsScreen>
                 scrollDirection: Axis.horizontal,
                 itemCount: b.carePhotoUrls.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (ctx, i) => InkWell(
-                  onTap: () => _showPhotoFullScreen(context, b.carePhotoUrls[i], b.caregiverName),
-                  borderRadius: BorderRadius.circular(10),
-                  child: ClipRRect(
+                itemBuilder: (ctx, i) => Semantics(
+                  button: true,
+                  label: 'Ver foto ${i + 1} del cuidado a pantalla completa',
+                  child: InkWell(
+                    onTap: () => _showPhotoFullScreen(context, b.carePhotoUrls[i], b.caregiverName),
                     borderRadius: BorderRadius.circular(10),
-                    child: Stack(
-                      children: [
-                        Image.network(
-                          b.carePhotoUrls[i],
-                          width: 75,
-                          height: 75,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Stack(
+                        children: [
+                          Image.network(
+                            b.carePhotoUrls[i],
                             width: 75,
                             height: 75,
-                            color: Colors.grey.shade200,
-                            child: const Icon(Icons.photo_camera_back_rounded),
-                          ),
-                        ),
-                        Positioned(
-                          right: 4,
-                          bottom: 4,
-                          child: Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.6),
-                              shape: BoxShape.circle,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Container(
+                              width: 75,
+                              height: 75,
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.photo_camera_back_rounded),
                             ),
-                            child: const Icon(Icons.zoom_in_rounded, size: 14, color: Colors.white),
                           ),
-                        ),
-                      ],
+                          Positioned(
+                            right: 4,
+                            bottom: 4,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.zoom_in_rounded, size: 14, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -2102,27 +2187,47 @@ class _BookingsScreenState extends State<BookingsScreen>
           ],
           if (!isClient && isActiveTab) ...[
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showEditCareNotesDialog(context, b, state),
-                    icon: const Icon(Icons.edit_note_rounded, size: 18),
-                    label: Text(
-                      b.careNotes.isEmpty ? 'Añadir nota del día' : 'Editar nota',
-                      style: const TextStyle(fontSize: 12),
-                    ),
+            Builder(
+              builder: (context) {
+                final stackJournalBtns =
+                    context.watch<ConfigNotifier>().seniorMode ||
+                        MediaQuery.textScalerOf(context).scale(1) > 1.2;
+                final noteBtn = OutlinedButton.icon(
+                  onPressed: () => _showEditCareNotesDialog(context, b, state),
+                  icon: const Icon(Icons.edit_note_rounded, size: 18),
+                  label: Text(
+                    b.careNotes.isEmpty ? 'Añadir nota del día' : 'Editar nota',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12.5),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _uploadCarePhoto(context, b, state),
-                    icon: const Icon(Icons.add_a_photo_rounded, size: 16),
-                    label: const Text('Foto cuidado', style: TextStyle(fontSize: 12)),
+                );
+                final photoBtn = OutlinedButton.icon(
+                  onPressed: () => _uploadCarePhoto(context, b, state),
+                  icon: const Icon(Icons.add_a_photo_rounded, size: 16),
+                  label: const Text(
+                    'Foto cuidado',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12.5),
                   ),
-                ),
-              ],
+                );
+                if (stackJournalBtns) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      noteBtn,
+                      const SizedBox(height: 8),
+                      photoBtn,
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: noteBtn),
+                    const SizedBox(width: 8),
+                    Expanded(child: photoBtn),
+                  ],
+                );
+              },
             ),
           ],
         ],
@@ -2158,16 +2263,16 @@ class _BookingsScreenState extends State<BookingsScreen>
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
             decoration: BoxDecoration(
-              color: Colors.amber.shade50,
+              color: AppTheme.warningSurface,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.amber.shade300),
+              border: Border.all(color: AppTheme.warning.withValues(alpha: 0.35)),
             ),
             child: Text(
               'Pago en garantía pendiente de confirmación por el Administrador familiar.',
               style: TextStyle(
                 fontSize: seniorMode ? 14 : 12.5,
                 fontWeight: FontWeight.w600,
-                color: Colors.amber.shade900,
+                color: AppTheme.warning,
               ),
               textAlign: TextAlign.center,
             ),
@@ -2198,7 +2303,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                         }
                       },
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.green.shade700,
+                  backgroundColor: AppTheme.success,
                   foregroundColor: Colors.white,
                   padding: btnPad,
                   shape: RoundedRectangleBorder(
@@ -2236,8 +2341,8 @@ class _BookingsScreenState extends State<BookingsScreen>
                             builder: (_) => DisputeDialog(booking: b),
                           ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.deepOrange.shade700,
-                    side: BorderSide(color: Colors.deepOrange.shade300),
+                    foregroundColor: AppTheme.warning,
+                    side: BorderSide(color: AppTheme.warning.withValues(alpha: 0.45)),
                     padding: btnPad,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -2370,7 +2475,7 @@ class _BookingsScreenState extends State<BookingsScreen>
             },
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.amber,
-              foregroundColor: Colors.black87,
+              foregroundColor: Colors.white,
               padding: btnPad,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
@@ -2414,8 +2519,8 @@ class _BookingsScreenState extends State<BookingsScreen>
                     }
                   },
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.deepOrange.shade800,
-              side: BorderSide(color: Colors.deepOrange.shade300),
+              foregroundColor: AppTheme.warning,
+              side: BorderSide(color: AppTheme.warning.withValues(alpha: 0.45)),
               padding: btnPad,
             ),
             icon: isBusy
@@ -2438,14 +2543,14 @@ class _BookingsScreenState extends State<BookingsScreen>
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
           decoration: BoxDecoration(
-            color: Colors.amber.shade50,
+            color: AppTheme.warningSurface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.amber.shade200),
+            border: Border.all(color: AppTheme.warning.withValues(alpha: 0.35)),
           ),
           child: Row(
             children: [
-              Icon(Icons.hourglass_top_rounded,
-                  color: Colors.amber.shade800, size: 19),
+              const Icon(Icons.hourglass_top_rounded,
+                  color: AppTheme.warning, size: 19),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
@@ -2455,7 +2560,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                       'Esperando confirmación de ${b.caregiverName}',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        color: Colors.amber.shade900,
+                        color: AppTheme.warning,
                         fontSize: seniorMode ? 14.5 : 13,
                       ),
                     ),
@@ -2464,7 +2569,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                       'Tu pago queda protegido hasta que acepte.',
                       style: TextStyle(
                         fontSize: seniorMode ? 13 : 11.5,
-                        color: Colors.amber.shade900.withValues(alpha: 0.85),
+                        color: AppTheme.darkSlate,
                       ),
                     ),
                   ],
@@ -2503,54 +2608,61 @@ class _BookingsScreenState extends State<BookingsScreen>
       if (b.status == BookingStatus.completed && b.isReviewed) {
         final canRepeatBooking = context.read<AuthNotifier>().canManageFamilyPayments;
         final canSendTip = !isActiveTab && canRepeatBooking && b.tipAmount == 0;
+        final stackHistoryBtns =
+            seniorMode || MediaQuery.textScalerOf(context).scale(1) > 1.2;
+
+        final repeatBtn = OutlinedButton.icon(
+          onPressed: () => _repeatBookingNextWeek(context, b),
+          style: OutlinedButton.styleFrom(
+            padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10, horizontal: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          icon: const Icon(Icons.repeat_rounded, size: 17),
+          label: Text(
+            'Repetir',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: seniorMode ? 14.5 : 13,
+            ),
+          ),
+        );
+
+        final receiptBtn = OutlinedButton.icon(
+          onPressed: () => _showLegalReceiptDialog(context, b),
+          style: OutlinedButton.styleFrom(
+            padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10, horizontal: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          icon: const Icon(Icons.receipt_long_rounded, size: 17),
+          label: Text(
+            'Justificante',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: seniorMode ? 14.5 : 13,
+            ),
+          ),
+        );
+
         return Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                if (canRepeatBooking) ...[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _repeatBookingNextWeek(context, b),
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                      icon: const Icon(Icons.repeat_rounded, size: 17),
-                      label: Text(
-                        'Repetir',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: seniorMode ? 14.5 : 13,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
+            if (stackHistoryBtns && canRepeatBooking) ...[
+              repeatBtn,
+              const SizedBox(height: 8),
+              receiptBtn,
+            ] else
+              Row(
+                children: [
+                  if (canRepeatBooking) ...[
+                    Expanded(child: repeatBtn),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(child: receiptBtn),
                 ],
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showLegalReceiptDialog(context, b),
-                    style: OutlinedButton.styleFrom(
-                      padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    icon: const Icon(Icons.receipt_long_rounded, size: 17),
-                    label: Text(
-                      'Justificante',
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: seniorMode ? 14.5 : 13,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
             if (canSendTip) ...[
               const SizedBox(height: 8),
               SizedBox(
@@ -2565,7 +2677,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                     side: BorderSide(
                       color: AppTheme.secondaryColor.withValues(alpha: 0.55),
                     ),
-                    padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10),
+                    padding: EdgeInsets.symmetric(vertical: seniorMode ? 12 : 10, horizontal: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -2573,6 +2685,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                   icon: const Icon(Icons.volunteer_activism_rounded, size: 18),
                   label: Text(
                     'Enviar propina de agradecimiento',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: seniorMode ? 14.5 : 13,
@@ -2589,69 +2702,86 @@ class _BookingsScreenState extends State<BookingsScreen>
     }
 
     // Acciones para el cuidador
+    final stackCaregiverBtns =
+        context.watch<ConfigNotifier>().seniorMode ||
+            MediaQuery.textScalerOf(context).scale(1) > 1.2;
     if (b.status == BookingStatus.pending && !isBookingExpired(b)) {
+      final rejectBtn = OutlinedButton(
+        onPressed: isBusy
+            ? null
+            : () async {
+                final confirm = await CustomDialog.showConfirmation(
+                  context,
+                  title: 'Rechazar Solicitud',
+                  message:
+                      '¿Seguro que no puedes atender este servicio? La reserva se cancelará y los fondos se liberarán para la familia.',
+                  confirmText: 'Rechazar',
+                  isDestructive: true,
+                );
+                if (confirm == true) {
+                  await _runBookingAction(
+                    b.id,
+                    () => state.rejectBooking(b.id),
+                    successMessage: 'Solicitud rechazada.',
+                    successType: SnackBarType.info,
+                  );
+                }
+              },
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.danger,
+          side: BorderSide(color: AppTheme.danger.withValues(alpha: 0.45)),
+          padding: const EdgeInsets.symmetric(vertical: 13),
+        ),
+        child: const Text('Rechazar', textAlign: TextAlign.center),
+      );
+
+      final acceptBtn = FilledButton(
+        onPressed: isBusy
+            ? null
+            : () async {
+                HapticFeedback.mediumImpact();
+                await _runBookingAction(
+                  b.id,
+                  () => state.confirmBooking(b.id),
+                  successMessage:
+                      '✅ ¡Servicio aceptado! Recuerda registrar tu llegada.',
+                );
+              },
+        style: FilledButton.styleFrom(
+          backgroundColor: AppTheme.success,
+          padding: const EdgeInsets.symmetric(vertical: 13),
+        ),
+        child: isBusy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: Colors.white,
+                ),
+              )
+            : const Text(
+                'Aceptar',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+      );
+
+      if (stackCaregiverBtns) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            acceptBtn,
+            const SizedBox(height: 8),
+            rejectBtn,
+          ],
+        );
+      }
       return Row(
         children: [
-          Expanded(
-            child: OutlinedButton(
-              onPressed: isBusy
-                  ? null
-                  : () async {
-                      final confirm = await CustomDialog.showConfirmation(
-                        context,
-                        title: 'Rechazar Solicitud',
-                        message:
-                            '¿Seguro que no puedes atender este servicio? La reserva se cancelará y los fondos se liberarán para la familia.',
-                        confirmText: 'Rechazar',
-                        isDestructive: true,
-                      );
-                      if (confirm == true) {
-                        await _runBookingAction(
-                          b.id,
-                          () => state.rejectBooking(b.id),
-                          successMessage: 'Solicitud rechazada.',
-                          successType: SnackBarType.info,
-                        );
-                      }
-                    },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-              ),
-              child: const Text('Rechazar'),
-            ),
-          ),
+          Expanded(child: rejectBtn),
           const SizedBox(width: 12),
-          Expanded(
-            child: FilledButton(
-              onPressed: isBusy
-                  ? null
-                  : () async {
-                      HapticFeedback.mediumImpact();
-                      await _runBookingAction(
-                        b.id,
-                        () => state.confirmBooking(b.id),
-                        successMessage:
-                            '✅ ¡Servicio aceptado! Recuerda registrar tu llegada.',
-                      );
-                    },
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-              ),
-              child: isBusy
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Aceptar',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ),
+          Expanded(child: acceptBtn),
         ],
       );
     }
@@ -2676,21 +2806,24 @@ class _BookingsScreenState extends State<BookingsScreen>
                         );
                       },
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.orange.shade800,
-                  side: BorderSide(color: Colors.orange.shade400, width: 1.5),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  foregroundColor: AppTheme.warning,
+                  side: BorderSide(color: AppTheme.warning.withValues(alpha: 0.55), width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                 ),
                 icon: isBusy
-                    ? SizedBox(
+                    ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.orange.shade800,
+                          color: AppTheme.warning,
                         ),
                       )
                     : const Icon(Icons.directions_car_rounded, size: 18),
-                label: const Text('🚗 Avisar a familia: Estoy en camino'),
+                label: const Text(
+                  '🚗 Avisar a familia: Estoy en camino',
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -2710,11 +2843,12 @@ class _BookingsScreenState extends State<BookingsScreen>
                     },
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.primary,
-                padding: const EdgeInsets.symmetric(vertical: 13),
+                padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 12),
               ),
               icon: const Icon(Icons.qr_code_scanner, size: 18),
               label: const Text(
                 'Fichar Llegada (QR o PIN)',
+                textAlign: TextAlign.center,
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -2746,7 +2880,9 @@ class _BookingsScreenState extends State<BookingsScreen>
                         children: [
                           Icon(Icons.assignment_outlined, color: AppTheme.primary),
                           SizedBox(width: 8),
-                          Text('Resumen de Salida', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          Expanded(
+                            child: Text('Resumen de Salida', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          ),
                         ],
                       ),
                       content: SingleChildScrollView(
@@ -2759,18 +2895,18 @@ class _BookingsScreenState extends State<BookingsScreen>
                                 padding: const EdgeInsets.all(10),
                                 margin: const EdgeInsets.only(bottom: 12),
                                 decoration: BoxDecoration(
-                                  color: Colors.amber.shade50,
-                                  border: Border.all(color: Colors.amber.shade600),
+                                  color: AppTheme.warningSurface,
+                                  border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900, size: 20),
+                                    const Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 20),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         'Faltan $minsBefore min para terminar el horario acordado. Al salir con más de 15 min de antelación se calculará el pago únicamente por el tiempo real trabajado.',
-                                        style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontWeight: FontWeight.w600),
+                                        style: const TextStyle(fontSize: 12, color: AppTheme.warning, fontWeight: FontWeight.w600),
                                       ),
                                     ),
                                   ],
@@ -2803,9 +2939,9 @@ class _BookingsScreenState extends State<BookingsScreen>
                   }
                 },
           style: FilledButton.styleFrom(
-            backgroundColor: Colors.green.shade700,
+            backgroundColor: AppTheme.success,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 13),
+            padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 12),
           ),
           icon: isBusy
               ? const SizedBox(
@@ -2819,6 +2955,7 @@ class _BookingsScreenState extends State<BookingsScreen>
               : const Icon(Icons.check_circle_outline_rounded, size: 18),
           label: const Text(
             '🏁 Finalizar Servicio y Salir',
+            textAlign: TextAlign.center,
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
         ),
@@ -2833,12 +2970,76 @@ class _BookingsScreenState extends State<BookingsScreen>
     if (!isClient && b.disputeEscalated != true) {
       final double proposedRefund = b.disputeAmount ?? 0.0;
       final double estimatedNet = b.estimateNetAfterDispute(proposedRefund);
+      final stackDisputeBtns =
+          context.watch<ConfigNotifier>().seniorMode ||
+              MediaQuery.textScalerOf(context).scale(1) > 1.2;
+
+      final rejectBtn = OutlinedButton(
+        onPressed: isBusy
+            ? null
+            : () async {
+                bool? confirm = await CustomDialog.showConfirmation(
+                  context,
+                  title: 'Rechazar Propuesta',
+                  message:
+                      'Si rechazas, el caso se escalará al equipo de Administración para su arbitraje. ¿Continuar?',
+                  confirmText: 'Escalar',
+                  isDestructive: true,
+                );
+                if (confirm == true) {
+                  await _runBookingAction(
+                    b.id,
+                    () => state.escalateDispute(b.id),
+                    successMessage: 'Disputa escalada a Administración.',
+                    successType: SnackBarType.info,
+                  );
+                }
+              },
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.danger,
+          side: BorderSide(color: AppTheme.danger.withValues(alpha: 0.45)),
+        ),
+        child: const Text('Rechazar (Escalar)', textAlign: TextAlign.center),
+      );
+
+      final acceptBtn = FilledButton(
+        onPressed: isBusy
+            ? null
+            : () async {
+                bool? confirm = await CustomDialog.showConfirmation(
+                  context,
+                  title: 'Aceptar Propuesta',
+                  message:
+                      'Al aceptar, se aplicarán los pagos acordados y la reserva quedará resuelta definitivamente. ¿Continuar?',
+                  confirmText: 'Aceptar',
+                );
+                if (confirm == true) {
+                  await _runBookingAction(
+                    b.id,
+                    () => state.acceptDisputeProposal(b.id),
+                    successMessage: 'Propuesta aceptada, pago en proceso.',
+                  );
+                }
+              },
+        style: FilledButton.styleFrom(backgroundColor: AppTheme.success),
+        child: isBusy
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Text('Aceptar Propuesta', textAlign: TextAlign.center),
+      );
+
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.1),
+          color: AppTheme.warningSurface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.shade300),
+          border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2846,78 +3047,29 @@ class _BookingsScreenState extends State<BookingsScreen>
             Text(
               'El cliente ha propuesto un reembolso de ${proposedRefund.toStringAsFixed(2)} €.\nTu ingreso neto estimado restante será de ${estimatedNet.toStringAsFixed(2)} €.',
               style: const TextStyle(
-                color: Colors.deepOrange,
-                fontWeight: FontWeight.w600,
+                color: AppTheme.warning,
+                fontWeight: FontWeight.w700,
                 fontSize: 12.5,
               ),
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: isBusy
-                        ? null
-                        : () async {
-                            bool? confirm = await CustomDialog.showConfirmation(
-                              context,
-                              title: 'Rechazar Propuesta',
-                              message:
-                                  'Si rechazas, el caso se escalará al equipo de Administración para su arbitraje. ¿Continuar?',
-                              confirmText: 'Escalar',
-                              isDestructive: true,
-                            );
-                            if (confirm == true) {
-                              await _runBookingAction(
-                                b.id,
-                                () => state.escalateDispute(b.id),
-                                successMessage:
-                                    'Disputa escalada a Administración.',
-                                successType: SnackBarType.info,
-                              );
-                            }
-                          },
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                    child: const Text('Rechazar (Escalar)'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: isBusy
-                        ? null
-                        : () async {
-                            bool? confirm = await CustomDialog.showConfirmation(
-                              context,
-                              title: 'Aceptar Propuesta',
-                              message:
-                                  'Al aceptar, se aplicarán los pagos acordados y la reserva quedará resuelta definitivamente. ¿Continuar?',
-                              confirmText: 'Aceptar',
-                            );
-                            if (confirm == true) {
-                              await _runBookingAction(
-                                b.id,
-                                () => state.acceptDisputeProposal(b.id),
-                                successMessage:
-                                    'Propuesta aceptada, pago en proceso.',
-                              );
-                            }
-                          },
-                    style: FilledButton.styleFrom(backgroundColor: Colors.green),
-                    child: isBusy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text('Aceptar Propuesta'),
-                  ),
-                ),
-              ],
-            ),
+            if (stackDisputeBtns)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  acceptBtn,
+                  const SizedBox(height: 8),
+                  rejectBtn,
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Expanded(child: rejectBtn),
+                  const SizedBox(width: 8),
+                  Expanded(child: acceptBtn),
+                ],
+              ),
           ],
         ),
       );
@@ -2928,13 +3080,13 @@ class _BookingsScreenState extends State<BookingsScreen>
         padding: const EdgeInsets.all(12),
         width: double.infinity,
         decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.1),
+          color: AppTheme.warningSurface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.shade300),
+          border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
         ),
         child: Text(
           'Has propuesto un reembolso de ${b.disputeAmount?.toStringAsFixed(2) ?? "0.00"} €.\nEsperando respuesta del cuidador (máx 24h).',
-          style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600, fontSize: 12.5),
+          style: const TextStyle(color: AppTheme.warning, fontWeight: FontWeight.w700, fontSize: 12.5),
           textAlign: TextAlign.center,
         ),
       );
@@ -2944,13 +3096,13 @@ class _BookingsScreenState extends State<BookingsScreen>
       padding: const EdgeInsets.all(12),
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
+        color: AppTheme.dangerSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.shade300),
+        border: Border.all(color: AppTheme.danger.withValues(alpha: 0.4)),
       ),
       child: const Text(
         'Disputa escalada al equipo de Administración. Te contactaremos pronto.',
-        style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 12.5),
+        style: TextStyle(color: AppTheme.danger, fontWeight: FontWeight.w700, fontSize: 12.5),
         textAlign: TextAlign.center,
       ),
     );
@@ -2960,27 +3112,29 @@ class _BookingsScreenState extends State<BookingsScreen>
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.red.shade50,
+        color: AppTheme.dangerSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.shade200),
+        border: Border.all(color: AppTheme.danger.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              Icon(Icons.person_off_outlined, size: 18, color: Colors.red.shade800),
-              const SizedBox(width: 6),
-              Text(
-                'Incomparecencia / Sin Check-in',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red.shade900),
+              Icon(Icons.person_off_outlined, size: 18, color: AppTheme.danger),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Incomparecencia / Sin Check-in',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.danger),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             'El cuidador no registró su llegada presencial. Tu importe (${b.totalPaid.toStringAsFixed(2)} €) está asegurado y el reembolso total se tramita automáticamente.',
-            style: TextStyle(fontSize: 12, color: Colors.red.shade900, height: 1.3),
+            style: const TextStyle(fontSize: 12, color: AppTheme.darkSlate, height: 1.3),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -2988,11 +3142,15 @@ class _BookingsScreenState extends State<BookingsScreen>
             child: OutlinedButton.icon(
               onPressed: () => _findUrgentSubstitute(context),
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red.shade900,
-                side: BorderSide(color: Colors.red.shade300),
+                foregroundColor: AppTheme.danger,
+                side: BorderSide(color: AppTheme.danger.withValues(alpha: 0.45)),
               ),
               icon: const Icon(Icons.flash_on_rounded, size: 16),
-              label: const Text('🚨 Buscar un cuidador de sustitución hoy', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              label: const Text(
+                '🚨 Buscar un cuidador de sustitución hoy',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
             ),
           ),
         ],
@@ -3121,6 +3279,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                           data: qrData,
                           version: QrVersions.auto,
                           size: 128.0,
+                          semanticsLabel: 'Código QR de validación de llegada',
                         );
                       },
                     ),
@@ -3323,8 +3482,8 @@ class _BookingsScreenState extends State<BookingsScreen>
                 ),
               if (canEscrowRelease) ...[
                 ListTile(
-                  leading: const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
-                  title: const Text('Confirmar servicio y liberar pago', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Colors.green)),
+                  leading: const Icon(Icons.check_circle_outline_rounded, color: AppTheme.success),
+                  title: const Text('Confirmar servicio y liberar pago', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.success)),
                   subtitle: const Text('Confirmar que todo fue bien sin esperar las 24h'),
                   onTap: () async {
                     Navigator.pop(ctx);
@@ -3345,8 +3504,8 @@ class _BookingsScreenState extends State<BookingsScreen>
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.warning_amber_rounded, color: Colors.deepOrange),
-                  title: const Text('Informar de un problema', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.deepOrange)),
+                  leading: const Icon(Icons.warning_amber_rounded, color: AppTheme.warning),
+                  title: const Text('Informar de un problema', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.warning)),
                   subtitle: const Text('Detener el pago automático y solicitar revisión'),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -3359,8 +3518,8 @@ class _BookingsScreenState extends State<BookingsScreen>
                       b.status == BookingStatus.cancelledLate ||
                       (b.status == BookingStatus.pending && isBookingExpired(b))))
                 ListTile(
-                  leading: const Icon(Icons.flash_on_rounded, color: Colors.orange),
-                  title: const Text('Buscar cuidador sustituto urgente', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.orange)),
+                  leading: const Icon(Icons.flash_on_rounded, color: AppTheme.warning),
+                  title: const Text('Buscar cuidador sustituto urgente', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.warning)),
                   subtitle: const Text('Encuentra profesionales disponibles hoy cerca de tu casa'),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -3368,8 +3527,8 @@ class _BookingsScreenState extends State<BookingsScreen>
                   },
                 ),
               ListTile(
-                leading: const Icon(Icons.sos_rounded, color: Colors.red),
-                title: const Text('Contacto de Emergencia / SOS', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.red)),
+                leading: const Icon(Icons.sos_rounded, color: AppTheme.danger),
+                title: const Text('Contacto de Emergencia / SOS', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.danger)),
                 subtitle: const Text('Llamada rápida al 112 o contacto directo'),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -3379,8 +3538,8 @@ class _BookingsScreenState extends State<BookingsScreen>
               if (canDiscard) ...[
                 const Divider(height: 12),
                 ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
-                  title: const Text('Descartar intento de reserva', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.red)),
+                  leading: const Icon(Icons.delete_outline_rounded, color: AppTheme.danger),
+                  title: const Text('Descartar intento de reserva', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.danger)),
                   subtitle: const Text('Libera el horario si no vas a completar el pago'),
                   onTap: () async {
                     Navigator.pop(ctx);
@@ -3406,8 +3565,8 @@ class _BookingsScreenState extends State<BookingsScreen>
               if (canCancel) ...[
                 const Divider(height: 12),
                 ListTile(
-                  leading: const Icon(Icons.cancel_outlined, color: Colors.red),
-                  title: const Text('Cancelar Reserva', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Colors.red)),
+                  leading: const Icon(Icons.cancel_outlined, color: AppTheme.danger),
+                  title: const Text('Cancelar Reserva', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.danger)),
                   subtitle: const Text('Reembolso gratuito si faltan más de 24h'),
                   onTap: () async {
                     Navigator.pop(ctx);
@@ -3669,11 +3828,12 @@ class _BookingsScreenState extends State<BookingsScreen>
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -3683,11 +3843,11 @@ class _BookingsScreenState extends State<BookingsScreen>
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.dangerSurface,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.sos_rounded, color: Colors.red.shade700, size: 26),
+                    child: const Icon(Icons.sos_rounded, color: AppTheme.danger, size: 26),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -3744,12 +3904,15 @@ class _BookingsScreenState extends State<BookingsScreen>
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade700,
+                    backgroundColor: AppTheme.danger,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                   ),
                   icon: const Icon(Icons.local_hospital_rounded),
-                  label: const Text('Llamar al 112 (Emergencias Sanitarias)'),
+                  label: const Text(
+                    'Llamar al 112 (Emergencias Sanitarias)',
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
@@ -3777,7 +3940,10 @@ class _BookingsScreenState extends State<BookingsScreen>
                       );
                     },
                     icon: const Icon(Icons.chat_rounded),
-                    label: Text('Escribir por chat a ${b.caregiverName}'),
+                    label: Text(
+                      'Escribir por chat a ${b.caregiverName}',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 )
               else if (clientProfile != null && clientProfile.phone.isNotEmpty)
@@ -3791,7 +3957,10 @@ class _BookingsScreenState extends State<BookingsScreen>
                       }
                     },
                     icon: const Icon(Icons.phone_in_talk_rounded),
-                    label: Text('Llamar a la familia (${clientProfile.phone})'),
+                    label: Text(
+                      'Llamar a la familia (${clientProfile.phone})',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
             ],
@@ -3879,11 +4048,12 @@ class _BookingsScreenState extends State<BookingsScreen>
     HapticFeedback.mediumImpact();
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -3958,10 +4128,14 @@ class _BookingsScreenState extends State<BookingsScreen>
                     _executeRepeatBooking(context, b);
                   },
                   icon: const Icon(Icons.calendar_today_rounded, size: 18),
-                  label: Text('Repetir la próxima semana con ${b.caregiverName}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  label: Text(
+                    'Repetir la próxima semana con ${b.caregiverName}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
@@ -4083,7 +4257,7 @@ class _BookingsScreenState extends State<BookingsScreen>
                     checkmarkColor: AppTheme.secondaryColor,
                     labelStyle: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: isSelected ? AppTheme.secondaryColor : AppTheme.darkSlate,
+                      color: isSelected ? AppTheme.secondarySenior : AppTheme.darkSlate,
                     ),
                     onSelected: (_) => setDialogState(() => selectedTip = amount),
                   );
@@ -4091,6 +4265,7 @@ class _BookingsScreenState extends State<BookingsScreen>
               ),
             ],
           ),
+          actionsOverflowButtonSpacing: 8,
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
@@ -4126,9 +4301,10 @@ class _BookingsScreenState extends State<BookingsScreen>
     HapticFeedback.mediumImpact();
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -4138,11 +4314,11 @@ class _BookingsScreenState extends State<BookingsScreen>
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.dangerSurface,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.bolt_rounded, color: Colors.red.shade700, size: 28),
+                    child: const Icon(Icons.bolt_rounded, color: AppTheme.danger, size: 28),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -4185,10 +4361,14 @@ class _BookingsScreenState extends State<BookingsScreen>
                     );
                   },
                   icon: const Icon(Icons.near_me_rounded),
-                  label: const Text('Ver Cuidadores Cercanos Disponibles Hoy', style: TextStyle(fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Ver Cuidadores Cercanos Disponibles Hoy',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
@@ -4207,9 +4387,13 @@ class _BookingsScreenState extends State<BookingsScreen>
                     );
                   },
                   icon: const Icon(Icons.add_task_rounded),
-                  label: const Text('Publicar Oferta Urgente en el Tablón', style: TextStyle(fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Publicar Oferta Urgente en el Tablón',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
@@ -4248,6 +4432,7 @@ class _BookingsScreenState extends State<BookingsScreen>
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
+          actionsOverflowButtonSpacing: 8,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: const Row(
             children: [
@@ -4459,29 +4644,43 @@ class _BookingsScreenState extends State<BookingsScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Row(
-                            children: [
-                              Text('🧲', style: TextStyle(fontSize: 18)),
-                              SizedBox(width: 6),
-                              Text('SENICARE · HOJA DE TURNO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.darkSlate)),
-                            ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppTheme.borderSubtle),
+                      SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ExcludeSemantics(
+                                  child: Text('🧲', style: TextStyle(fontSize: 18)),
+                                ),
+                                SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    'SENICARE · HOJA DE TURNO',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.darkSlate),
+                                  ),
+                                ),
+                              ],
                             ),
-                            child: Text(
-                              _formatDay(b.day),
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: AppTheme.primary),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppTheme.borderSubtle),
+                              ),
+                              child: Text(
+                                _formatDay(b.day),
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: AppTheme.primary),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       const Divider(height: 20),
                       Text('📍 Domicilio: $home', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
@@ -4498,18 +4697,18 @@ class _BookingsScreenState extends State<BookingsScreen>
                         ),
                         child: Column(
                           children: [
-                            const Text('🔑 CÓDIGO PIN DE ENTRADA', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                            const Text('🔑 CÓDIGO PIN DE ENTRADA', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppTheme.primary)),
                             const SizedBox(height: 4),
                             Text(
                               pinText,
                               style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 8, color: AppTheme.primary),
                             ),
-                            const Text('Dile estos números al cuidador cuando llegue a casa', style: TextStyle(fontSize: 11, color: AppTheme.slateMuted)),
+                            const Text('Dile estos números al cuidador cuando llegue a casa', textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: AppTheme.slateMuted)),
                           ],
                         ),
                       ),
                       const SizedBox(height: 12),
-                      const Text('🚨 TELÉFONOS DE CONTACTO:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.red)),
+                      const Text('🚨 TELÉFONOS DE CONTACTO:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.danger)),
                       const SizedBox(height: 2),
                       const Text('• 112 (Emergencias Médicas / Sanitarias)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
                       Text('• Familia Directa: $phone', style: const TextStyle(fontSize: 12.5)),
@@ -4529,65 +4728,83 @@ class _BookingsScreenState extends State<BookingsScreen>
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          HapticFeedback.selectionClick();
+                Builder(
+                  builder: (ctx) {
+                    final stackFridgeBtns =
+                        context.read<ConfigNotifier>().seniorMode ||
+                            MediaQuery.textScalerOf(ctx).scale(1) > 1.2;
+
+                    final copyBtn = OutlinedButton.icon(
+                      onPressed: () async {
+                        HapticFeedback.selectionClick();
+                        await Clipboard.setData(ClipboardData(text: fridgeSheetText));
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          CustomSnackBar.show(
+                            context,
+                            message: '📋 Ficha de la nevera copiada para imprimir o pegar.',
+                            type: SnackBarType.success,
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 16),
+                      label: const Text('Copiar Ficha', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    );
+
+                    final whatsappBtn = FilledButton.icon(
+                      onPressed: () async {
+                        HapticFeedback.mediumImpact();
+                        final encoded = Uri.encodeComponent(fridgeSheetText);
+                        final whatsappUrl = Uri.parse('whatsapp://send?text=$encoded');
+                        final webUrl = Uri.parse('https://wa.me/?text=$encoded');
+                        if (await canLaunchUrl(whatsappUrl)) {
+                          await launchUrl(whatsappUrl);
+                        } else if (await canLaunchUrl(webUrl)) {
+                          await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+                        } else {
                           await Clipboard.setData(ClipboardData(text: fridgeSheetText));
                           if (ctx.mounted) Navigator.pop(ctx);
                           if (context.mounted) {
                             CustomSnackBar.show(
                               context,
-                              message: '📋 Ficha de la nevera copiada para imprimir o pegar.',
-                              type: SnackBarType.success,
+                              message: 'Copiado al portapapeles para WhatsApp.',
+                              type: SnackBarType.info,
                             );
                           }
-                        },
-                        icon: const Icon(Icons.copy_rounded, size: 16),
-                        label: const Text('Copiar Ficha', style: TextStyle(fontSize: 12.5)),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
+                        }
+                      },
+                      icon: const Icon(Icons.send_rounded, size: 16),
+                      label: const Text('WhatsApp', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF075E54),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () async {
-                          HapticFeedback.mediumImpact();
-                          final encoded = Uri.encodeComponent(fridgeSheetText);
-                          final whatsappUrl = Uri.parse('whatsapp://send?text=$encoded');
-                          final webUrl = Uri.parse('https://wa.me/?text=$encoded');
-                          if (await canLaunchUrl(whatsappUrl)) {
-                            await launchUrl(whatsappUrl);
-                          } else if (await canLaunchUrl(webUrl)) {
-                            await launchUrl(webUrl, mode: LaunchMode.externalApplication);
-                          } else {
-                            await Clipboard.setData(ClipboardData(text: fridgeSheetText));
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            if (context.mounted) {
-                              CustomSnackBar.show(
-                                context,
-                                message: 'Copiado al portapapeles para WhatsApp.',
-                                type: SnackBarType.info,
-                              );
-                            }
-                          }
-                        },
-                        icon: const Icon(Icons.send_rounded, size: 16),
-                        label: const Text('WhatsApp', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF25D366),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+
+                    if (stackFridgeBtns) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          whatsappBtn,
+                          const SizedBox(height: 8),
+                          copyBtn,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: copyBtn),
+                        const SizedBox(width: 10),
+                        Expanded(child: whatsappBtn),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -4724,20 +4941,25 @@ class _BookingCheckOutFormState extends State<_BookingCheckOutForm> {
           },
         ),
         const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: _submit,
-              icon: const Icon(Icons.check_circle_rounded, size: 18),
-              label: const Text('Confirmar Salida'),
-            ),
-          ],
+        SizedBox(
+          width: double.infinity,
+          child: OverflowBar(
+            alignment: MainAxisAlignment.end,
+            overflowAlignment: OverflowBarAlignment.end,
+            spacing: 8,
+            overflowSpacing: 8,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton.icon(
+                onPressed: _submit,
+                icon: const Icon(Icons.check_circle_rounded, size: 18),
+                label: const Text('Confirmar Salida'),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -4784,14 +5006,17 @@ class _BookingTextPromptDialogState extends State<_BookingTextPromptDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      actionsOverflowButtonSpacing: 8,
       title: Text(widget.title),
-      content: TextField(
-        controller: _ctrl,
-        maxLines: widget.maxLines,
-        autofocus: true,
-        decoration: InputDecoration(
-          hintText: widget.hintText,
-          border: const OutlineInputBorder(),
+      content: SingleChildScrollView(
+        child: TextField(
+          controller: _ctrl,
+          maxLines: widget.maxLines,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: widget.hintText,
+            border: const OutlineInputBorder(),
+          ),
         ),
       ),
       actions: [

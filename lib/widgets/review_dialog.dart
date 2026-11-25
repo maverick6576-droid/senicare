@@ -268,6 +268,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
           ],
         ),
       ),
+      actionsOverflowButtonSpacing: 8,
       actions: [
         TextButton(
           onPressed: _isSubmitting ? null : () => Navigator.pop(context),

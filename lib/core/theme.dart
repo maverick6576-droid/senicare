@@ -70,6 +70,7 @@ class AppTheme {
 
     return ThemeData(
       useMaterial3: true,
+      materialTapTargetSize: MaterialTapTargetSize.padded,
       splashFactory: InkRipple.splashFactory,
       colorScheme: ColorScheme.fromSeed(
         seedColor: activePrimary,
@@ -127,6 +128,7 @@ class AppTheme {
         backgroundColor: backgroundNeutral,
         selectedColor: activePrimary.withValues(alpha: 0.14),
         checkmarkColor: activePrimary,
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: seniorMode ? 10 : 8),
         side: const BorderSide(color: borderSubtle),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         labelStyle: bodyFont.copyWith(fontSize: seniorMode ? 16 : 13, fontWeight: FontWeight.w600, color: darkSlate),
@@ -135,8 +137,14 @@ class AppTheme {
         filled: true,
         fillColor: Colors.white,
         contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: seniorMode ? 20 : 16),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: borderSubtle, width: 1.2)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: borderSubtle, width: 1.2)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: seniorMode ? slateMuted : hintText, width: seniorMode ? 1.5 : 1.2),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: seniorMode ? slateMuted : hintText, width: seniorMode ? 1.5 : 1.2),
+        ),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: activePrimary, width: 2.0)),
         labelStyle: bodyFont.copyWith(fontSize: seniorMode ? 17 : 14, color: slateMuted, fontWeight: FontWeight.w500),
         hintStyle: bodyFont.copyWith(color: seniorMode ? slateMuted : hintText),
