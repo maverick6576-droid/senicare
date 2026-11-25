@@ -30,6 +30,9 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
 
+  # Force MLKitBarcodeScanning to compatible version for google_mlkit_commons
+  pod 'GoogleMLKit/BarcodeScanning', '7.0.0'
+
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
