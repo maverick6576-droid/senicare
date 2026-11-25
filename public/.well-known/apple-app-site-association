@@ -3,7 +3,7 @@
     "details": [
       {
         "appIDs": [
-          "TEAM_ID_APPLE.com.senicare.app"
+          "QP85T7F3VN.com.senicare.app"
         ],
         "components": [
           { "/": "/tracking/*" },
