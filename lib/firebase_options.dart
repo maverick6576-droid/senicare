@@ -13,15 +13,20 @@ class DefaultFirebaseOptions {
   );
   static const String _iosClientId = String.fromEnvironment('FIREBASE_IOS_CLIENT_ID');
 
-  static FirebaseOptions? get _configuredIosOptions {
-    if (_iosApiKey.isEmpty || _iosAppId.isEmpty) return null;
+  static FirebaseOptions get _configuredIosOptions {
     return FirebaseOptions(
-      apiKey: _iosApiKey,
-      appId: _iosAppId,
+      apiKey: _iosApiKey.isNotEmpty
+          ? _iosApiKey
+          : 'AIzaSyAncD22pkv2mW9pLm2p_XVMJXWAz3Bp3DE',
+      appId: _iosAppId.isNotEmpty
+          ? _iosAppId
+          : '1:834223742998:ios:0ca4dbb2425730f6711537',
       messagingSenderId: '834223742998',
       projectId: 'senicare-3342d',
       storageBucket: 'senicare-3342d.firebasestorage.app',
-      iosClientId: _iosClientId.isNotEmpty ? _iosClientId : null,
+      iosClientId: _iosClientId.isNotEmpty
+          ? _iosClientId
+          : '834223742998-pkf94sjith52sj98bu433luvjg0mute4.apps.googleusercontent.com',
       iosBundleId: _iosBundleId,
     );
   }
@@ -34,12 +39,7 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        final iosOptions = _configuredIosOptions;
-        if (iosOptions != null) return iosOptions;
-        throw UnsupportedError(
-          'Faltan credenciales Firebase para iOS: añade ios/Runner/GoogleService-Info.plist '
-          'o compila con --dart-define=FIREBASE_IOS_API_KEY y FIREBASE_IOS_APP_ID.',
-        );
+        return _configuredIosOptions;
       case TargetPlatform.macOS:
       case TargetPlatform.windows:
       case TargetPlatform.linux:
@@ -63,7 +63,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyC_eC5MRYuwz4qVMnbozWt9UYDQvzOkG_8',
-    appId: '1:834223742998:android:b53f8169c429d5d7711537',
+    appId: '1:834223742998:android:ed76a7a6786f7f51711537',
     messagingSenderId: '834223742998',
     projectId: 'senicare-3342d',
     storageBucket: 'senicare-3342d.firebasestorage.app',

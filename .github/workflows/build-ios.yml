@@ -35,7 +35,7 @@ jobs:
           GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
         if: env.GOOGLE_SERVICE_INFO_PLIST_BASE64 != ''
         run: |
-          echo "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 --decode > ios/Runner/GoogleService-Info.plist
+          echo "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | tr -d '\r\n ' | base64 -D > ios/Runner/GoogleService-Info.plist
           CLIENT_ID=$(/usr/libexec/PlistBuddy -c "Print :CLIENT_ID" ios/Runner/GoogleService-Info.plist)
           REVERSED_CLIENT_ID=$(/usr/libexec/PlistBuddy -c "Print :REVERSED_CLIENT_ID" ios/Runner/GoogleService-Info.plist)
           /usr/libexec/PlistBuddy -c "Set :GIDClientID $CLIENT_ID" ios/Runner/Info.plist
@@ -74,14 +74,19 @@ jobs:
           fi
 
           security import $RUNNER_TEMP/dist.p12 -P "$P12_PASS" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$IOS_PROVISIONING_PROFILE_BASE64" | tr -d '\r\n ' | base64 -D > ~/Library/MobileDevice/Provisioning\ Profiles/senicare.mobileprovision
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | tr -d '\r\n ' | base64 -D > $RUNNER_TEMP/senicare.mobileprovision
+          security cms -D -i $RUNNER_TEMP/senicare.mobileprovision > $RUNNER_TEMP/profile.plist
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" $RUNNER_TEMP/profile.plist)
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" $RUNNER_TEMP/profile.plist)
+          cp $RUNNER_TEMP/senicare.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+          cp $RUNNER_TEMP/senicare.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/senicare.mobileprovision
 
           /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" ios/ExportOptions.plist
-          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.senicare.app $IOS_PROVISIONING_PROFILE_NAME" ios/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.senicare.app $PROFILE_NAME" ios/ExportOptions.plist
 
       - name: Get Flutter Dependencies & CocoaPods
         run: |
@@ -90,8 +95,9 @@ jobs:
 
       - name: Build Signed iOS IPA
         env:
+          IOS_DIST_CERT_PEM: ${{ secrets.IOS_DIST_CERT_PEM }}
           IOS_DIST_CERT_BASE64: ${{ secrets.IOS_DIST_CERT_BASE64 }}
-        if: env.IOS_DIST_CERT_BASE64 != ''
+        if: env.IOS_DIST_CERT_PEM != '' || env.IOS_DIST_CERT_BASE64 != ''
         run: |
           flutter build ipa --release \
             --obfuscate --split-debug-info=build/symbols/ios \
@@ -102,8 +108,9 @@ jobs:
 
       - name: Upload iOS IPA & Obfuscation Debug Symbols
         env:
+          IOS_DIST_CERT_PEM: ${{ secrets.IOS_DIST_CERT_PEM }}
           IOS_DIST_CERT_BASE64: ${{ secrets.IOS_DIST_CERT_BASE64 }}
-        if: env.IOS_DIST_CERT_BASE64 != ''
+        if: env.IOS_DIST_CERT_PEM != '' || env.IOS_DIST_CERT_BASE64 != ''
         uses: actions/upload-artifact@v4
         with:
           name: ios-app-release

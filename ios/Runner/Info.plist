@@ -99,7 +99,7 @@
 		</array>
 		<!-- Google Sign-In OAuth client ID (populated in CI from GoogleService-Info.plist via PlistBuddy) -->
 		<key>GIDClientID</key>
-		<string>$(GOOGLE_IOS_CLIENT_ID)</string>
+		<string>834223742998-pkf94sjith52sj98bu433luvjg0mute4.apps.googleusercontent.com</string>
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
@@ -120,7 +120,7 @@
 				<string>google-signin</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
-					<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+					<string>com.googleusercontent.apps.834223742998-pkf94sjith52sj98bu433luvjg0mute4</string>
 				</array>
 			</dict>
 		</array>

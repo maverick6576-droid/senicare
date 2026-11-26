@@ -56,7 +56,7 @@ dependencies:
   google_fonts: ^8.1.0
   lottie: ^3.3.3
   qr_flutter: ^4.1.0
-  mobile_scanner: ^5.2.3
+  mobile_scanner: 7.5.0
   firebase_storage: ^12.4.10
   camera: ^0.12.0+1
   base32: ^2.2.0
